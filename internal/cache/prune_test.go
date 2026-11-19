@@ -255,6 +255,38 @@ func TestPrune_CancelledSweepAccountsForUnsweptTemps(t *testing.T) {
 	}
 }
 
+// TestPrune_CancelledScanCreditsScannedEntries pins solvent-streets-8hi1: a
+// cancel that lands in the SCAN (stat-ing a large cache dir) used to discard
+// every entry grouped so far, so runPrune printed "0 B remaining" for a cache
+// still entirely on disk. The files already scanned must be credited.
+func TestPrune_CancelledScanCreditsScannedEntries(t *testing.T) {
+	dir := t.TempDir()
+	const entries = 5
+	for i := range entries {
+		writeEntry(t, dir, key(i+1), 100, 48*time.Hour) // 2 files x 100 B each
+	}
+	leftoverTempFile(t, dir, "zz-"+key(9)+bodyExt, 2*orphanGrace)
+
+	// ReadDir sorts by name, so four probes scan exactly the pairs of key(1)
+	// and key(2) before the cancel lands on the fifth file.
+	ctx := &cancelAfterNProbes{Context: context.Background(), after: 4}
+
+	report, err := Prune(ctx, dir, PruneOptions{MaxAge: 24 * time.Hour})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Prune err = %v, want it to wrap context.Canceled", err)
+	}
+	if report.EntriesRemoved != 0 || report.BytesReclaimed != 0 {
+		t.Errorf("removed %d entries / %d B; a scan-cancelled prune must remove nothing",
+			report.EntriesRemoved, report.BytesReclaimed)
+	}
+	if report.EntriesScanned != 2 {
+		t.Errorf("EntriesScanned = %d, want 2 (the pairs scanned before the cancel)", report.EntriesScanned)
+	}
+	if report.BytesRemaining != 400 {
+		t.Errorf("BytesRemaining = %d, want 400: the scanned entries are still on disk", report.BytesRemaining)
+	}
+}
+
 // TestPrune_MaxAgeZeroDisablesAgePruning pins the documented escape hatch.
 func TestPrune_MaxAgeZeroDisablesAgePruning(t *testing.T) {
 	dir := t.TempDir()

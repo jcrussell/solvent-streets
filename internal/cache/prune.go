@@ -159,11 +159,24 @@ func (e *cacheEntry) complete() bool { return (e.hasBody && e.hasMeta) || e.hasM
 // second Ctrl-C kills the process outright — possibly between a temp write
 // and its rename; the next prune sweeps that residue. A cancelled sweep returns a context.Canceled in
 // the joined error alongside the partial report — entries it never reached are
-// credited to BytesRemaining, so the printed numbers stay honest.
+// credited to BytesRemaining, so the printed numbers stay honest. A cancel
+// that lands in the directory scan credits the entries scanned so far; files
+// the scan never stat-ed have no known size, so there BytesRemaining is a
+// lower bound (solvent-streets-8hi1).
 func Prune(ctx context.Context, dir string, opts PruneOptions) (*PruneReport, error) {
 	p := &pruneRun{ctx: ctx, opts: opts, report: &PruneReport{}, now: time.Now()}
 	entries, temps, err := scanCacheDir(ctx, dir, p.report)
 	if err != nil {
+		// A cancelled scan hands back what it grouped so far. Nothing was
+		// removed, so all of it survives: credit it rather than reporting
+		// an empty cache that is still on disk.
+		p.report.EntriesScanned += len(entries)
+		for _, e := range entries {
+			p.report.BytesRemaining += e.size
+		}
+		for _, tmp := range temps {
+			p.report.BytesRemaining += tmp.size
+		}
 		return p.report, err
 	}
 
@@ -361,7 +374,8 @@ type cacheScan struct {
 }
 
 // scanCacheDir reads dir one level deep and groups the recognized files by
-// cache key.
+// cache key. On cancellation it returns the partial scan alongside the ctx
+// error, so Prune can still account for what it found.
 func scanCacheDir(ctx context.Context, dir string, report *PruneReport) (map[string]*cacheEntry, []*cacheEntry, error) {
 	dirEnts, err := os.ReadDir(dir)
 	if err != nil {
@@ -377,7 +391,7 @@ func scanCacheDir(ctx context.Context, dir string, report *PruneReport) (map[str
 		if err := ctx.Err(); err != nil {
 			// A huge cache dir can take a while to stat; bail out rather than
 			// finishing a scan whose sweep is about to be abandoned anyway.
-			return nil, nil, err
+			return s.entries, s.temps, err
 		}
 		s.add(de)
 	}
