@@ -877,6 +877,70 @@ func TestOpen_ForeignFileLeftUntouched(t *testing.T) {
 	}
 }
 
+// TestOpen_RefusedHotWALLeftUntouched: a v0.4.1 database whose last writer
+// stopped before checkpointing keeps committed pages in its -wal file. Open
+// refused it on a read-write connection, and closing that connection
+// checkpointed the WAL into the main file and deleted -wal and -shm, so the
+// "untouched" file had changed on disk. The refusal must leave all three as
+// they were, with or without a -shm beside the WAL.
+func TestOpen_RefusedHotWALLeftUntouched(t *testing.T) {
+	for _, withSHM := range []bool{true, false} {
+		t.Run(fmt.Sprintf("shm=%v", withSHM), func(t *testing.T) {
+			ctx := context.Background()
+			src := filepath.Join(t.TempDir(), "pvmt.db")
+			d := openRaw(t, src)
+			d.SetMaxOpenConns(1)
+			if _, err := d.ExecContext(ctx, `PRAGMA wal_autocheckpoint = 0;
+				CREATE TABLE schema_version (version INTEGER NOT NULL);
+				INSERT INTO schema_version (version) VALUES (1), (2);
+				CREATE TABLE cities (id INTEGER PRIMARY KEY, slug TEXT, name TEXT, config_id TEXT);
+				INSERT INTO cities (slug, name, config_id) VALUES ('x', 'X', 'cfg');`); err != nil {
+				t.Fatalf("seed: %v", err)
+			}
+			// Copy the files while the writer is still open, as a crash leaves
+			// them: the committed rows exist only in the -wal.
+			dir := t.TempDir()
+			path := filepath.Join(dir, "pvmt.db")
+			companions := []string{"", "-wal"}
+			if withSHM {
+				companions = append(companions, "-shm")
+			}
+			before := map[string][]byte{}
+			for _, suffix := range companions {
+				b, err := os.ReadFile(src + suffix)
+				if err != nil {
+					t.Fatalf("read %s: %v", src+suffix, err)
+				}
+				if err := os.WriteFile(path+suffix, b, 0o644); err != nil {
+					t.Fatal(err)
+				}
+				before[suffix] = b
+			}
+			if len(before["-wal"]) == 0 {
+				t.Fatal("seed left an empty -wal; the test needs un-checkpointed frames")
+			}
+
+			root, err := Open(path)
+			if err == nil {
+				_ = root.Close()
+				t.Fatal("Open succeeded on an older-generation database; want ErrIncompatibleDatabase")
+			}
+			if !errors.Is(err, ErrIncompatibleDatabase) {
+				t.Fatalf("err = %v, want ErrIncompatibleDatabase", err)
+			}
+			for _, suffix := range []string{"", "-wal"} {
+				after, err := os.ReadFile(path + suffix)
+				if err != nil {
+					t.Fatalf("refused Open removed %s: %v", path+suffix, err)
+				}
+				if !bytes.Equal(before[suffix], after) {
+					t.Errorf("refused Open modified %s", path+suffix)
+				}
+			}
+		})
+	}
+}
+
 // TestOpen_RefusesNewerGeneration pins the downgrade direction: a database
 // stamped by a newer pvmt is refused, not reinterpreted.
 func TestOpen_RefusesNewerGeneration(t *testing.T) {

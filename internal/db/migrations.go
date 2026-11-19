@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -72,7 +74,7 @@ func checkGeneration(ctx context.Context, d *sql.DB) error {
 	if err != nil {
 		return err
 	}
-	if gen != schemaGeneration && (gen != 0 || tables != 0) {
+	if !acceptable(gen, tables) {
 		// About to refuse. Another process may be creating this database
 		// right now: it stamps the generation, then creates the tables, and
 		// the two reads above can straddle that, seeing generation 0 beside
@@ -93,19 +95,72 @@ func checkGeneration(ctx context.Context, d *sql.DB) error {
 	if gen == schemaGeneration {
 		return nil
 	}
-	if gen == 0 && tables == 0 {
+	if acceptable(gen, tables) {
 		// PRAGMA takes no bound parameters; schemaGeneration is a constant.
 		if _, err := d.ExecContext(ctx, fmt.Sprintf(`PRAGMA user_version = %d`, schemaGeneration)); err != nil {
 			return fmt.Errorf("stamp schema generation: %w", err)
 		}
 		return nil
 	}
+	return refusal(ctx, d, gen)
+}
+
+// acceptable reports whether checkGeneration takes a file of generation gen
+// holding tables tables: one stamped with schemaGeneration, or an empty one,
+// which it stamps.
+func acceptable(gen, tables int) bool {
+	return gen == schemaGeneration || (gen == 0 && tables == 0)
+}
+
+// probeGeneration reads the generation of the database at path on a
+// read-only connection and returns checkGeneration's refusal for a file it
+// would refuse, so Open can refuse it without ever opening it read-write.
+// Closing a read-write connection checkpoints a hot WAL into the main file
+// and deletes -wal and -shm; a read-only connection cannot, so the refused
+// file stays byte-identical. It returns nil when the file is missing, cannot
+// be read read-only, or would be accepted: the read-write path then decides
+// as it always has. Both reads run in one transaction, so a database another
+// process is creating (stamp, then tables) is never seen half-made.
+func probeGeneration(ctx context.Context, path string) error {
+	if path == ":memory:" {
+		return nil
+	}
+	if _, err := os.Stat(path); err != nil {
+		return nil
+	}
+	// A file: URI, so SQLite applies mode=ro. '%' and '#' are its escape and
+	// fragment characters; Open has already refused a path holding '?'.
+	uri := "file:" + strings.NewReplacer("%", "%25", "#", "%23").Replace(filepath.ToSlash(path)) +
+		"?mode=ro&_pragma=busy_timeout(5000)"
+	d, err := sql.Open("sqlite", uri)
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = d.Close() }()
+	tx, err := d.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = tx.Rollback() }()
+	gen, tables, err := readGeneration(ctx, tx)
+	if err != nil || acceptable(gen, tables) {
+		return nil
+	}
+	if err := refusal(ctx, tx, gen); errors.Is(err, ErrIncompatibleDatabase) {
+		return err
+	}
+	return nil
+}
+
+// refusal is the ErrIncompatibleDatabase for a file of generation gen that
+// checkGeneration does not accept, read through q.
+func refusal(ctx context.Context, q rowQueryer, gen int) error {
 	// Every pvmt database, of any generation, has the schema_version table.
 	// A file with tables but without it is some other program's SQLite
 	// file, and calling it "generation 0" sends the operator to re-ingest
 	// over a file that was never pvmt's (solvent-streets-cmth).
 	var hasVersions int
-	if err := d.QueryRowContext(ctx,
+	if err := q.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'schema_version'`).Scan(&hasVersions); err != nil {
 		return fmt.Errorf("inspect database: %w", err)
 	}

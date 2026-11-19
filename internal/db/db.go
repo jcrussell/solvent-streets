@@ -425,6 +425,18 @@ func Open(path string) (retStore *RootStore, retErr error) {
 		return nil, fmt.Errorf("open sqlite: db path must not contain '?': %q", path)
 	}
 
+	incompatible := func(err error) error {
+		return hint.Withf(fmt.Errorf("open %s: %w", path, err),
+			"Move %s (and any -wal/-shm files beside it) aside; pvmt creates a fresh database on the "+
+				"next run. Then re-ingest with `pvmt all ingest` and `pvmt all compute`. pvmt never "+
+				"deletes it for you. See docs/troubleshooting.md#incompatible-database.", path)
+	}
+	// Refuse an incompatible file before a read-write connection touches it
+	// (probeGeneration): closing one would checkpoint its WAL.
+	if err := probeGeneration(context.Background(), path); err != nil {
+		return nil, incompatible(err)
+	}
+
 	db, err := sql.Open("sqlite", path+dsnPragmas)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
@@ -439,10 +451,7 @@ func Open(path string) (retStore *RootStore, retErr error) {
 
 	if err := migrate(context.Background(), db); err != nil {
 		if errors.Is(err, ErrIncompatibleDatabase) {
-			return nil, hint.Withf(fmt.Errorf("open %s: %w", path, err),
-				"Move %s (and any -wal/-shm files beside it) aside; pvmt creates a fresh database on the "+
-					"next run. Then re-ingest with `pvmt all ingest` and `pvmt all compute`. pvmt never "+
-					"deletes it for you. See docs/troubleshooting.md#incompatible-database.", path)
+			return nil, incompatible(err)
 		}
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
