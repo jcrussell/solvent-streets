@@ -224,14 +224,18 @@ Export refuses, before writing anything, when a city has no snapshot (see
 `pvmt snapshots show <name>` show each city's hash in a snapshot.
 
 A snapshot is a named, immutable tag over every configured city, like a git
-tag. `pvmt snapshots create v0.5.0` freezes each city's latest compute under
+tag. `pvmt snapshots create 2026-11` freezes each city's latest compute under
 its current hash and `hex_edge_m`, all at once or not at all: it refuses the
 snapshot when any city's parts were not all computed from the features and
 boundary stored now, listing every refused city (see
 [troubleshooting](troubleshooting.md#snapshots-create-refuses-a-city)). A
 name is 1 to 64 letters, digits, `.`, `_` or `-`, starting with a letter or
-digit; `latest` is reserved. Creating a name that exists is refused: to
-replace a snapshot, `pvmt snapshots delete v0.5.0` and create it again. To
+digit; `latest` is reserved. By convention a snapshot is named for the
+month its data was cut (`2026-11`): that keeps data snapshots apart from
+pvmt's own version tags (`v0.5.0`) and sorts them in date order. A second
+cut in the same month can take a suffix (`2026-11.1`). Creating a name that
+exists is refused: to
+replace a snapshot, `pvmt snapshots delete 2026-11` and create it again. To
 roll back, delete the newest snapshot, or publish an older one with
 `pvmt export --snapshot NAME`. `pvmt snapshots diff A B` compares two
 snapshots' results city by city, and `pvmt snapshots prune --keep N` keeps

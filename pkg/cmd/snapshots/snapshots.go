@@ -30,19 +30,19 @@ at once, after checking that every part was computed from the inputs stored
 now, or freezes nothing. Export and serve publish the newest snapshot;
 --snapshot publishes another.`,
 		Example: `  # Snapshot every configured city's latest compute
-  pvmt snapshots create v0.5.0
+  pvmt snapshots create 2026-11
 
   # List snapshots, newest first
   pvmt snapshots list
 
   # Each city in one snapshot
-  pvmt snapshots show v0.5.0
+  pvmt snapshots show 2026-11
 
   # Compare two snapshots city by city
-  pvmt snapshots diff v0.5.0 v0.6.0
+  pvmt snapshots diff 2026-11 2027-02
 
   # Replace a snapshot: delete it (and the runs only it used), then create it
-  pvmt snapshots delete v0.5.0 --yes && pvmt snapshots create v0.5.0
+  pvmt snapshots delete 2026-11 --yes && pvmt snapshots create 2026-11
 
   # Keep only the 5 most recent snapshots
   pvmt snapshots prune --keep=5`,

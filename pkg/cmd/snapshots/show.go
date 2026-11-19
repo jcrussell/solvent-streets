@@ -80,13 +80,13 @@ row per city it covers, with the config hash the city was computed under,
 its hex edge, and the run filling each part ("roads#12" is run 12). Use
 --city to show one city.`,
 		Example: `  # Every city in a snapshot
-  pvmt snapshots show v0.5.0
+  pvmt snapshots show 2026-11
 
   # One city
-  pvmt --city oakland-ca snapshots show v0.5.0
+  pvmt --city oakland-ca snapshots show 2026-11
 
   # Machine-readable
-  pvmt snapshots show v0.5.0 --json city,hex_edge_m,parts`,
+  pvmt snapshots show 2026-11 --json city,hex_edge_m,parts`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.Name = args[0]
 			if runF != nil {

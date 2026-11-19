@@ -153,13 +153,13 @@ Rows are sorted by the largest relative change in combined paved area. Use
 city is in both snapshots. A hex-by-hex comparison is not offered: two
 snapshots at different hex edges have no hexes in common.`,
 		Example: `  # Compare a release with the one before it
-  pvmt snapshots diff v0.5.0 v0.6.0
+  pvmt snapshots diff 2026-11 2027-02
 
   # One city
-  pvmt --city oakland-ca snapshots diff v0.5.0 v0.6.0
+  pvmt --city oakland-ca snapshots diff 2026-11 2027-02
 
   # Every measure, machine-readable
-  pvmt snapshots diff v0.5.0 v0.6.0 --json city,status,measures`,
+  pvmt snapshots diff 2026-11 2027-02 --json city,status,measures`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.A, opts.B = args[0], args[1]
 			if runF != nil {

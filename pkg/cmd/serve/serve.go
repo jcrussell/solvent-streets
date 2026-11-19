@@ -60,7 +60,7 @@ must cover every configured city; the page's snapshot picker shows any other.`,
   pvmt serve
 
   # Serve one snapshot
-  pvmt serve --snapshot v0.5.0
+  pvmt serve --snapshot 2026-11
 
   # Serve on an alternate port
   pvmt serve --port 9000`,

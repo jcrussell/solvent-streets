@@ -70,7 +70,7 @@ exported with a warning. Deploy to GitHub Pages or any static host.`,
   pvmt export --output build --clean
 
   # Reproduce the site of one snapshot
-  pvmt export --snapshot v0.5.0 --output site-v0.5.0
+  pvmt export --snapshot 2026-11 --output site-2026-11
 
   # Emit a machine-readable manifest of files written (stdout)
   pvmt export --json

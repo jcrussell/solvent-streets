@@ -178,7 +178,7 @@ exits 1:
 ```
 oakland-ca: refused: roads re-ingested 2026-11-14 10:02 UTC after the combined, roads and fire coverage computes
   hint: pvmt --city oakland-ca all compute
-refused v0.5.0: 1 of 2 cities refused; nothing was created
+refused 2026-11: 1 of 2 cities refused; nothing was created
 ```
 
 A snapshot must be coherent, so create refuses a city when a part was

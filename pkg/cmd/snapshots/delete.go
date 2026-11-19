@@ -44,14 +44,14 @@ snapshot, so deleting that one rolls every city back to the one before.
 --city is not supported: a snapshot covers every configured city.
 
 ` + cmdutil.ConfirmHelp("delete"),
-		Example: `  # Delete snapshot v0.5.0 (prompts)
-  pvmt snapshots delete v0.5.0
+		Example: `  # Delete snapshot 2026-11 (prompts)
+  pvmt snapshots delete 2026-11
 
   # Skip the confirmation prompt
-  pvmt snapshots delete v0.5.0 --yes
+  pvmt snapshots delete 2026-11 --yes
 
   # Replace it with the current latest compute
-  pvmt snapshots delete v0.5.0 --yes && pvmt snapshots create v0.5.0`,
+  pvmt snapshots delete 2026-11 --yes && pvmt snapshots create 2026-11`,
 		Args: snapshotNameArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := rejectCity(opts.CityFlagSet, "delete"); err != nil {

@@ -101,10 +101,12 @@ with each city's hex edge and boundary. Export and serve publish the newest
 snapshot; computes only update the latest compute.
 
 A name is ` + db.SnapshotNameRule + `,
-like a git tag ("v0.5.0", "2026-11"); "latest" is reserved. A snapshot
-never changes: creating a name that exists is refused. To replace one,
-delete it and create it again; cities that were not recomputed keep their
-runs, so that is cheap.
+like a git tag; "latest" is reserved. By convention a snapshot is named
+for the month its data was cut ("2026-11"), which keeps it apart from
+pvmt's own version and sorts in date order. A snapshot never changes:
+creating a name that exists is refused. To replace one, delete it and
+create it again; cities that were not recomputed keep their runs, so that
+is cheap.
 
 Every city must be coherent, and create is all or nothing: if any city is
 refused, no snapshot is created and every refusal is listed. A city is
@@ -116,10 +118,10 @@ missing optional part (service coverage, census population) whose inputs
 are stored is a warning, not a refusal. --city is not supported: a snapshot
 covers every configured city.`,
 		Example: `  # Snapshot every configured city
-  pvmt snapshots create v0.5.0
+  pvmt snapshots create 2026-11
 
   # Machine-readable
-  pvmt snapshots create v0.5.0 --json city,status,reasons,hint`,
+  pvmt snapshots create 2026-11 --json city,status,reasons,hint`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := rejectCity(opts.CityFlagSet, "create"); err != nil {
 				return err
