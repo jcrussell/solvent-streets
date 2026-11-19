@@ -501,13 +501,14 @@
             if (!cityChanged && !snapshotChanged) {
                 selectScope(currentScope, { push: false });
             }
-            // Restore the metric. When the city changed, loadCityData has just
-            // reset hexMetrics and will honour (or fall back from) hexMetric once
-            // the new city's file arrives — so set the key directly, as the
-            // deep-link path does; selectHexMetric would see an empty map and
-            // collapse to coverage. Only a same-city entry repaints in place.
+            // Restore the metric. When the city or snapshot changed,
+            // loadCityData has just reset hexMetrics and will honour (or fall
+            // back from) hexMetric once the reloaded files arrive — so set the
+            // key directly, as the deep-link path does; selectHexMetric would
+            // see an empty map and collapse to coverage (solvent-streets-a1ud).
+            // Only an entry with the same data in view repaints in place.
             const targetMetric = s.metric || DEFAULT_METRIC;
-            if (cityChanged) hexMetric = targetMetric;
+            if (cityChanged || snapshotChanged) hexMetric = targetMetric;
             else if (targetMetric !== hexMetric) selectHexMetric(targetMetric, { push: false });
             // Restore the Financials budget and maintained network. selectCity
             // has already reset the budget for a new city; this puts the

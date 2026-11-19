@@ -83,3 +83,31 @@ test('the static export has neither picker nor badge', () => {
   assert.equal($('#snapshot-picker'), null);
   assert.equal($('#latest-compute-badge'), null);
 });
+
+// solvent-streets-a1ud: going back across a snapshot change reloads the city's
+// data, which empties the metric list; the entry's Color-by must survive that
+// reload rather than collapse to coverage while the URL keeps ?metric=.
+test('back across a snapshot change keeps the entry\'s Color-by', async () => {
+  const population = {
+    label: 'Population', unit: '', format: 'int', source: 'test',
+    scale: { kind: 'sequential', transform: 'linear', bands: [10, 100] },
+    values: { 'hex:0:0': 50 },
+  };
+  const data = { ...fullData, snapshots, 'hex-metrics.json': { v: 2, metrics: { population } } };
+  const { win, get, flush, fireMap } = load({ page: 'index-live', data, url: 'https://example.test/index-live.html?tab=map-tab' });
+  await flush();
+  fireMap('load');
+  await flush();
+  win.selectHexMetric('population');
+  assert.equal(get('hexMetric'), 'population', 'the fixture does not offer the stored metric');
+  win.selectSnapshot('v0.5.0');
+  await flush();
+  win.selectHexMetric('coverage_share');
+  await flush();
+  // Two entries back: the snapshot AND the metric differ from the one in view.
+  win.history.go(-2);
+  await flush();
+  assert.equal(win.document.getElementById('snapshot-picker').value, '');
+  assert.equal(get('hexMetric'), 'population', 'the Color-by fell back to coverage');
+  assert.equal(new URLSearchParams(win.location.search).get('metric'), 'population');
+});
