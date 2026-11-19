@@ -2159,12 +2159,17 @@
         // snapshot, or for a city with none its latest compute. "latest"
         // (?snapshot=latest) is the latest compute, snapshotted or not.
         const LATEST_COMPUTE_LABEL = 'Latest compute (not snapshotted)';
+        // Bumped per call, so a list arriving for a city already left is
+        // dropped instead of replacing the new city's (solvent-streets-9cnm).
+        let snapshotListGen = 0;
         /** @param {string} slug @param {string|null} [want] snapshot to select once the list lands */
         async function loadSnapshots(slug, want) {
             const sel = selectById('snapshot-picker');
             if (!sel) return; // static export
+            const gen = ++snapshotListGen;
             const url = slug ? 'api/cities/' + slug + '/snapshots' : 'api/snapshots';
             const list = await loadJSON(url);
+            if (gen !== snapshotListGen) return;
             if (!list || list.length === 0) {
                 sel.innerHTML = '<option value="">' + LATEST_COMPUTE_LABEL + '</option>';
                 return;

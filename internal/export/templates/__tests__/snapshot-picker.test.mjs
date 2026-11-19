@@ -120,3 +120,15 @@ test('a cold ?snapshot= deep link selects that snapshot and keeps it in the URL 
   assert.equal(new URLSearchParams(win.location.search).get('snapshot'), 'v0.5.0');
   assert.ok(fetchURLs().some((u) => u.includes('snapshot=v0.5.0')), 'no data request named the snapshot');
 });
+
+test('a late snapshot list for the city just left does not replace the new city\'s (solvent-streets-9cnm)', async () => {
+  const alphaSnaps = [{ id: 9, name: 'alpha-only', created_at: '2026-11-01T00:00:00Z', parts: [] }];
+  const betaSnaps = [{ id: 7, name: 'beta-only', created_at: '2026-11-02T00:00:00Z', parts: [] }];
+  const h = load({ page: 'index-live', data: { 'alpha-ca/snapshots': alphaSnaps, 'beta-ca/snapshots': betaSnaps, ...fullData },
+    url: 'https://example.test/index-live.html?city=alpha-ca', hold: ['alpha-ca/snapshots'] });
+  await h.flush();
+  h.win.selectCity('beta-ca'); await h.flush(8);
+  h.release('alpha-ca/snapshots'); await h.flush(8);
+  const opts = Array.from(h.$('#snapshot-picker').options).map((o) => o.value);
+  assert.ok(opts.includes('beta-only') && !opts.includes('alpha-only'), 'picker holds ' + opts);
+});
