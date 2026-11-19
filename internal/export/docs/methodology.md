@@ -274,14 +274,21 @@ The site reports two areas, and each keeps one name on every tab:
   sidewalks buffered and unioned, so where a sidewalk or lot meets a road the
   overlap counts once. It is used only for itself (the Map's City Summary)
   and for **% Paved**, which divides it by the city's area.
-- **Maintained area** is roads + parking + sidewalks summed as the forecast
-  prices them, so a sidewalk beside a road counts in both. It is never
-  smaller than the footprint. Everything priced or apportioned uses it: the
-  forecast, the denominator of every **per-acre** figure on Compare and
-  Aggregate (in the current scope, city-maintained or all owners, shown
-  beside each city), the per-resident figures, and Compare's and Aggregate's
-  area totals and per-city table. Financials' **End Area** is the
-  maintained area in the final year, after growth.
+- **Maintained area** is the resources' areas summed as the forecast prices
+  them, so a sidewalk beside a road counts in both. Over all three
+  resources it is never smaller than the footprint. Everything priced or
+  apportioned uses it, but which resources it sums depends on the figure:
+  - **Compare and Aggregate** sum roads + parking + sidewalks: the
+    denominator of every **per-acre** figure (in the current scope,
+    city-maintained or all owners, shown beside each city), the year-1
+    need, and the area totals and per-city table.
+  - **Financials** sums the resources under **Advanced options →
+    Maintaining**, streets only by default (see the Financials tab above).
+    Its **End Area** is that maintained area in the final year, after
+    growth.
+  - **The Map's** per-hex **Maintained area** coloring and the
+    per-resident figures sum the layers toggled on (see
+    [Color by](#color-by)).
 
 ### Compare-tab scores
 
