@@ -59,6 +59,27 @@ test('a widened track is restored on the next city', async () => {
   assert.equal(parseInt(h.$('#pci-slider').value), 85);
 });
 
+test('a next city whose seed lacks initial_pci still gets the shipped track back', async () => {
+  // solvent-streets-vc7u: the restore lives in seedRangeInput, so an early
+  // return on an unusable initial_pci left the previous city's widened track
+  // and its PCI on the slider. Fall back to the markup default instead, as
+  // the overhead slider falls back to 1.
+  const data = withPCI(45);
+  const h = await ready(data);
+  assert.equal(parseFloat(h.$('#pci-slider').min), 45);
+
+  const noPCI = { ...seedJSON };
+  delete noPCI.initial_pci;
+  data['forecast_seed.json'] = noPCI;
+  await h.win.loadFinancials();
+  await h.flush();
+
+  const slider = h.$('#pci-slider');
+  assert.equal(parseFloat(slider.min), 50, 'the previous city\'s widened track leaked into this one');
+  assert.equal(slider.value, slider.defaultValue, 'the previous city\'s PCI leaked into this one');
+  assert.equal(h.$('#pci-value').textContent, slider.defaultValue);
+});
+
 test('the ARIA value tracks the seed and the drag, not the shipped default', async () => {
   // AT reads aria-valuenow in preference to the native value, and nothing kept
   // it in step: it stayed at the markup's 85 whatever the slider held. The

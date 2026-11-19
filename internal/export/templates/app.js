@@ -3441,12 +3441,15 @@
         // Clamping it started the interactive line, and the End PCI / N-Year
         // Spend / N-Year Deficit tiles it overwrites, from a condition the city
         // never configured. Widen, don't clamp — the same call the overhead
-        // slider makes.
+        // slider makes. Like the overhead slider it always goes through
+        // seedRangeInput, which restores the shipped track: a seed with no
+        // usable initial_pci falls back to the markup default (seededPCI)
+        // rather than keeping the previous city's track and value
+        // (solvent-streets-vc7u).
         function syncPCISliderFromSeed() {
-            if (!FORECAST_SEED || typeof FORECAST_SEED.initial_pci !== 'number') return;
             const slider = inputById('pci-slider');
             if (!slider) return;
-            const v = seedRangeInput(slider, Math.round(FORECAST_SEED.initial_pci));
+            const v = seedRangeInput(slider, seededPCI());
             document.getElementById('pci-value').textContent = String(v);
         }
         syncPCISliderFromSeed();
@@ -3790,9 +3793,10 @@
             });
         }
 
-        // seededPCI is the Initial PCI the slider is seeded at.
+        // seededPCI is the Initial PCI the slider is seeded at: the seed's,
+        // else (no seed yet, or one without a usable initial_pci) the markup's.
         function seededPCI() {
-            return typeof FORECAST_SEED.initial_pci === 'number'
+            return FORECAST_SEED && typeof FORECAST_SEED.initial_pci === 'number' && Number.isFinite(FORECAST_SEED.initial_pci)
                 ? Math.round(FORECAST_SEED.initial_pci)
                 : parseInt(inputById('pci-slider').defaultValue);
         }
