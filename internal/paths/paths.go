@@ -37,11 +37,11 @@ func Resolve(toolName string) (*Paths, error) {
 	}
 	// The stdlib resolvers reject a relative XDG_CONFIG_HOME/XDG_CACHE_HOME
 	// but join a relative $HOME verbatim, so they go through requireAbs too.
-	cfg, err := requireAbs(os.UserConfigDir())
+	cfg, err := requireAbs(stdlibVar("%AppData%"), os.UserConfigDir)
 	if err != nil {
 		return nil, err
 	}
-	cache, err := requireAbs(os.UserCacheDir())
+	cache, err := requireAbs(stdlibVar("%LocalAppData%"), os.UserCacheDir)
 	if err != nil {
 		return nil, err
 	}
@@ -111,22 +111,35 @@ func (p *Paths) HTTPCacheDir() string { return filepath.Join(p.Cache, "http") }
 // returns %LocalAppData% verbatim and errors only when that variable is empty,
 // and $HOME, which os.UserHomeDir returns verbatim on Unix under the same
 // rule (solvent-streets-fepb). A relative value would otherwise flow through
-// untouched. Threading (string, error) lets it wrap a stdlib resolver call
-// directly.
-func requireAbs(dir string, err error) (string, error) {
+// untouched. It takes the stdlib resolver itself so it can wrap one directly,
+// and from, the variable the resolver reads, so the error names what to fix.
+func requireAbs(from string, resolve func() (string, error)) (string, error) {
+	dir, err := resolve()
 	if err != nil {
 		return "", err
 	}
 	if !filepath.IsAbs(dir) {
-		return "", fmt.Errorf("paths: resolved root %q is not an absolute path", dir)
+		return "", fmt.Errorf("paths: resolved root %q is not an absolute path; set %s to an absolute path", dir, from)
 	}
 	return dir, nil
+}
+
+const goosWindows = "windows"
+
+// stdlibVar names the variable a relative os.UserConfigDir or os.UserCacheDir
+// result came from: windowsVar on Windows, else $HOME, since the stdlib
+// already rejects a relative XDG_CONFIG_HOME / XDG_CACHE_HOME itself.
+func stdlibVar(windowsVar string) string {
+	if runtime.GOOS == goosWindows {
+		return windowsVar
+	}
+	return "$HOME"
 }
 
 // homeJoin joins elem onto the user's home directory, refusing a relative
 // $HOME (see requireAbs).
 func homeJoin(elem ...string) (string, error) {
-	home, err := requireAbs(os.UserHomeDir())
+	home, err := requireAbs("$HOME", os.UserHomeDir)
 	if err != nil {
 		return "", err
 	}
@@ -153,8 +166,8 @@ func homeJoin(elem ...string) (string, error) {
 //     requireAbs, which errors -- the only honest option when there is
 //     nowhere to fall back to.
 func stateRoot() (string, error) {
-	if runtime.GOOS == "windows" {
-		return requireAbs(os.UserCacheDir())
+	if runtime.GOOS == goosWindows {
+		return requireAbs("%LocalAppData%", os.UserCacheDir)
 	}
 	if runtime.GOOS == "darwin" {
 		return homeJoin("Library", "Application Support")
@@ -171,8 +184,8 @@ func stateRoot() (string, error) {
 // and handed to sql.Open, so a cwd-relative value silently forks the database
 // per working directory.
 func dataRoot() (string, error) {
-	if runtime.GOOS == "windows" {
-		return requireAbs(os.UserCacheDir())
+	if runtime.GOOS == goosWindows {
+		return requireAbs("%LocalAppData%", os.UserCacheDir)
 	}
 	if runtime.GOOS == "darwin" {
 		return homeJoin("Library", "Application Support")

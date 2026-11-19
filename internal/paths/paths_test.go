@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -139,8 +140,13 @@ func TestResolveRejectsRelativeHome(t *testing.T) {
 		t.Setenv(v, "")
 	}
 	t.Setenv("HOME", "somewhere")
-	if p, err := Resolve("pvmt"); err == nil {
+	p, err := Resolve("pvmt")
+	if err == nil {
 		t.Fatalf("Resolve with a relative $HOME = %+v, want an error", p)
+	}
+	// The error names the variable to fix, not only the root derived from it.
+	if !strings.Contains(err.Error(), "$HOME") {
+		t.Errorf("err = %v, want it to name $HOME", err)
 	}
 	// Absolute XDG vars for every root mean $HOME is never consulted, so a
 	// relative $HOME is then harmless and must not error.
@@ -159,10 +165,10 @@ func TestResolveRejectsRelativeHome(t *testing.T) {
 // fell through to os.UserCacheDir, which returns %LocalAppData% verbatim and
 // errors only when it is EMPTY, handing back the identical relative value.
 func TestRequireAbs(t *testing.T) {
-	if _, err := requireAbs(filepath.Join(".local", "share"), nil); err == nil {
+	if _, err := requireAbs("$HOME", rootOf(filepath.Join(".local", "share"), nil)); err == nil {
 		t.Error("a relative root must be rejected, not passed through")
 	}
-	got, err := requireAbs(filepath.Join(t.TempDir(), "x"), nil)
+	got, err := requireAbs("$HOME", rootOf(filepath.Join(t.TempDir(), "x"), nil))
 	if err != nil {
 		t.Errorf("an absolute root must pass: %v", err)
 	}
@@ -171,7 +177,12 @@ func TestRequireAbs(t *testing.T) {
 	}
 	// An upstream error wins over the absoluteness check.
 	sentinel := errors.New("boom")
-	if _, err := requireAbs("", sentinel); !errors.Is(err, sentinel) {
+	if _, err := requireAbs("$HOME", rootOf("", sentinel)); !errors.Is(err, sentinel) {
 		t.Errorf("err = %v, want the upstream error propagated", err)
 	}
+}
+
+// rootOf is a stub stdlib resolver returning dir and err.
+func rootOf(dir string, err error) func() (string, error) {
+	return func() (string, error) { return dir, err }
 }
