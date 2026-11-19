@@ -198,6 +198,15 @@
             zoom: 13
         });
         map.addControl(new maplibregl.NavigationControl(), 'top-right');
+        // styleReady resolves once the style is parsed, which is all the board
+        // needs (addSource/addLayer). 'load' alone is not enough: it waits for
+        // every first-view basemap tile, so a tile server that hangs or is
+        // unreachable left "Loading board…" up for good (solvent-streets-wr4t).
+        // Registered here, at construction, so neither event can fire unheard.
+        const styleReady = new Promise(resolve => {
+            map.once('style.load', resolve);
+            map.once('load', resolve);
+        });
 
         // ---- Game state (JS holds only view/loop state, never rules) ---------
         // Treatments are always automatic: the engine picks the right tier per hex by
@@ -848,9 +857,8 @@
 
         // ---- WASM boot, then board boot --------------------------------------
         function onWasmReady() {
-            // Wait for the map style to be ready before adding game sources/layers.
-            if (map.isStyleLoaded()) boot();
-            else map.once('load', boot);
+            // Wait for the map style (not its tiles) before adding the board.
+            return styleReady.then(boot);
         }
 
         PvmtCommon.loadWasm().then(onWasmReady)

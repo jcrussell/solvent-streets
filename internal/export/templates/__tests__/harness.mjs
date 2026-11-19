@@ -112,7 +112,7 @@ function installStubs(win, { data, simulate, gates, wasm, goRuntime }) {
   if (goRuntime) win.Go = class { constructor() { this.importObject = {}; } run() { win.__goRuns = (win.__goRuns || 0) + 1; } };
   // With `wasm: true` the instantiate succeeds (go.run is the no-op above), so
   // the play page goes on to boot its board on the map's 'load' event (fire
-  // it with fireMap). The engine itself is never called: game.js only
+  // it with fireMap; 'style.load' boots it too). The engine itself is never called: game.js only
   // reaches it when the player presses Start.
   if (wasm) win.WebAssembly = { instantiateStreaming: async () => ({ instance: {} }) };
   win.__fitBounds = [];

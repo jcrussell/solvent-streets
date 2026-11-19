@@ -132,3 +132,29 @@ test('play: a hexgrid of another format is refused', async () => {
   assert.equal(get('gameConfig'), null, 'the board booted from an unsupported hexgrid');
   assert.match(doc.body.textContent, /unsupported hexgrid format/);
 });
+
+// solvent-streets-wr4t: MapLibre fires 'load' only once every first-view
+// basemap tile has settled, so a tile server that errors or never answers
+// held "Loading board…" up for good. The board needs only the style.
+test('play: the board boots on style readiness when the basemap tiles never load', async () => {
+  const h = load({ page: 'play', wasm: true, data: boardData(seedJSON) });
+  await h.flush();
+  // The tile source errors and 'load' never comes; only the style is ready.
+  h.fireMap('error');
+  h.fireMap('style.load');
+  await h.flush(12);
+
+  assert.ok(h.get('gameConfig'), 'the board did not boot without the map load event');
+  assert.equal(h.doc.getElementById('loading').style.display, 'none', '"Loading board…" is still up');
+});
+
+test('play: a map load after style.load does not boot the board twice', async () => {
+  const h = load({ page: 'play', wasm: true, data: boardData(seedJSON) });
+  await h.flush();
+  h.fireMap('style.load');
+  await h.flush(12);
+  h.fireMap('load');
+  await h.flush(12);
+  assert.ok(h.get('gameConfig'), 'the board did not boot');
+  assert.equal(h.win.__fitBounds.length, 1, 'boot ran more than once');
+});
