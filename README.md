@@ -47,7 +47,7 @@ Fetch the data, compute it, snapshot it, and look at it:
 ```
 pvmt all ingest
 pvmt all compute
-pvmt snapshots create first   # freeze every city under a name, like a git tag
+pvmt snapshots create 2026-11 # freeze every city under a name, like a git tag
 pvmt serve                    # http://localhost:8080; publishes the newest snapshot
 pvmt export -o ./site         # or: a static site for any web host
 ```
