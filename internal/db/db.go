@@ -21,7 +21,7 @@ import (
 var migrationsFS embed.FS
 
 // dsnPragmas is the query string appended to the db path to form the
-// sqlite DSN. WAL improves concurrency, busy_timeout avoids spurious
+// sqlite DSN. busy_timeout avoids spurious
 // "database is locked" errors, and foreign_keys(on) enforces the FK
 // constraints the schema declares (SQLite defaults them off).
 //
@@ -31,7 +31,13 @@ var migrationsFS embed.FS
 // loses a race with another process fails with SQLITE_BUSY_SNAPSHOT (517),
 // which busy_timeout cannot retry; IMMEDIATE waits out busy_timeout at BEGIN
 // instead, and reads the newest committed state once it holds the lock.
-const dsnPragmas = "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(on)&_txlock=immediate"
+//
+// WAL is deliberately not in the DSN: journal_mode(WAL) there rewrites the
+// file header on connect, before checkGeneration can refuse a file that is
+// not ours (solvent-streets-cmth). Open switches to WAL (enableWAL) only once
+// the file is accepted; WAL is persistent in the file, so every later
+// connection inherits it.
+const dsnPragmas = "?_pragma=busy_timeout(5000)&_pragma=foreign_keys(on)&_txlock=immediate"
 
 type Feature struct {
 	ID           string
@@ -411,7 +417,7 @@ func Open(path string) (retStore *RootStore, retErr error) {
 	// The DSN is built by appending our pragma query string to the path.
 	// A path that already contains a '?' would corrupt that query string
 	// (the driver splits the DSN on the first '?'), silently dropping the
-	// WAL/busy_timeout/foreign_keys pragmas we rely on. Reject it rather
+	// busy_timeout/foreign_keys pragmas we rely on. Reject it rather
 	// than open a database with the wrong durability/integrity settings.
 	// ":memory:" and DefaultPath() never contain '?', so this is a no-op
 	// for the supported paths.

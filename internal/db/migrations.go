@@ -41,7 +41,26 @@ func migrate(ctx context.Context, d *sql.DB) error {
 	if err := checkGeneration(ctx, d); err != nil {
 		return err
 	}
+	if err := enableWAL(ctx, d); err != nil {
+		return err
+	}
 	return migrateFS(ctx, d, migrationsFS, "migrations")
+}
+
+// enableWAL switches an accepted database to WAL. It runs only after
+// checkGeneration, so a refused file keeps its journal mode and its bytes
+// (solvent-streets-cmth). The mode is persistent in the file, so later
+// connections inherit it; an in-memory database reports "memory" and stays
+// that way, which is fine.
+func enableWAL(ctx context.Context, d *sql.DB) error {
+	var mode string
+	if err := d.QueryRowContext(ctx, `PRAGMA journal_mode = WAL`).Scan(&mode); err != nil {
+		return fmt.Errorf("enable WAL: %w", err)
+	}
+	if !strings.EqualFold(mode, "wal") && !strings.EqualFold(mode, "memory") {
+		return fmt.Errorf("enable WAL: journal_mode is %q", mode)
+	}
+	return nil
 }
 
 // checkGeneration stamps an empty database with schemaGeneration and accepts
@@ -67,6 +86,19 @@ func checkGeneration(ctx context.Context, d *sql.DB) error {
 			return fmt.Errorf("stamp schema generation: %w", err)
 		}
 		return nil
+	}
+	// Every pvmt database, of any generation, has the schema_version table.
+	// A file with tables but without it is some other program's SQLite
+	// file, and calling it "generation 0" sends the operator to re-ingest
+	// over a file that was never pvmt's (solvent-streets-cmth).
+	var hasVersions int
+	if err := d.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'schema_version'`).Scan(&hasVersions); err != nil {
+		return fmt.Errorf("inspect database: %w", err)
+	}
+	if hasVersions == 0 {
+		return fmt.Errorf("%w: not a pvmt database (it has tables but no schema_version table)",
+			ErrIncompatibleDatabase)
 	}
 	if gen > schemaGeneration {
 		return fmt.Errorf("%w: schema generation %d is newer than this pvmt's %d (upgrade pvmt)",

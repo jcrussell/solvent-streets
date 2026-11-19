@@ -742,12 +742,12 @@ func TestMigrateFS_SchemaVersionUniqueFromTheStart(t *testing.T) {
 }
 
 // openRaw opens a database file without migrating it, so a test can seed the
-// shape an older pvmt left behind. It uses Open's own pragmas (WAL and so
-// on), as every older pvmt did, so the file starts in the state a real
+// shape an older pvmt left behind. It uses Open's own pragmas plus WAL in the
+// DSN, as every older pvmt did, so the file starts in the state a real
 // install's database is in.
 func openRaw(t *testing.T, path string) *sql.DB {
 	t.Helper()
-	d, err := sql.Open("sqlite", path+dsnPragmas)
+	d, err := sql.Open("sqlite", path+dsnPragmas+"&_pragma=journal_mode(WAL)")
 	if err != nil {
 		t.Fatalf("open %s: %v", path, err)
 	}
@@ -824,13 +824,66 @@ func TestOpen_RefusesOlderGeneration(t *testing.T) {
 	}
 }
 
+// TestOpen_ForeignFileLeftUntouched pins solvent-streets-cmth. Open applied
+// journal_mode(WAL) in the DSN, so a refused rollback-journal file was
+// converted to WAL before checkGeneration ever looked at it, and a SQLite
+// file no pvmt wrote was reported as "schema generation 0". A refused file
+// must stay byte-identical, and one without pvmt's schema_version table is
+// called what it is.
+func TestOpen_ForeignFileLeftUntouched(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "other.db")
+	d, err := sql.Open("sqlite", path) // default rollback journal, no pvmt pragmas
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	if _, err := d.ExecContext(ctx, `CREATE TABLE notes (id INTEGER PRIMARY KEY, body TEXT);
+		INSERT INTO notes (body) VALUES ('keep me');`); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if err := d.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read before: %v", err)
+	}
+
+	root, err := Open(path)
+	if err == nil {
+		_ = root.Close()
+		t.Fatal("Open succeeded on a foreign SQLite file; want ErrIncompatibleDatabase")
+	}
+	if !errors.Is(err, ErrIncompatibleDatabase) {
+		t.Fatalf("err = %v, want ErrIncompatibleDatabase", err)
+	}
+	if !strings.Contains(err.Error(), "not a pvmt database") {
+		t.Errorf("err = %v, want it to say the file is not a pvmt database", err)
+	}
+	if strings.Contains(err.Error(), "schema generation") {
+		t.Errorf("err = %v, should not claim a schema generation for a foreign file", err)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read after: %v", err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Error("refused foreign database was modified on disk (journal mode converted?)")
+	}
+	for _, companion := range []string{path + "-wal", path + "-shm"} {
+		if _, err := os.Stat(companion); err == nil {
+			t.Errorf("refused Open left %s behind", companion)
+		}
+	}
+}
+
 // TestOpen_RefusesNewerGeneration pins the downgrade direction: a database
 // stamped by a newer pvmt is refused, not reinterpreted.
 func TestOpen_RefusesNewerGeneration(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "pvmt.db")
 	d := openRaw(t, path)
-	if _, err := d.ExecContext(ctx, fmt.Sprintf(`CREATE TABLE cities (id INTEGER PRIMARY KEY); PRAGMA user_version = %d;`, schemaGeneration+1)); err != nil {
+	if _, err := d.ExecContext(ctx, fmt.Sprintf(`CREATE TABLE schema_version (version INTEGER NOT NULL); CREATE TABLE cities (id INTEGER PRIMARY KEY); PRAGMA user_version = %d;`, schemaGeneration+1)); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	_ = d.Close()

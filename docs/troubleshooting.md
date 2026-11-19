@@ -72,6 +72,8 @@ own. The error says which way the mismatch runs:
   database. Every database from v0.4.1 or earlier is generation 0.
 - `schema generation N is newer than this pvmt's M`: a newer pvmt created it.
   Upgrade pvmt instead.
+- `not a pvmt database`: the file is some other program's SQLite database,
+  sitting where pvmt keeps its own. Move it somewhere else to keep it.
 
 The refused file is left untouched. To start over, move it aside with its
 companions:
