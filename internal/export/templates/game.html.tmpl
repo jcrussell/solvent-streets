@@ -115,6 +115,7 @@
             background: #4f8cff; border-color: #4f8cff; color: #fff;
         }
         #pause-btn { font-weight: 600; }
+        #reset-btn { margin-top: 8px; width: 100%; }
 
         /* Paint-brush cursor: a ring that tracks the pointer while brushing */
         #brush-cursor {
@@ -132,6 +133,46 @@
         #legend .legend-labels { display: flex; justify-content: space-between; margin-top: 3px; color: #9aa4b2; }
         #legend .gravel-key { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
         #legend .gravel-swatch { width: 12px; height: 12px; border-radius: 2px; display: inline-block; }
+
+        /* Phone width (solvent-streets-vbed): the desktop HUD, legend and
+           controls left a ~73 px band of board on a 390x664 phone with the
+           first-run hint up (~180 px without). Compact all three there: the
+           HUD becomes a two-column strip (the city is already in the bar's
+           select), the legend one row, and Reset joins the speed buttons
+           (whose "Speed" label the buttons make redundant). */
+        @media (max-width: 640px) {
+            #hud {
+                top: calc(var(--bar-h) + 8px); left: 8px; right: 50px; /* clear the zoom buttons */
+                min-width: 0; padding: 6px 10px;
+            }
+            #hud h1 { display: none; }
+            #hud .hud-stats { display: grid; grid-template-columns: 1fr 1fr; column-gap: 14px; }
+            .hud-row { font-size: 12px; gap: 8px; padding: 1px 0; }
+            .funds-warn { grid-column: 1 / -1; margin: 1px 0; font-size: 12px; }
+            .onboard-hint { margin-top: 6px; padding-top: 6px; max-width: none; font-size: 12px; line-height: 1.35; }
+            .onboard-hint .btn { display: inline-block; margin: 0 0 0 6px; padding: 2px 10px; font-size: 12px; }
+
+            #bottom-dock { left: 8px; right: 8px; bottom: 8px; gap: 6px; }
+            #controls { flex: 1 1 100%; min-width: 0; padding: 8px 10px; }
+            #controls .ctrl-block { margin-bottom: 6px; }
+            #controls label { font-size: 11px; margin-bottom: 3px; }
+            #controls .speed-label { display: none; }
+            #controls .speed-row { display: flex; gap: 6px; }
+            #controls .speed-row .row-buttons { flex: 1; flex-wrap: nowrap; }
+            #controls .btn { padding: 5px 8px; font-size: 12px; }
+            #controls #reset-btn { margin-top: 0; width: auto; }
+
+            #legend { padding: 5px 8px; }
+            #legend .legend-body { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+            #legend .legend-title { margin: 0; }
+            #legend .legend-title .legend-long { display: none; }
+            #legend .legend-labels { display: contents; }
+            #legend .legend-labels span:first-child { order: 1; }
+            #legend .legend-bar { order: 2; width: 80px; height: 10px; }
+            #legend .legend-labels span:last-child { order: 3; }
+            #legend .gravel-key { order: 4; margin: 0 0 0 4px; gap: 4px; }
+            #legend .gravel-swatch { width: 10px; height: 10px; }
+        }
 
         /* Win/Lose summary overlay */
         #banner {
@@ -203,11 +244,13 @@
 
     <div class="panel" id="hud" style="display:none">
         <h1><span id="hud-city">{{.HeadingName}}</span></h1>
+        <div class="hud-stats">
         <div class="hud-row"><span class="k">Year</span><span class="v" id="hud-year">&mdash;</span></div>
         <div class="hud-row"><span class="k">Treasury</span><span class="v" id="hud-treasury">&mdash;</span></div>
         <div class="funds-warn" id="hud-funds-warn">Out of funds &mdash; waiting on budget</div>
         <div class="hud-row"><span class="k">Network PCI</span><span class="v" id="hud-pci">&mdash;</span></div>
         <div class="hud-row"><span class="k">Backlog</span><span class="v" id="hud-backlog">&mdash;</span></div>
+        </div>
         <!-- First-run hint; game.js words it for mouse or touch and shows it
              until it is dismissed or the first road is treated. -->
         <div class="onboard-hint" id="onboard-hint" role="note" hidden>
@@ -219,14 +262,16 @@
     <div id="bottom-dock">
         <div class="panel" id="controls" style="display:none">
             <div class="ctrl-block">
-                <label>Speed</label>
-                <div class="row-buttons" id="speed-buttons">
+                <label class="speed-label">Speed</label>
+                <div class="speed-row">
+                <div class="row-buttons" id="speed-buttons" role="group" aria-label="Speed">
                     <button class="btn" id="pause-btn" type="button" data-speed="0">Pause</button>
                     <button class="btn active" type="button" data-speed="1">1&times;</button>
                     <button class="btn" type="button" data-speed="2">2&times;</button>
                     <button class="btn" type="button" data-speed="4">4&times;</button>
                 </div>
-                <button class="btn" id="reset-btn" type="button" style="margin-top:8px;width:100%">Reset</button>
+                <button class="btn" id="reset-btn" type="button">Reset</button>
+                </div>
             </div>
             <div class="ctrl-block">
                 <label>Brush size <span class="hint" id="brush-hint">(left-drag to treat, right-drag to pan)</span></label>
@@ -235,10 +280,12 @@
         </div>
 
         <div class="panel" id="legend" style="display:none">
-            <div class="legend-title">Pavement condition (PCI)</div>
+            <div class="legend-body">
+            <div class="legend-title"><span class="legend-long">Pavement condition (</span>PCI<span class="legend-long">)</span></div>
             <div class="legend-bar"></div>
             <div class="legend-labels"><span>worst</span><span>best</span></div>
             <div class="gravel-key"><span class="gravel-swatch"></span>closed &rarr; gravel</div>
+            </div>
         </div>
     </div>
 
