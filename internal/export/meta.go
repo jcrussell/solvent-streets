@@ -19,6 +19,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/game"
 	"github.com/jcrussell/solvent-streets/internal/geo"
 	"github.com/jcrussell/solvent-streets/internal/hexmetric"
+	"github.com/jcrussell/solvent-streets/internal/logs"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/internal/results"
 )
@@ -690,7 +691,7 @@ func BuildMetaOn(ctx context.Context, entry CityEntry, snapshotID int64, grid *D
 		return MetaJSON{}, fmt.Errorf("boundary for %s: %w", entry.City.Name, err)
 	}
 	if boundaryGJSON != "" {
-		if cityArea, err := geo.BoundaryArea(ctx, boundaryGJSON); err == nil && cityArea > 0 {
+		if cityArea, err := geo.BoundaryArea(cityLogCtx(ctx, entry), boundaryGJSON); err == nil && cityArea > 0 {
 			meta.CityArea = cityArea
 			if meta.TotalPaved > 0 {
 				meta.PavedShare = meta.TotalPaved / cityArea
@@ -699,6 +700,13 @@ func BuildMetaOn(ctx context.Context, entry CityEntry, snapshotID int64, grid *D
 	}
 
 	return meta, nil
+}
+
+// cityLogCtx attaches the entry's city to ctx's logger, so a warning a geo
+// helper emits from deep inside an export run (BoundaryArea's dropped
+// sub-polygons) says which of many cities it is about.
+func cityLogCtx(ctx context.Context, entry CityEntry) context.Context {
+	return logs.WithLogger(ctx, logs.From(ctx).With("city", entry.City.Name))
 }
 
 // stamp is where a city's meta.json says its data comes from.

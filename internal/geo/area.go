@@ -14,6 +14,8 @@ import (
 // polygon. ctx carries the run logger; when a multi-part boundary loses
 // sub-polygons to cleaning failures, a one-line warning is emitted so
 // operators can fix the source data (see GeoJSONToProjectedGeometryDropped).
+// The warning carries no city of its own: a caller looping over cities
+// attaches one to ctx's logger (export's cityLogCtx).
 func BoundaryArea(ctx context.Context, boundaryGJSON string) (float64, error) {
 	_, proj, err := ProjectorForBoundary(boundaryGJSON)
 	if err != nil {

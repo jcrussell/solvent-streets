@@ -135,7 +135,7 @@ func summedBoundaryArea(ctx context.Context, entries []CityEntry) (float64, erro
 		if err != nil || gjson == "" {
 			continue
 		}
-		a, err := geo.BoundaryArea(ctx, gjson)
+		a, err := geo.BoundaryArea(cityLogCtx(ctx, entry), gjson)
 		if err != nil {
 			continue
 		}

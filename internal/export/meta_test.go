@@ -1,9 +1,11 @@
 package export
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"maps"
 	"math"
 	"slices"
@@ -17,6 +19,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
 	"github.com/jcrussell/solvent-streets/internal/geo"
+	"github.com/jcrussell/solvent-streets/internal/logs"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/internal/results"
 )
@@ -480,5 +483,39 @@ func TestBuildMeta_StampFromTheView(t *testing.T) {
 	b, _ := json.Marshal(MetaJSON{})
 	if strings.Contains(string(b), `"snapshot"`) || strings.Contains(string(b), "latest_compute") {
 		t.Errorf("empty meta marshals %s; snapshot and latest_compute must be omitempty", b)
+	}
+}
+
+// degenerateBoundaryGeoJSON is a two-part boundary whose second part is a
+// collapsed ring that cleaning drops (see geo's
+// TestGeoJSONToProjectedGeometryDropped_MultiPolygon).
+const degenerateBoundaryGeoJSON = `{"type":"MultiPolygon","coordinates":[` +
+	`[[[-121.77,37.68],[-121.76,37.68],[-121.76,37.69],[-121.77,37.69],[-121.77,37.68]]],` +
+	`[[[-121.50,37.50],[-121.50,37.50],[-121.50,37.50],[-121.50,37.50]]]]}`
+
+// TestBoundaryArea_DegenerateWarningNamesCity is the v8q4 regression: the
+// export-side "dropped degenerate sub-polygons" warning must say which city
+// it is about, for a single-city meta and for each sub-city of a multi-city
+// sum, or an operator cannot tell which source to fix.
+func TestBoundaryArea_DegenerateWarningNamesCity(t *testing.T) {
+	var buf bytes.Buffer
+	ctx := logs.WithLogger(context.Background(), slog.New(slog.NewTextHandler(&buf, nil)))
+
+	entry := newMockEntryWithBoundary(nil, degenerateBoundaryGeoJSON)
+	entry.City.Name = "Degenerate Town"
+	if _, err := BuildMeta(ctx, entry, 0); err != nil {
+		t.Fatalf("BuildMeta: %v", err)
+	}
+	other := newMockEntryWithBoundary(nil, degenerateBoundaryGeoJSON)
+	other.City.Name = "Other Place"
+	if _, err := summedBoundaryArea(ctx, []CityEntry{other}); err != nil {
+		t.Fatalf("summedBoundaryArea: %v", err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{`city="Degenerate Town"`, `city="Other Place"`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("warning lacks %s; log:\n%s", want, out)
+		}
 	}
 }
