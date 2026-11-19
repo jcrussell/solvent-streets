@@ -100,6 +100,9 @@ overpass = true
 # Resolves to the place=city polygon of urban Honolulu: the City and County,
 # all of Oahu, spans the Northwestern Hawaiian Islands, past the 5° limit on
 # boundary_relation_id. See the header's caveats.
+# The polygon is 224 km2 and holds 407k residents: the Urban Honolulu CDP
+# (157 km2 of land, 351k) plus East Honolulu (Hawaii Kai, ~60 km2)
+# (TIGERweb, checked 2026-11-19).
 
 [[cities]]
 name = "Boise, ID"
