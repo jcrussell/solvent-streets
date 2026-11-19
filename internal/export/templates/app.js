@@ -1977,7 +1977,23 @@
             }
         })();
 
-        map.on('load', () => loadCityData());
+        // Start the city's data once the style is in: adding sources and
+        // layers needs nothing more. Not on 'load', which also waits for every
+        // basemap tile and fires only from inside a render. A tile that fails
+        // with anything but a 404 (a blocked or rate-limited tile server, no
+        // network) is marked errored without asking for another frame, so
+        // when the last tiles fail the map is loaded() with no render left to
+        // say so, 'load' never fires, and the dashboard stayed blank
+        // (solvent-streets-h2pa). 'load' stays as a fallback; the flag keeps
+        // the two from loading the city twice.
+        let mapDataStarted = false;
+        function startMapData() {
+            if (mapDataStarted) return;
+            mapDataStarted = true;
+            loadCityData();
+        }
+        map.once('style.load', startMapData);
+        map.once('load', startMapData);
 
         // setCityHeading names the shown city in the panel heading and the
         // browser tab, so tabs, bookmarks, history and link previews follow
