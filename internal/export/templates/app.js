@@ -128,6 +128,7 @@
                 return location.pathname + (qs ? '?' + qs : '');
             },
             push() {
+                this.flushSoon();
                 const s = this.current();
                 history.pushState(s, '', this.url(s));
                 syncPlayLink(s);
@@ -137,11 +138,40 @@
             // applied (e.g. a ?tag= dropped because the deep-linked city was
             // outside it), not the raw link that was followed.
             replace() {
+                this.cancelSoon();
                 const s = this.current();
                 history.replaceState(s, '', this.url(s));
                 syncPlayLink(s);
             },
+            // replaceSoon is replace for controls that fire on every input
+            // event (the Financials sliders and tier inputs): it records the
+            // state now but writes it once the input pauses, since Safari
+            // throws SecurityError after ~100 replaceState calls in a short
+            // window (solvent-streets-4hzr). push writes a pending state to
+            // the entry it leaves first; replace and popstate drop it.
+            /** @type {any} */
+            pending: null,
+            /** @type {ReturnType<typeof setTimeout> | undefined} */
+            timer: undefined,
+            replaceSoon() {
+                const s = this.current();
+                this.pending = s;
+                syncPlayLink(s);
+                clearTimeout(this.timer);
+                this.timer = setTimeout(() => this.flushSoon(), REPLACE_DEBOUNCE_MS);
+            },
+            // flushSoon writes a pending replaceSoon state now.
+            flushSoon() {
+                const s = this.pending;
+                this.cancelSoon();
+                if (s) history.replaceState(s, '', this.url(s));
+            },
+            cancelSoon() {
+                clearTimeout(this.timer);
+                this.pending = null;
+            },
         };
+        const REPLACE_DEBOUNCE_MS = 250;
 
         // Scope state. Declared above applyInitialState so the URL-state IIFE
         // can read/write it before the map state block runs.
@@ -436,6 +466,9 @@
         })();
 
         window.addEventListener('popstate', (e) => {
+            // A state replaceSoon has not written yet belongs to the entry
+            // just left; writing it now would land on this one.
+            Router.cancelSoon();
             const s = e.state || Router.read();
             const sel = selectById('city-select');
             const cityChanged = !!(s.city && sel && sel.value !== s.city);
@@ -3603,7 +3636,7 @@
                 }
                 inp.addEventListener('input', () => {
                     runCustomScenario();
-                    Router.replace();
+                    Router.replaceSoon();
                 });
             });
         }
@@ -4200,14 +4233,18 @@
         // Control event bindings. Each listener is bound to its own slider, so it
         // closes over the typed element rather than narrowing e.target.
         const budgetSlider = inputById('budget-slider');
-        /** @param {number} dollars */
-        function setBudget(dollars) {
+        // The sliders fire on every input event (keyboard repeat included),
+        // so they record the URL with Router.replaceSoon; clicks use
+        // Router.replace.
+        /** @param {number} dollars @param {boolean} [soon] */
+        function setBudget(dollars, soon) {
             budgetDollars = dollars;
             budgetUserSet = true;
             runCustomScenario();
-            Router.replace();
+            if (soon) Router.replaceSoon();
+            else Router.replace();
         }
-        budgetSlider.addEventListener('input', () => setBudget(budgetFromSlider(parseFloat(budgetSlider.value) || 0)));
+        budgetSlider.addEventListener('input', () => setBudget(budgetFromSlider(parseFloat(budgetSlider.value) || 0), true));
         for (const id of ['budget-today', 'budget-hold']) {
             const btn = buttonById(id);
             btn.addEventListener('click', () => setBudget(parseFloat(btn.dataset.budget || '0') || 0));
@@ -4217,7 +4254,7 @@
             document.getElementById('pci-value').textContent = pciSlider.value;
             syncAriaValueNow(pciSlider);
             runCustomScenario();
-            Router.replace();
+            Router.replaceSoon();
         });
         const overheadSlider = inputById('overhead-slider');
         overheadSlider.addEventListener('input', () => {
@@ -4225,7 +4262,7 @@
             renderOverheadRegimeLabel();
             syncAriaValueNow(overheadSlider);
             runCustomScenario();
-            Router.replace();
+            Router.replaceSoon();
         });
         queryAll('#strategy-buttons button').forEach(btn => {
             btn.addEventListener('click', () => {

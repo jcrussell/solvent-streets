@@ -42,6 +42,9 @@ function drag(win, sel, value) {
   const el = win.document.querySelector(sel);
   el.value = value;
   el.dispatchEvent(new win.Event('input', { bubbles: true }));
+  // The URL is written once the input pauses (Router.replaceSoon,
+  // solvent-streets-4hzr): stand in for the pause.
+  win.eval('Router.flushSoon()');
 }
 
 test('the slider starts at today\'s cited budget, in dollars', async () => {

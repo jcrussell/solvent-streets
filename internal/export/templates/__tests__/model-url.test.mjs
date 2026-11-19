@@ -45,6 +45,9 @@ function type(win, sel, value) {
   const el = win.document.querySelector(sel);
   el.value = value;
   el.dispatchEvent(new win.Event('input', { bubbles: true }));
+  // The URL is written once the input pauses (Router.replaceSoon,
+  // solvent-streets-4hzr): stand in for the pause.
+  win.eval('Router.flushSoon()');
 }
 
 // setByHand moves every model control off the seed.
@@ -161,4 +164,53 @@ test('back/forward to another city applies the entry\'s settings over that city\
   const m = model(win);
   assert.equal(m.strategy, 'preventive-first');
   assert.equal(m.initial_pci, PCI);
+});
+
+// solvent-streets-4hzr: Safari throws SecurityError after ~100 replaceState
+// calls in a short window, and the sliders and tier inputs fire on every input
+// event. A drag (input events, no change yet) writes the URL once it pauses,
+// and a push in the meantime still leaves the dragged value on the entry it
+// leaves.
+/** @param {any} win @param {string} sel @param {string} value */
+function inputOnly(win, sel, value) {
+  const el = win.document.querySelector(sel);
+  el.value = value;
+  el.dispatchEvent(new win.Event('input', { bubbles: true }));
+}
+
+/** @param {any} win */
+function countReplaces(win) {
+  const calls = { n: 0 };
+  const orig = win.history.replaceState.bind(win.history);
+  win.history.replaceState = (/** @type {any[]} */ ...a) => { calls.n++; return orig(...a); };
+  return calls;
+}
+
+test('a drag does not call replaceState on every input event', async () => {
+  const { win } = await ready();
+  const calls = countReplaces(win);
+  const tier = '#tier-inputs [data-tier="0"][data-field="cost_per_sqm"]';
+  for (let i = 0; i < 40; i++) {
+    inputOnly(win, '#pci-slider', String(55 + i));
+    inputOnly(win, '#overhead-slider', String(1 + (i % 20) / 20));
+    inputOnly(win, '#budget-slider', String(500 + i));
+    inputOnly(win, tier, String(5 + i));
+  }
+  inputOnly(win, '#pci-slider', String(PCI));
+  assert.ok(calls.n <= 1, `replaceState ran ${calls.n} times during the drag`);
+  await new Promise((r) => setTimeout(r, 400));
+  assert.equal(calls.n, 1, 'the paused drag was not written once');
+  assert.equal(params(win).get('pci'), String(PCI));
+  assert.ok(params(win).get('budget'), 'the dragged budget was not written');
+});
+
+test('a tab switch mid-drag keeps the dragged value on the entry it leaves', async () => {
+  const { win, flush } = await ready();
+  inputOnly(win, '#pci-slider', String(PCI));
+  win.selectTab('map-tab');
+  assert.equal(params(win).get('pci'), null, 'the Map entry carries a Financials setting');
+  win.history.back();
+  await flush();
+  assert.equal(params(win).get('tab'), 'financials-tab');
+  assert.equal(params(win).get('pci'), String(PCI), 'the Financials entry lost the dragged PCI');
 });
