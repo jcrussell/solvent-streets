@@ -665,6 +665,24 @@
             });
         })();
 
+        // Phone tab strip fades: the .tab-list scrolls sideways on a phone,
+        // and each edge fades only while more tabs lie beyond it, so the
+        // last tab (Play) is not left faded at the end of the scroll. The
+        // masks themselves are CSS, keyed on these classes, and only apply
+        // in the phone layout. 1px of slack absorbs fractional scrollLeft.
+        (function bindTabStripFades() {
+            const strip = queryEl('.tab-list');
+            if (!strip) return;
+            const sync = () => {
+                const max = strip.scrollWidth - strip.clientWidth;
+                strip.classList.toggle('fade-left', strip.scrollLeft > 1);
+                strip.classList.toggle('fade-right', strip.scrollLeft < max - 1);
+            };
+            strip.addEventListener('scroll', sync, { passive: true });
+            window.addEventListener('resize', sync);
+            sync();
+        })();
+
         // Map
         const CENTER = PVMT_CONFIG.center;
         const layerColors = PVMT_CONFIG.layer_colors;

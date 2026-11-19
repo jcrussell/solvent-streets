@@ -41,3 +41,31 @@ test('the gear is a disclosure, not a menu', async () => {
   assert.equal(btn.getAttribute('aria-expanded'), 'true');
   assert.equal(menu.hidden, false);
 });
+
+// stubScroll gives the strip a layout jsdom lacks: `content` px of tabs in a
+// `box` px viewport, scrolled to `left`.
+function stubScroll(win, el, content, box, left) {
+  Object.defineProperty(el, 'scrollWidth', { configurable: true, value: content });
+  Object.defineProperty(el, 'clientWidth', { configurable: true, value: box });
+  Object.defineProperty(el, 'scrollLeft', { configurable: true, writable: true, value: left });
+  el.dispatchEvent(new win.Event('scroll'));
+}
+const fades = (el) => ['fade-left', 'fade-right'].filter((c) => el.classList.contains(c));
+
+test('the phone tab strip fades only the edges with more tabs beyond them (solvent-streets-eaqn)', async () => {
+  const { win, $ } = await page();
+  const strip = $('.tab-list');
+  stubScroll(win, strip, 600, 360, 0);
+  assert.deepEqual(fades(strip), ['fade-right'], 'at the start only the right edge fades');
+  stubScroll(win, strip, 600, 360, 120);
+  assert.deepEqual(fades(strip), ['fade-left', 'fade-right'], 'mid-scroll both edges fade');
+  stubScroll(win, strip, 600, 360, 240);
+  assert.deepEqual(fades(strip), ['fade-left'], 'at the end Play must not stay faded');
+  // A wide screen fits every tab: no fade at all.
+  stubScroll(win, strip, 600, 600, 0);
+  assert.deepEqual(fades(strip), []);
+  // A resize re-checks without a scroll.
+  Object.defineProperty(strip, 'clientWidth', { configurable: true, value: 300 });
+  win.dispatchEvent(new win.Event('resize'));
+  assert.deepEqual(fades(strip), ['fade-right']);
+});

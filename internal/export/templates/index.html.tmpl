@@ -668,7 +668,8 @@
             }
             /* Two rows: the title, city select and gear on top, always in
                view; the tabs below, scrolling sideways in their own row with
-               a fade at the right edge to say there is more. */
+               a fade at each edge that has more beyond it (app.js
+               bindTabStripFades sets fade-left / fade-right). */
             .tab-bar { padding: 0 8px; flex-wrap: wrap; align-items: center; }
             .tab-bar h1 { font-size: 14px; line-height: 40px; margin-right: 12px; flex-shrink: 0; }
             #city-select { flex: 1 1 0; min-width: 0; max-width: 260px; margin-right: 8px; font-size: 13px; }
@@ -677,8 +678,18 @@
                 order: 1; flex: 0 0 100%; height: 44px;
                 overflow-x: auto; overflow-y: hidden;
                 -webkit-overflow-scrolling: touch; scrollbar-width: none;
+            }
+            .tab-list.fade-right {
                 -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
                 mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+            }
+            .tab-list.fade-left {
+                -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 28px), transparent);
+                mask-image: linear-gradient(to left, #000 calc(100% - 28px), transparent);
+            }
+            .tab-list.fade-left.fade-right {
+                -webkit-mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent);
+                mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent);
             }
             .tab-list::-webkit-scrollbar { display: none; }
             .tab-bar .tab-btn, .tab-bar a.nav-link { padding: 0 10px; font-size: 13px; flex-shrink: 0; line-height: 42px; white-space: nowrap; }
