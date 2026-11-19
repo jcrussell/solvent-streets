@@ -74,7 +74,9 @@ The following checks run over the given directory (default "site"):
     root assets (*.wasm, *.js, index.html) are a fixed cost and carry no
     budget. Also available as 'make site-report'.
   - REASONABLENESS: every meta.json has a plausible paved_share (a value
-    between 0 and 0.01 signals the near-zero-area bug), and every
+    between 0 and 0.01 signals the near-zero-area bug, unless the city
+    still paves 10 m² or more per resident, which is a rural city and only
+    warned), and every
     forecast.json baseline has monotonically falling PCI and non-decreasing
     deferred backlog year over year. A city whose meta.json lists
     missing_resources (a layer with no ingested data) or a partial layer in

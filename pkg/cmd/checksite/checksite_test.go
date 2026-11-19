@@ -925,3 +925,40 @@ func TestCheckSite_DecayDrift(t *testing.T) {
 		t.Errorf("drift failure does not give the gap and the fix:\n%s", out)
 	}
 }
+
+// A low paved share with plenty of pavement per resident is a rural city,
+// not lost geometry: it WARNs. Without residents to judge by, or with almost
+// no pavement per resident, it still FAILs.
+func TestCheckSite_LowPavedShareRuralWarns(t *testing.T) {
+	meta := func(pop float64) export.MetaJSON {
+		m := export.MetaJSON{ProjectName: "Demo", PavedShare: 0.005, TotalPaved: 50000, CityArea: 1e7}
+		if pop > 0 {
+			m.Metrics = map[string]export.MetricSummaryJSON{"population": {Total: &pop}}
+		}
+		return m
+	}
+	for _, tc := range []struct {
+		name string
+		pop  float64
+		fail bool
+	}{
+		{"rural: 125 m² per resident", 400, false},
+		{"lost geometry: 0.5 m² per resident", 100000, true},
+		{"no population", 0, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := buildValidSite(t)
+			writeJSONFile(t, filepath.Join(dir, "demo-ca", "data", "meta.json"), meta(tc.pop))
+			out, err := run(t, dir, false)
+			if tc.fail {
+				if !errors.Is(err, cmdutil.ErrSilent) || !strings.Contains(out, "near-zero-area") {
+					t.Fatalf("want the near-zero-area FAIL, got %v:\n%s", err, out)
+				}
+				return
+			}
+			if err != nil || !strings.Contains(out, "125 m² per resident is plausible") {
+				t.Fatalf("want a rural WARN and no failure, got %v:\n%s", err, out)
+			}
+		})
+	}
+}

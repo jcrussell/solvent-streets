@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/jcrussell/solvent-streets/internal/export"
+	"github.com/jcrussell/solvent-streets/internal/population"
 )
 
 // dataDirsWithLabel returns every per-city data directory in the site, each
@@ -43,6 +44,14 @@ func (r *runner) checkReasonableness(s *site) {
 // signals the near-zero-area geometry bug.
 const minPlausiblePavedShare = 0.01
 
+// minPlausiblePavedPerResident (m²) tells a rural city from that bug. A city
+// can pave under 1% of its land and still be whole: Juneau's borough is mostly
+// icefield (0.06% paved, 124 m² per resident), and a New England township is
+// mostly woods. Lost geometry leaves the residents and drops the pavement, so
+// a low share with at least this much per resident is a WARN, not a FAIL. The
+// release site's median is about 70 m² per resident.
+const minPlausiblePavedPerResident = 10.0
+
 // checkMeta flags the near-zero-area geometry bug: a city whose paved_share
 // (0..1) is positive but under minPlausiblePavedShare. An absent/zero value is
 // WARNed, not FAILed — it can be legitimately omitted for a not-yet-computed
@@ -55,6 +64,9 @@ func (r *runner) checkMeta(label, path string) {
 	switch {
 	case meta.PavedShare <= 0:
 		r.warnf("reasonableness: %s: paved_share is absent/zero — cannot validate paved area", label)
+	case meta.PavedShare < minPlausiblePavedShare && pavedPerResident(meta) >= minPlausiblePavedPerResident:
+		r.warnf("reasonableness: %s: paved %.3f%% < %.0f%%, but %.0f m² per resident is plausible — a rural or largely undeveloped city, not lost geometry",
+			label, meta.PavedShare*100, minPlausiblePavedShare*100, pavedPerResident(meta))
 	case meta.PavedShare < minPlausiblePavedShare:
 		r.failf("reasonableness: %s: paved %.3f%% < %.0f%% — possible near-zero-area geometry bug", label, meta.PavedShare*100, minPlausiblePavedShare*100)
 	default:
@@ -84,6 +96,16 @@ func (r *runner) checkMeta(label, path string) {
 		r.warnf("reasonableness: %s: partial %s: no %s data (its last ingest failed) — re-ingest before publishing",
 			label, rt, strings.Join(meta.IngestFailures[rt], ", "))
 	}
+}
+
+// pavedPerResident is the city's paved area per resident in m², or 0 when
+// the site carries no population for it.
+func pavedPerResident(meta export.MetaJSON) float64 {
+	pop, ok := meta.Metrics[population.KeyPopulation]
+	if !ok || pop.Total == nil || *pop.Total <= 0 {
+		return 0
+	}
+	return meta.TotalPaved / *pop.Total
 }
 
 // checkForecast validates each resource's baseline projection: PCI must fall
