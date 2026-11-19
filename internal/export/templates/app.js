@@ -343,7 +343,6 @@
         // place), defeating the dedupe and leaving stale scope figures.
         var compareLoaded = false;
         var compareCharts = [];
-        var aggregateLoaded = false;
         var aggregateCharts = [];
         // Materials tab chart handles + stale-load guard. Declared here (like the
         // compare/aggregate arrays above) so a boot-time deep link ?tab=materials-tab
@@ -3439,14 +3438,10 @@
                 }
             }
 
-            // The Aggregate tab freezes nothing — it reflects the live scope.
-            // Compare deliberately does NOT react (it's a one-shot frozen at
-            // first load), so only the aggregate is re-rendered here. Guarded
-            // so it only fires once its data has loaded and the tab is active.
-            if (aggregateLoaded && allCityDataPromise) {
-                const aggEl = document.getElementById('aggregate-tab');
-                if (aggEl && aggEl.classList.contains('active')) loadAggregateData();
-            }
+            // Compare and Aggregate read currentScope through extractMetrics,
+            // so they follow the toggle as they follow units and tag filters
+            // (solvent-streets-aeia).
+            rerenderTagScopedTabs();
 
             // Materials is per-city like Financials, so it must follow the scope
             // toggle too — but only when it's the active tab (it re-fetches, unlike
@@ -4429,7 +4424,7 @@
         });
 
         // ── Compare tab ──
-        // State vars (compareLoaded/compareCharts/aggregateLoaded/aggregateCharts/
+        // State vars (compareLoaded/compareCharts/aggregateCharts/
         // allCityDataPromise) are declared+initialized above the applyInitialState
         // IIFE — see the note there — so a deep link does not get its guards wiped.
 
@@ -4501,18 +4496,15 @@
             renderCompare(scopeCityData(await loadAllCityData()));
         }
 
-        // Aggregate re-renders on every scope toggle, so it is NOT one-shot:
-        // the guard only blocks the initial fetch, while renderAggregate is
-        // free to re-run over the cached data (extractMetrics reads
-        // currentScope live).
+        // Aggregate is NOT one-shot: every call re-renders over the cached
+        // all-city data (extractMetrics reads currentScope live).
         async function loadAggregateData() {
             if (CITIES.length === 0) return;
-            aggregateLoaded = true;
             renderAggregate(scopeCityData(await loadAllCityData()));
         }
 
         // rerenderTagScopedTabs re-runs whichever of Compare/Aggregate is
-        // active after the tag filters changed. Compare is one-shot
+        // active after the tag filters or the scope changed. Compare is one-shot
         // (compareLoaded gates its only render), so reset that guard to force a
         // re-render; Aggregate always re-renders. Only the active tab is re-run
         // — the other picks up selectedTags when next opened. renderAggregate

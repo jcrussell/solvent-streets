@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { load } from './harness.mjs';
-import { metaJSON, scenariosJSON, forecastJSON, seedJSON, readFixture } from './fixtures.mjs';
+import { metaJSON, scenariosJSON, forecastJSON, seedJSON, readFixture, fullData } from './fixtures.mjs';
 
 const MEDALS = ['\u{1F947}', '\u{1F948}', '\u{1F949}'];
 
@@ -129,4 +129,21 @@ test('Years to Insolvency shows no silver under an unmedalled leader (solvent-st
   const ins = lbBlock(doc, 'Years to Insolvency');
   assert.deepEqual(lbMedals(ins), ['1.', '2.']);
   assert.equal(ins.querySelector('.lb-award'), null);
+});
+
+// Compare's per-area figures depend on the scope, so the scope toggle must
+// re-render it, and a units round trip must not change it (solvent-streets-aeia).
+test('Compare follows the scope toggle, and a units round trip leaves it unchanged', async () => {
+  const { win, $, flush } = load({ data: { ...fullData, 'compare.json': readFixture('compare.json') },
+    url: 'https://example.test/index.html?tab=compare-tab' });
+  await flush(12);
+  const text = () => $('#compare-tab').textContent.replace(/\s+/g, ' ');
+  const city = text();
+  win.selectScope('all'); await flush(8);
+  const all = text();
+  assert.notEqual(all, city, 'the scope toggle did not re-render Compare');
+  const flip = () => win.selectUnits(win.eval('UNIT_SYSTEM') === 'metric' ? 'imperial' : 'metric');
+  flip(); await flush(8);
+  flip(); await flush(8);
+  assert.equal(text(), all, 'a units round trip changed Compare');
 });
