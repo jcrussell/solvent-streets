@@ -110,8 +110,9 @@ and the value is everything after the first colon. The `group` dimension
 builds the selector's sections. Every dimension with at least two values gets
 a filter in the gear menu. Filters combine with AND, apply on every tab, and
 are recorded in the URL as `?tag=dimension:value`. Every city whose name ends
-in a comma and a two-letter code (`"Livermore, CA"`, but also `"Toronto, ON"`)
-also gets a `state:XX` tag at export, unless it sets a `state:` tag itself. Malformed tags are rejected at load, for example
+in a comma and a US state, DC or territory postal code (`"Livermore, CA"`)
+also gets a `state:XX` tag at export, unless it sets a `state:` tag itself.
+Any other code (`"Toronto, ON"`) derives no tag; set one explicitly if you want it. Malformed tags are rejected at load, for example
 `":CA"`, `"state:"` or `"State:CA"`.
 
 ## Including other configs (`[[include]]`)

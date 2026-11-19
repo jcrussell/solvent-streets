@@ -28,6 +28,21 @@ var tagDimRe = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
 // name in the shipped examples carries ("Livermore, CA", "Washington, DC").
 var stateSuffixRe = regexp.MustCompile(`, ([A-Z]{2})$`)
 
+// usPostalCodes is every code StateFromName accepts: the 50 states, DC and
+// the inhabited territories. Any other ", XX" suffix ("Toronto, ON") is not a
+// US state and derives no tag (solvent-streets-zcyy).
+var usPostalCodes = func() map[string]bool {
+	m := make(map[string]bool)
+	for c := range strings.FieldsSeq(`
+		AL AK AZ AR CA CO CT DE FL GA HI ID IL IN IA KS KY LA ME MD
+		MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC
+		SD TN TX UT VT VA WA WV WI WY
+		DC PR GU VI AS MP`) {
+		m[c] = true
+	}
+	return m
+}()
+
 // ParseTag splits a tag into its dimension and value. The split is on the
 // FIRST colon only, so a value may itself contain colons. A tag with no colon
 // belongs to DefaultTagDimension and is returned whole as the value.
@@ -70,17 +85,18 @@ func validateTag(tag string) error {
 }
 
 // StateFromName extracts the two-letter postal state from a ", XX" suffix on a
-// city name. Returns false when the name has no such suffix.
+// city name. Returns false when the name has no such suffix or XX is not a US
+// postal code (see usPostalCodes).
 func StateFromName(name string) (string, bool) {
 	m := stateSuffixRe.FindStringSubmatch(strings.TrimSpace(name))
-	if m == nil {
+	if m == nil || !usPostalCodes[m[1]] {
 		return "", false
 	}
 	return m[1], true
 }
 
 // EffectiveTags returns the city's explicit Tags plus a derived
-// "state:XX" tag when the name carries a ", XX" suffix and no explicit tag in
+// "state:XX" tag when the name carries a ", XX" US postal suffix and no explicit tag in
 // the state dimension is present. It is the single place the derivation lives;
 // the exporter calls it when building CityInfo so cities.json, the inline
 // PVMT_CONFIG payload, the selector groups and /api/cities all agree, while

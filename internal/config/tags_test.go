@@ -63,6 +63,11 @@ func TestStateFromName(t *testing.T) {
 		{"Livermore, California", "", false},
 		{"Livermore,CA", "", false},
 		{"Oakland, ca", "", false},
+		// Only US postal codes derive (solvent-streets-zcyy): a Canadian
+		// province or any other two capitals is not a US state.
+		{"Toronto, ON", "", false},
+		{"Paris, FR", "", false},
+		{"San Juan, PR", "PR", true},
 	}
 	for _, tc := range cases {
 		st, ok := StateFromName(tc.name)
@@ -87,6 +92,7 @@ func TestCityConfig_EffectiveTags(t *testing.T) {
 		{"explicit wins", CityConfig{Name: "Kansas City, MO", Tags: []string{"state:KS"}}, []string{"state:KS"}},
 		{"no suffix", CityConfig{Name: "Livermore", Tags: []string{"Bay Area"}}, []string{"Bay Area"}},
 		{"no suffix untagged", CityConfig{Name: "Livermore"}, nil},
+		{"non-US suffix", CityConfig{Name: "Toronto, ON", Tags: []string{"Canada"}}, []string{"Canada"}},
 	}
 	for _, tc := range cases {
 		got := tc.city.EffectiveTags()
