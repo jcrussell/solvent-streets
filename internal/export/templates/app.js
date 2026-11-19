@@ -626,7 +626,8 @@
             if (!list || list.scrollWidth <= list.clientWidth) return;
             const left = btn.offsetLeft - list.offsetLeft;
             if (left < list.scrollLeft || left + btn.offsetWidth > list.scrollLeft + list.clientWidth) {
-                list.scrollLeft = Math.max(0, left - 16);
+                // Clear of the phone strip's 28 px left fade (solvent-streets-eaqn).
+                list.scrollLeft = Math.max(0, left - 32);
             }
         }
         function selectTab(tabId, opts) {
