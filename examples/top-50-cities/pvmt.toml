@@ -267,6 +267,12 @@ overpass = true
 # 27.
 [[cities]]
 name = "Louisville, KY"
+# The boundary is the consolidated Louisville Metro: Jefferson County minus
+# its separately incorporated small cities, 841 km2. The Census splits it
+# into the "metro government (balance)" place plus the nonfunctioning
+# pre-merger "Louisville city" place; their land adds up to 840 km2
+# (TIGERweb, checked 2026-11-19). Compare against both, not against
+# "Louisville city" alone (159 km2).
 #@cite FY2025 paving budget, Metro Public Works 3-Year Paving Plan 2025-2027
 #@cite     https://louisvilleky.gov/sites/default/files/2024-12/fy-25-3-yr-paving-plan-final-20240415.pdf (accessed 2026-06-14)
 forecast.current_budget = 30000000.0
