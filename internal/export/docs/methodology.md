@@ -130,6 +130,31 @@ tiers reproduce that city's published budget. The
 [validation report](https://github.com/jcrussell/solvent-streets/blob/main/docs/validation.md)
 gives the derivation and the limits of that anchor.
 
+### Materials
+
+The Materials tab turns each forecast year's treatment into the asphalt it
+takes. Each year the model treats the same `1/N` of the network the cost
+model bills (see the treatment cycle above), and of that only the
+asphalt-surfaced share: sidewalks are concrete, so their area is netted out
+rather than priced as hot-mix. The year's network-average PCI picks one
+treatment tier for all of it by condition band (preventive, rehab or
+reconstruction), whatever the city's cost tiers are called. The tab's
+**Material Intensity by Treatment Tier** table gives each tier's mix and
+binder per unit area.
+
+Mix per area is a treatment's compacted lift thickness times dense-graded
+hot-mix density (Asphalt Institute MS-2), or a slurry application rate for
+preventive work. Binder (asphalt cement, or bitumen) is a typical
+asphalt-content share of the mix mass, and aggregate is the rest.
+**Oil-equivalent barrels** are the binder's volume in barrels, a
+first-order "how much oil" figure rather than a refinery yield.
+
+The headline cards are the yearly average over the horizon under the
+best-funded comparison run, the one ending at the highest PCI. Under
+imperial units, mass is shown in US short tons. The tiers are
+planning-grade defaults, the same for every city, not a city's own mix
+designs.
+
 ### Scenario comparisons
 
 pvmt ships with three comparison runs driven by annual funding level, all
