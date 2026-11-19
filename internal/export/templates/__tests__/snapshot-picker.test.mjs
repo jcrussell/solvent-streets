@@ -111,3 +111,12 @@ test('back across a snapshot change keeps the entry\'s Color-by', async () => {
   assert.equal(get('hexMetric'), 'population', 'the Color-by fell back to coverage');
   assert.equal(new URLSearchParams(win.location.search).get('metric'), 'population');
 });
+
+test('a cold ?snapshot= deep link selects that snapshot and keeps it in the URL (solvent-streets-6wyp)', async () => {
+  const { win, $, flush, fetchURLs } = load({ page: 'index-live', data: { ...fullData, snapshots },
+    url: 'https://example.test/index-live.html?snapshot=v0.5.0' });
+  await flush(12);
+  assert.equal($('#snapshot-picker').value, 'v0.5.0');
+  assert.equal(new URLSearchParams(win.location.search).get('snapshot'), 'v0.5.0');
+  assert.ok(fetchURLs().some((u) => u.includes('snapshot=v0.5.0')), 'no data request named the snapshot');
+});

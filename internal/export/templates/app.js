@@ -413,6 +413,10 @@
                 'No cities match ' + (labels.length ? labels.join(' + ') : 'these filters') + '.';
         }
 
+        // A deep-linked ?snapshot=, read before the boot's Router.replace drops
+        // it: the picker holds no snapshot names until loadSnapshots fills it.
+        const bootSnapshot = Router.read().snapshot;
+
         // Apply URL state synchronously, before first render, to avoid flicker.
         // currentScope is set here (default 'city') and is the sole source of
         // truth thereafter — selectScope is the only function that changes it.
@@ -2155,7 +2159,8 @@
         // snapshot, or for a city with none its latest compute. "latest"
         // (?snapshot=latest) is the latest compute, snapshotted or not.
         const LATEST_COMPUTE_LABEL = 'Latest compute (not snapshotted)';
-        async function loadSnapshots(slug) {
+        /** @param {string} slug @param {string|null} [want] snapshot to select once the list lands */
+        async function loadSnapshots(slug, want) {
             const sel = selectById('snapshot-picker');
             if (!sel) return; // static export
             const url = slug ? 'api/cities/' + slug + '/snapshots' : 'api/snapshots';
@@ -2177,21 +2182,17 @@
             sel.innerHTML = '<option value="">' + label + ' (' + served.name + ', ' + fmt(served.created_at).slice(0, 10) + ')</option>' +
                 '<option value="latest">' + LATEST_COMPUTE_LABEL + '</option>' +
                 list.map(s => '<option value="' + s.name + '" title="' + (s.config_hash || '').slice(0, 12) + '">' + s.name + ' ' + fmt(s.created_at) + '</option>').join('');
-            // Restore from URL (covers initial load and bfcache restores).
-            const want = Router.read().snapshot;
             if (want && (String(want) === 'latest' || list.some(s => s.name === String(want)))) {
                 const prev = sel.value;
                 sel.value = String(want);
                 // Boot's initial loadCityData/loadFinancials ran with the picker
-                // empty (Latest). If the URL deep-links a real snapshot, reload
-                // once so the board/financials reflect that snapshot. Guard against a
-                // redundant load when the picker already held this value; the
-                // Bug-1 generation guard makes a stray concurrent reload safe, but
-                // avoid an obviously wasteful double-load.
+                // empty, so reload once for the deep-linked snapshot and put it
+                // back in the URL the boot's replace wrote without it.
                 if (sel.value !== prev) {
                     loadCityData();
                     loadFinancials();
                     reloadMaterialsIfActive();
+                    Router.replace();
                 }
             }
         }
@@ -2214,7 +2215,7 @@
             const initSlug = (typeof CITIES !== 'undefined' && CITIES.length > 0)
                 ? (selectById('city-select')?.value || CITIES[0].slug)
                 : '';
-            loadSnapshots(initSlug);
+            loadSnapshots(initSlug, bootSnapshot);
         }
 
         // Financials
