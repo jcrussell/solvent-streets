@@ -335,3 +335,14 @@ test('no matching city shows the no-match panel; clearing restores the city', as
   assert.equal($('#no-match').hidden, true);
   assert.notEqual($('#city-select').value, '', 'clearing the filters selects a city again');
 });
+
+test('a history entry whose tab is no valid selector is ignored (solvent-streets-ern4.39)', async () => {
+  const errors = [];
+  const { win, $, flush } = load({ data: fullData,
+    before: (w) => w.addEventListener('error', (e) => errors.push(String(e.message))) });
+  await flush();
+  win.dispatchEvent(new win.PopStateEvent('popstate', { state: { tab: 'a"]b' } }));
+  await flush();
+  assert.deepEqual(errors, []);
+  assert.equal($('.tab-btn.active').dataset.tab, 'map-tab');
+});
