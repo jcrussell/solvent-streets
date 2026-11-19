@@ -2183,6 +2183,9 @@
             const url = slug ? 'api/cities/' + slug + '/snapshots' : 'api/snapshots';
             const list = await loadJSON(url);
             if (gen !== snapshotListGen) return;
+            // Without an explicit want, the URL names the snapshot: a
+            // back/forward entry's, since popstate's selectCity passes none.
+            if (want == null) want = Router.read().snapshot;
             if (!list || list.length === 0) {
                 sel.innerHTML = '<option value="">' + LATEST_COMPUTE_LABEL + '</option>';
                 return;

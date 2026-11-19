@@ -132,3 +132,14 @@ test('a late snapshot list for the city just left does not replace the new city\
   const opts = Array.from(h.$('#snapshot-picker').options).map((o) => o.value);
   assert.ok(opts.includes('beta-only') && !opts.includes('alpha-only'), 'picker holds ' + opts);
 });
+
+test('back across a city switch restores the entry\'s snapshot (solvent-streets-6wyp)', async () => {
+  const { win, $, flush } = load({ page: 'index-live', data: { ...fullData, snapshots },
+    url: 'https://example.test/index-live.html?city=alpha-ca' });
+  await flush(12);
+  win.selectSnapshot('v0.5.0'); await flush(8);
+  win.selectCity('beta-ca'); await flush(8);
+  win.history.back(); await flush(12);
+  assert.equal(new URLSearchParams(win.location.search).get('city'), 'alpha-ca');
+  assert.equal($('#snapshot-picker').value, 'v0.5.0', 'the picker lost the entry\'s snapshot');
+});
