@@ -148,7 +148,9 @@
             // state now but writes it once the input pauses, since Safari
             // throws SecurityError after ~100 replaceState calls in a short
             // window (solvent-streets-4hzr). push writes a pending state to
-            // the entry it leaves first; replace and popstate drop it.
+            // the entry it leaves first; replace and popstate drop it. The
+            // sliders also flush on release and the page on pagehide, so the
+            // only edit a Back can drop is one still being dragged.
             /** @type {any} */
             pending: null,
             /** @type {ReturnType<typeof setTimeout> | undefined} */
@@ -172,6 +174,17 @@
             },
         };
         const REPLACE_DEBOUNCE_MS = 250;
+        // Leaving the page inside the debounce window must not lose the last
+        // edit: write it before the document goes (reload, link, tab close).
+        window.addEventListener('pagehide', () => Router.flushSoon());
+        // flushOnRelease writes a slider's pending state as soon as the drag
+        // or key press ends, so a Back right after an edit cannot drop it:
+        // popstate fires after the entry has changed, too late to flush.
+        /** @param {HTMLElement} el */
+        function flushOnRelease(el) {
+            el.addEventListener('pointerup', () => Router.flushSoon());
+            el.addEventListener('keyup', () => Router.flushSoon());
+        }
 
         // Scope state. Declared above applyInitialState so the URL-state IIFE
         // can read/write it before the map state block runs.
@@ -3755,6 +3768,8 @@
                     runCustomScenario();
                     Router.replaceSoon();
                 });
+                // A typed value is committed on blur or Enter.
+                inp.addEventListener('change', () => Router.flushSoon());
             });
         }
 
@@ -4362,6 +4377,7 @@
             else Router.replace();
         }
         budgetSlider.addEventListener('input', () => setBudget(budgetFromSlider(parseFloat(budgetSlider.value) || 0), true));
+        flushOnRelease(budgetSlider);
         for (const id of ['budget-today', 'budget-hold']) {
             const btn = buttonById(id);
             btn.addEventListener('click', () => setBudget(parseFloat(btn.dataset.budget || '0') || 0));
@@ -4373,6 +4389,7 @@
             runCustomScenario();
             Router.replaceSoon();
         });
+        flushOnRelease(pciSlider);
         const overheadSlider = inputById('overhead-slider');
         overheadSlider.addEventListener('input', () => {
             renderOverheadValue();
@@ -4381,6 +4398,7 @@
             runCustomScenario();
             Router.replaceSoon();
         });
+        flushOnRelease(overheadSlider);
         queryAll('#strategy-buttons button').forEach(btn => {
             btn.addEventListener('click', () => {
                 setStrategy(btn.dataset.strategy || DEFAULT_STRATEGY);
