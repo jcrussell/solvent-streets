@@ -120,3 +120,14 @@ A config now has one forecast horizon, and its default is 30 years (up from 20).
 ### 10. Remove overlapping cost tiers
 
 A config whose `[[forecast.cost_tiers]]` bands overlap now fails to load with exit 2, naming the two bands. A PCI inside both had two prices, and the dashboard already refused to run its forecast controls on such a schedule. Move one band's `min_pci` or `max_pci` so the bands meet or leave a gap ([Forecast](configuration.md#forecast)).
+
+### Known issues
+
+These are open in v0.5.0. None of them needs a step from you; they are here so you can read the published figures with them in mind.
+
+- **Run one pvmt process per database at a time.** Only `snapshots create` retries a busy database. A compute that runs while another process ingests or collects garbage can stop with `SQLITE_BUSY` and discard its work, and two processes that open a brand-new database at once can fail the same way. Rerun the one that stopped.
+- **Some state and federal routes count as city streets.** Jurisdiction is read from each road's OpenStreetMap `ref`. Historic designations (`US HISTORIC 66`) and ref shapes the rules don't anchor on fall through to city maintenance, so a city's maintained area can include a little state or federal mileage.
+- **A garage mapped inside a parking-lot polygon is over-counted.** The lot's area already includes the garage's footprint, and the garage adds it again once per level, so the footprint counts levels + 1 times. Such nesting is uncommon in OpenStreetMap and has not been seen in the published data.
+- **Boundaries are OpenStreetMap's.** Area, population and per-resident figures all describe the OSM polygon. Where it lags the Census, a city is smaller than its legal limits. In the published site, Austin, TX is missing about 160 km² and Cheyenne, WY about 27 km² of recent annexations. Louisville, KY is the consolidated metro, and Honolulu, HI includes East Honolulu.
+- **Some cities' parking or sidewalks are barely mapped.** Where OpenStreetMap maps few lots or sidewalks (much of Los Angeles County, among others), that layer's per-resident figures and rankings undercount the city. `pvmt check-site` lists each such layer under COVERAGE.
+- **Service coverage edge cases.** `services ingest --force` fetches the boundary twice. A city where no fire station snaps to the road network computes 0% coverage but shows no coverage layer on the site.
