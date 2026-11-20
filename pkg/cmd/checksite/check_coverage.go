@@ -10,6 +10,7 @@ import (
 
 	"github.com/jcrussell/solvent-streets/internal/export"
 	"github.com/jcrussell/solvent-streets/internal/metric"
+	"github.com/jcrussell/solvent-streets/internal/stats"
 )
 
 // minCoverageCorpus is the fewest cities, each with residents and the
@@ -90,7 +91,7 @@ func (r *runner) judgeCoverage(rt string, cities []cityCoverage) {
 		vals[i] = c.perResid
 	}
 	sort.Float64s(vals)
-	med := export.Median(vals)
+	med := stats.Median(vals)
 	if med <= 0 {
 		return
 	}

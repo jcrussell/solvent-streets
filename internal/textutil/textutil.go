@@ -27,3 +27,12 @@ func TruncateRunes(s string, maxRunes int, ellipsis string) string {
 	}
 	return s[:i] + ellipsis
 }
+
+// Plural returns one when n is 1 and many otherwise, for a count printed
+// beside its noun: fmt.Sprintf("%d %s", n, Plural(n, "city", "cities")).
+func Plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
+}

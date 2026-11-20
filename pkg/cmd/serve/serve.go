@@ -13,6 +13,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/hint"
 	"github.com/jcrussell/solvent-streets/internal/server"
 	"github.com/jcrussell/solvent-streets/internal/units"
+	"github.com/jcrussell/solvent-streets/internal/warn"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 
@@ -195,7 +196,7 @@ func pinEntries(ctx context.Context, entries []exportpkg.CityEntry, errOut io.Wr
 		return hint.NeedsFirst(fmt.Errorf("nothing to serve: %s", noCity(entries, "snapshot or latest compute")), "pvmt all compute")
 	}
 	for _, err := range empty {
-		cmdutil.FprintWarnf(errOut, "%v; serving it without data", err)
+		warn.Fprintf(errOut, "%v; serving it without data", err)
 		hint.Fprint(errOut, err)
 	}
 	return nil
@@ -225,16 +226,16 @@ func pinEntry(ctx context.Context, entry exportpkg.CityEntry, errOut io.Writer) 
 	if len(snaps) > 0 {
 		snap := &snaps[0] // newest first
 		if w := entry.SnapshotSettingsWarning(snap); w != "" {
-			cmdutil.FprintWarnf(errOut, "%s; serving it as created", w)
+			warn.Fprintf(errOut, "%s; serving it as created", w)
 		}
 		if len(latest) == 0 {
-			cmdutil.FprintWarnf(errOut, "%s has nothing computed under the current settings, so its "+
+			warn.Fprintf(errOut, "%s has nothing computed under the current settings, so its "+
 				"Latest compute view is empty; run 'pvmt --city %s all compute' to fill it", entry.City.Name, entry.Slug)
 		}
 		return entry.WithSnapshot(snap.ID), nil, nil
 	}
 	if len(latest) > 0 {
-		cmdutil.FprintWarnf(errOut, "%s has no snapshot; serving its latest compute (not snapshotted); "+
+		warn.Fprintf(errOut, "%s has no snapshot; serving its latest compute (not snapshotted); "+
 			"run 'pvmt snapshots create <name>' to publish it", entry.City.Name)
 		return exportpkg.LatestComputeEntry(entry, latest), nil, nil
 	}
@@ -283,7 +284,7 @@ func pinNamed(ctx context.Context, entries []exportpkg.CityEntry, name string, e
 			return fmt.Errorf("snapshot %q for %s: %w", name, entry.City.Name, err)
 		}
 		if w := entry.SnapshotSettingsWarning(snap); w != "" {
-			cmdutil.FprintWarnf(errOut, "%s; serving it as created", w)
+			warn.Fprintf(errOut, "%s; serving it as created", w)
 		}
 	}
 	return nil
@@ -313,7 +314,7 @@ func warnStaleLatest(ctx context.Context, entry exportpkg.CityEntry, errOut io.W
 	if len(stale) == 0 {
 		return nil
 	}
-	cmdutil.FprintWarnf(errOut, "%s's latest compute is stale: %s. Its Latest compute view is drawn on the "+
+	warn.Fprintf(errOut, "%s's latest compute is stale: %s. Its Latest compute view is drawn on the "+
 		"current boundary and will not match its totals; run 'pvmt --city %s all compute'",
 		entry.City.Name, strings.Join(stale, "; "), entry.Slug)
 	return nil

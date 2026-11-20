@@ -12,6 +12,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/geo"
 	"github.com/jcrussell/solvent-streets/internal/hint"
 	"github.com/jcrussell/solvent-streets/internal/resource"
+	"github.com/jcrussell/solvent-streets/internal/textutil"
 	warnpkg "github.com/jcrussell/solvent-streets/internal/warn"
 )
 
@@ -240,11 +241,7 @@ func notCovered(name string, missing []string, total int) error {
 		return hint.Withf(fmt.Errorf("%w named %q covers any configured city", ErrNoSnapshot, name),
 			"check 'pvmt snapshots list' for available names")
 	}
-	noun := "city"
-	if len(missing) > 1 {
-		noun = "cities"
-	}
-	return hint.Withf(fmt.Errorf("snapshot %q does not cover %d %s (%s): %w", name, len(missing), noun, strings.Join(missing, ", "), ErrNoSnapshot),
+	return hint.Withf(fmt.Errorf("snapshot %q does not cover %d %s (%s): %w", name, len(missing), textutil.Plural(len(missing), "city", "cities"), strings.Join(missing, ", "), ErrNoSnapshot),
 		"export the cities it covers with --city, or create a snapshot covering them all with 'pvmt snapshots create <name>'")
 }
 

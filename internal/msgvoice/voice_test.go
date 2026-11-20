@@ -23,19 +23,17 @@ import (
 // messageArg maps a call (package-qualified, or bare inside its own package)
 // to the index of its message argument.
 var messageArg = map[string]int{
-	"fmt.Errorf":          0,
-	"errors.New":          0,
-	"FlagErrorf":          0,
-	"cmdutil.FlagErrorf":  0,
-	"hint.With":           1,
-	"hint.Withf":          1,
-	"hint.Addf":           1,
-	"cmdutil.Warnf":       1,
-	"cmdutil.FprintWarnf": 1,
-	"Warnf":               1,
-	"FprintWarnf":         1,
-	"warn.Fprintf":        1,
-	"warnpkg.Fprintf":     1,
+	"fmt.Errorf":         0,
+	"errors.New":         0,
+	"FlagErrorf":         0,
+	"cmdutil.FlagErrorf": 0,
+	"hint.With":          1,
+	"hint.Withf":         1,
+	"hint.Addf":          1,
+	"cmdutil.Warnf":      1,
+	"Warnf":              1,
+	"warn.Fprintf":       1,
+	"warnpkg.Fprintf":    1,
 	// The command a missing prerequisite names, and the noun an unknown
 	// value is reported for.
 	"NeedsFirst":                 1,

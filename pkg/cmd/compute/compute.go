@@ -22,6 +22,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/results"
 	"github.com/jcrussell/solvent-streets/internal/tui"
 	"github.com/jcrussell/solvent-streets/internal/units"
+	"github.com/jcrussell/solvent-streets/internal/warn"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 
@@ -491,14 +492,14 @@ func LoadBoundary(ctx context.Context, store db.Store, city *config.CityConfig, 
 	// oversized city isn't silently mis-measured (bbox is [south,west,north,east],
 	// so the lon span is east-west = bbox[3]-bbox[1]).
 	if geo.BBoxExceedsUTMZone(bbox) && warnOut != nil {
-		cmdutil.FprintWarnf(warnOut, "%s: its boundary spans %.1f° of longitude, more than one UTM zone (%d); metric areas near the edges may be distorted",
+		warn.Fprintf(warnOut, "%s: its boundary spans %.1f° of longitude, more than one UTM zone (%d); metric areas near the edges may be distorted",
 			city.Name, bbox[3]-bbox[1], proj.Zone)
 	}
 	// Surface partial boundary loss: a degenerate sub-polygon that fails
 	// cleaning silently drops a whole landmass from the boundary, shrinking
 	// computed area and hex coverage. Warn so operators can fix the source.
 	if _, _, dropped, gErr := geo.GeoJSONToProjectedGeometryDropped(boundaryGJSON, proj); gErr == nil && dropped > 0 && warnOut != nil {
-		cmdutil.FprintWarnf(warnOut, "%s: %d degenerate boundary sub-polygons dropped, so its area and hex coverage leave them out", city.Name, dropped)
+		warn.Fprintf(warnOut, "%s: %d degenerate boundary sub-polygons dropped, so its area and hex coverage leave them out", city.Name, dropped)
 	}
 	return boundaryGJSON, bbox, proj, nil
 }
@@ -797,7 +798,7 @@ func startProgressTicker(ctx context.Context, notify tui.PhaseNotifier, phase, t
 // warnUnclipped says that the city is being computed over its full bbox
 // lattice. Skipping the clip inflates coverage, so it must not be silent.
 func warnUnclipped(errOut io.Writer, city *config.CityConfig, clipErr error) {
-	cmdutil.FprintWarnf(errOut, "city %q is computed over its full bbox: %v", city.Name, clipErr)
+	warn.Fprintf(errOut, "city %q is computed over its full bbox: %v", city.Name, clipErr)
 }
 
 // decayRows returns, for road resources, each hex's default-rate blend of its

@@ -13,16 +13,11 @@ import (
 // errors that should abort use ErrHint/FlagErrorf instead.
 //
 // Format messages in Go stdlib style: lowercase leading letter, no
-// trailing punctuation. The "warning: " prefix is supplied here.
+// trailing punctuation. The "warning: " prefix is supplied here. A caller
+// that holds only the stderr writer uses warn.Fprintf, which writes the same
+// line.
 func Warnf(ios *iostreams.IOStreams, format string, args ...any) {
-	FprintWarnf(ios.ErrOut, format, args...)
-}
-
-// FprintWarnf is Warnf for a caller that holds only the stderr writer (a
-// producer handed errOut, or the TUI's log sink). Packages below the CLI
-// layer use internal/warn, which writes the same line.
-func FprintWarnf(w io.Writer, format string, args ...any) {
-	warn.Fprintf(w, format, args...)
+	warn.Fprintf(ios.ErrOut, format, args...)
 }
 
 // SkipNeedsFirst warns that err leaves the command nothing to do until

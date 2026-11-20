@@ -14,6 +14,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/internal/results"
 	"github.com/jcrussell/solvent-streets/internal/units"
+	"github.com/jcrussell/solvent-streets/internal/warn"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 
@@ -132,7 +133,7 @@ func bufferAllResources(ctx context.Context, store db.Store, proj *geo.UTMProjec
 			}
 			return nil
 		}); err != nil {
-			cmdutil.FprintWarnf(errOut, "combined: skipping %s, whose buffer failed: %v", rt.Type(), err)
+			warn.Fprintf(errOut, "combined: skipping %s, whose buffer failed: %v", rt.Type(), err)
 			continue
 		}
 		// Counts are input feature counts per jurisdiction, not the
@@ -163,7 +164,7 @@ var errNoValidGeoms = errors.New("no valid geometries to process")
 func loadFeaturesForCombined(ctx context.Context, store db.Store, rt resource.Source, errOut io.Writer) ([]resource.Feature, bool) {
 	dbFeatures, err := store.ListFeatures(ctx, rt.Type())
 	if err != nil {
-		cmdutil.FprintWarnf(errOut, "combined: skipping %s: %v", rt.Type(), err)
+		warn.Fprintf(errOut, "combined: skipping %s: %v", rt.Type(), err)
 		return nil, false
 	}
 	if len(dbFeatures) == 0 {

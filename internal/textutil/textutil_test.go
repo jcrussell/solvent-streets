@@ -33,3 +33,11 @@ func TestTruncateRunes(t *testing.T) {
 		})
 	}
 }
+
+func TestPlural(t *testing.T) {
+	for n, want := range map[int]string{0: "cities", 1: "city", 2: "cities"} {
+		if got := Plural(n, "city", "cities"); got != want {
+			t.Errorf("Plural(%d) = %q, want %q", n, got, want)
+		}
+	}
+}

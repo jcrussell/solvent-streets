@@ -13,6 +13,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/internal/results"
 	"github.com/jcrussell/solvent-streets/internal/services"
+	"github.com/jcrussell/solvent-streets/internal/stats"
 )
 
 // HexMetricsFileVersion is the "v" of hex-metrics.json; bump on any change
@@ -445,16 +446,6 @@ func metricSummary(ctx context.Context, entry CityEntry, grid *DrawnGrid, spec h
 	return sum, true, nil
 }
 
-// Median is the middle of sorted vals, or the mean of the two middle values
-// for an even count. vals must be non-empty.
-func Median(vals []float64) float64 {
-	n := len(vals)
-	if n%2 == 1 {
-		return vals[n/2]
-	}
-	return (vals[n/2-1] + vals[n/2]) / 2
-}
-
 // summarizeMetric reduces one metric's rows; ok is false when there are none.
 // unreachable is the count of hexes on the network with no value (a
 // service's unreachable hexes): they count against the within-threshold
@@ -478,7 +469,7 @@ func summarizeMetric(spec hexmetric.Spec, rows []db.HexMetric, unreachable int, 
 	sort.Float64s(vals)
 	sum := MetricSummaryJSON{
 		Label: spec.Label, Unit: spec.Unit, Format: spec.Format,
-		HexCount: len(vals), Min: roundMetric(vals[0]), Median: roundMetric(Median(vals)), Max: roundMetric(vals[len(vals)-1]),
+		HexCount: len(vals), Min: roundMetric(vals[0]), Median: roundMetric(stats.Median(vals)), Max: roundMetric(vals[len(vals)-1]),
 		PointCount: len(refs),
 	}
 	if spec.Additive {

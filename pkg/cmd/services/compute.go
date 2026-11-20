@@ -14,6 +14,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/internal/services"
 	"github.com/jcrussell/solvent-streets/internal/tui"
+	"github.com/jcrussell/solvent-streets/internal/warn"
 	"github.com/jcrussell/solvent-streets/pkg/cmd/compute"
 	"github.com/jcrussell/solvent-streets/pkg/cmd/ingest"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
@@ -291,7 +292,7 @@ func loadInputs(ctx context.Context, errOut io.Writer, opts *Options) (*inputs, 
 		return nil, fmt.Errorf("list routing roads: %w", err)
 	}
 	if len(routingRows) == 0 {
-		cmdutil.FprintWarnf(errOut, "no routing roads stored for %s, so routes run only on the city's own roads and a %s facility across the city line cannot reach it; run 'pvmt services ingest'", city.Name, in.spec.Name)
+		warn.Fprintf(errOut, "no routing roads stored for %s, so routes run only on the city's own roads and a %s facility across the city line cannot reach it; run 'pvmt services ingest'", city.Name, in.spec.Name)
 	}
 	in.roads = services.WithRoutingRoads(in.roads, in.source, db.ResourceFeatures(routingRows))
 	return in, nil
@@ -349,13 +350,13 @@ func route(ctx context.Context, out, progress, errOut io.Writer, notify tui.Phas
 	// Warnings go through errOut, the TUI's warn writer, not straight to
 	// ErrOut under the alt-screen program.
 	for _, i := range cov.Unsnapped {
-		cmdutil.FprintWarnf(errOut, "%s facility %s (%s) is more than %.0f m from any road and was ignored", spec.Name, facilities[i].ID, facilities[i].Name, services.FacilitySnapM)
+		warn.Fprintf(errOut, "%s facility %s (%s) is more than %.0f m from any road and was ignored", spec.Name, facilities[i].ID, facilities[i].Name, services.FacilitySnapM)
 	}
 	for _, i := range cov.Isolated {
-		cmdutil.FprintWarnf(errOut, "%s facility %s (%s) snapped to a road fragment of fewer than %d vertices (an apron or driveway OSM does not join to the street); it reaches almost nothing", spec.Name, facilities[i].ID, facilities[i].Name, services.MinFacilityComponent)
+		warn.Fprintf(errOut, "%s facility %s (%s) snapped to a road fragment of fewer than %d vertices (an apron or driveway OSM does not join to the street); it reaches almost nothing", spec.Name, facilities[i].ID, facilities[i].Name, services.MinFacilityComponent)
 	}
 	if len(cov.Hexes) == 0 {
-		cmdutil.FprintWarnf(errOut, "no %s facility reached the road network for %s, so there is no coverage figure; the warnings above say why", spec.Name, city.Name)
+		warn.Fprintf(errOut, "no %s facility reached the road network for %s, so there is no coverage figure; the warnings above say why", spec.Name, city.Name)
 	}
 	notify.PhaseDone(phaseRoute, nil)
 

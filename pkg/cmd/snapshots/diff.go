@@ -15,6 +15,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/metric"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/internal/results"
+	"github.com/jcrussell/solvent-streets/internal/textutil"
 	"github.com/jcrussell/solvent-streets/internal/units"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
@@ -511,7 +512,7 @@ func printDiff(opts *DiffOptions, a, b *db.Snapshot, rows []diffRow, compared in
 		sys = opts.UnitSystem()
 	}
 	fmt.Fprintf(ios.ErrOut, "%s (compute epoch %d) -> %s (compute epoch %d): %d %s in both, %d only in one\n",
-		a.Name, a.ComputeEpoch, b.Name, b.ComputeEpoch, compared, cityNoun(compared), len(rows)-compared)
+		a.Name, a.ComputeEpoch, b.Name, b.ComputeEpoch, compared, textutil.Plural(compared, "city", "cities"), len(rows)-compared)
 	if a.ComputeEpoch != b.ComputeEpoch {
 		fmt.Fprintf(ios.ErrOut, "The compute epochs differ: pvmt's compute logic changed between them, so results can move with no data change.\n")
 	}

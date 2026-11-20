@@ -6,6 +6,7 @@ import (
 	"time"
 
 	httpcache "github.com/jcrussell/solvent-streets/internal/cache"
+	"github.com/jcrussell/solvent-streets/internal/textutil"
 	"github.com/jcrussell/solvent-streets/pkg/cmd/prompt"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
@@ -203,9 +204,9 @@ func runPrune(ctx context.Context, opts *PruneOptions) error {
 	fmt.Fprintf(opts.IO.ErrOut,
 		"\nRemoved entries are re-fetched from Overpass/ArcGIS/Nominatim on next use.\n")
 	if err := cmdutil.ConfirmDestructive(ctx, opts.IO, opts.Prompter, opts.Yes,
-		fmt.Sprintf("Remove %d cache entr%s and reclaim %s?", victims, plural(victims),
+		fmt.Sprintf("Remove %d cache %s and reclaim %s?", victims, textutil.Plural(victims, "entry", "entries"),
 			cmdutil.HumanSize(plan.BytesReclaimed)),
-		fmt.Sprintf("refusing to remove %d cache entr%s without confirmation", victims, plural(victims)),
+		fmt.Sprintf("refusing to remove %d cache %s without confirmation", victims, textutil.Plural(victims, "entry", "entries")),
 	); err != nil {
 		return err
 	}
@@ -222,8 +223,8 @@ func runPrune(ctx context.Context, opts *PruneOptions) error {
 	// summary rather than a repeat of the block above; the counts are
 	// what actually happened, which can differ from the plan if another
 	// process touched the cache in between.
-	fmt.Fprintf(opts.IO.Out, "\nRemoved %d entr%s: %d by age, %d over size cap, %d incomplete.\n",
-		report.EntriesRemoved+report.OrphansRemoved, plural(report.EntriesRemoved+report.OrphansRemoved),
+	fmt.Fprintf(opts.IO.Out, "\nRemoved %d %s: %d by age, %d over size cap, %d incomplete.\n",
+		report.EntriesRemoved+report.OrphansRemoved, textutil.Plural(report.EntriesRemoved+report.OrphansRemoved, "entry", "entries"),
 		report.AgeRemoved, report.SizeRemoved, report.OrphansRemoved)
 	fmt.Fprintf(opts.IO.Out, "Reclaimed %s; %s remaining.\n",
 		cmdutil.HumanSize(report.BytesReclaimed), cmdutil.HumanSize(report.BytesRemaining))
@@ -248,7 +249,7 @@ func printPruneReport(opts *PruneOptions, dir string, r *httpcache.PruneReport) 
 	// "in entries" is deliberate: this total covers the `.json`/`.meta`
 	// pairs prune manages, and excludes any skipped path (a subdirectory
 	// or a file pvmt did not write), whose bytes prune never measures.
-	row("scanned", "%d entr%s, %s in entries", r.EntriesScanned, plural(r.EntriesScanned),
+	row("scanned", "%d %s, %s in entries", r.EntriesScanned, textutil.Plural(r.EntriesScanned, "entry", "entries"),
 		cmdutil.HumanSize(r.BytesReclaimed+r.BytesRemaining))
 	// Printed before the early return: a stray subdirectory or symlink is
 	// most worth flagging in exactly the run where nothing else happened.
@@ -265,11 +266,4 @@ func printPruneReport(opts *PruneOptions, dir string, r *httpcache.PruneReport) 
 		r.AgeRemoved, r.SizeRemoved, r.OrphansRemoved)
 	row("reclaimed", "%s", cmdutil.HumanSize(r.BytesReclaimed))
 	row("remaining", "%s", cmdutil.HumanSize(r.BytesRemaining))
-}
-
-func plural(n int) string {
-	if n == 1 {
-		return "y"
-	}
-	return "ies"
 }

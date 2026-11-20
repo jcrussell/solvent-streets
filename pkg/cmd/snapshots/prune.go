@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/jcrussell/solvent-streets/internal/db"
+	"github.com/jcrussell/solvent-streets/internal/textutil"
 	"github.com/jcrussell/solvent-streets/pkg/cmd/prompt"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
@@ -102,7 +103,7 @@ func runPrune(ctx context.Context, opts *PruneOptions) error {
 		return cmdutil.WriteRows(opts.IO, opts.Exporter, victimRows(victims, nil))
 	}
 	if opts.DryRun {
-		fmt.Fprintf(opts.IO.Out, "Would delete %s, keeping the %d newest:\n", snapshotCount(len(victims)), opts.Keep)
+		fmt.Fprintf(opts.IO.Out, "Would delete %d %s, keeping the %d newest:\n", len(victims), textutil.Plural(len(victims), "snapshot", "snapshots"), opts.Keep)
 		for _, s := range victims {
 			fmt.Fprintf(opts.IO.Out, "  %s\n", s.Name)
 		}
@@ -110,8 +111,8 @@ func runPrune(ctx context.Context, opts *PruneOptions) error {
 	}
 
 	if err := cmdutil.ConfirmDestructive(ctx, opts.IO, opts.Prompter, opts.Yes,
-		fmt.Sprintf("Delete %s, keeping the %d newest?", snapshotCount(len(victims)), opts.Keep),
-		fmt.Sprintf("refusing to prune %s without confirmation", snapshotCount(len(victims))),
+		fmt.Sprintf("Delete %d %s, keeping the %d newest?", len(victims), textutil.Plural(len(victims), "snapshot", "snapshots"), opts.Keep),
+		fmt.Sprintf("refusing to prune %d %s without confirmation", len(victims), textutil.Plural(len(victims), "snapshot", "snapshots")),
 	); err != nil {
 		return err
 	}
@@ -144,7 +145,7 @@ func deleteVictims(ctx context.Context, opts *PruneOptions, root db.RootStorer, 
 	if opts.Exporter != nil {
 		return cmdutil.WriteRows(opts.IO, opts.Exporter, victimRows(victims, gone))
 	}
-	fmt.Fprintf(opts.IO.Out, "Pruned %s (kept %d).\n", snapshotCount(deleted), opts.Keep)
+	fmt.Fprintf(opts.IO.Out, "Pruned %d %s (kept %d).\n", deleted, textutil.Plural(deleted, "snapshot", "snapshots"), opts.Keep)
 	return nil
 }
 
@@ -156,12 +157,4 @@ func victimRows(victims []db.Snapshot, gone []bool) []deletedRow {
 		rows[i] = deletedRow{snapshotRow: newSnapshotRow(s), Deleted: gone != nil && gone[i]}
 	}
 	return rows
-}
-
-// snapshotCount is n with the noun "snapshot", pluralized.
-func snapshotCount(n int) string {
-	if n == 1 {
-		return "1 snapshot"
-	}
-	return fmt.Sprintf("%d snapshots", n)
 }

@@ -21,6 +21,7 @@ import (
 	"slices"
 
 	"github.com/jcrussell/solvent-streets/internal/forecast"
+	"github.com/jcrussell/solvent-streets/internal/stats"
 )
 
 // --- Tunable game constants (exported so the design is inspectable/testable) ---
@@ -692,11 +693,7 @@ func medianRoadArea(hexes []HexConfig) float64 {
 		return 0
 	}
 	slices.Sort(areas)
-	mid := len(areas) / 2
-	if len(areas)%2 == 1 {
-		return areas[mid]
-	}
-	return (areas[mid-1] + areas[mid]) / 2
+	return stats.Median(areas)
 }
 
 // BandForPCI quantizes a PCI value (0..100) into one of BandCount equal-width

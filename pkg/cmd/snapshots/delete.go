@@ -7,6 +7,7 @@ import (
 
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/hint"
+	"github.com/jcrussell/solvent-streets/internal/textutil"
 	"github.com/jcrussell/solvent-streets/pkg/cmd/prompt"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
@@ -117,11 +118,11 @@ func runDelete(ctx context.Context, opts *DeleteOptions) error {
 		if opts.Exporter != nil {
 			return cmdutil.WriteRows(opts.IO, opts.Exporter, []deletedRow{{snapshotRow: newSnapshotRow(*snap)}})
 		}
-		fmt.Fprintf(opts.IO.Out, "Would delete snapshot %q (%d %s) and the runs only it uses.\n", snap.Name, snap.CityCount, cityNoun(snap.CityCount))
+		fmt.Fprintf(opts.IO.Out, "Would delete snapshot %q (%d %s) and the runs only it uses.\n", snap.Name, snap.CityCount, textutil.Plural(snap.CityCount, "city", "cities"))
 		return nil
 	}
 	if err := cmdutil.ConfirmDestructive(ctx, opts.IO, opts.Prompter, opts.Yes,
-		fmt.Sprintf("Delete snapshot %q (%d %s)?", snap.Name, snap.CityCount, cityNoun(snap.CityCount)),
+		fmt.Sprintf("Delete snapshot %q (%d %s)?", snap.Name, snap.CityCount, textutil.Plural(snap.CityCount, "city", "cities")),
 		fmt.Sprintf("refusing to delete snapshot %q without confirmation", snap.Name),
 	); err != nil {
 		return err

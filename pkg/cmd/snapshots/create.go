@@ -10,6 +10,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/hint"
+	"github.com/jcrussell/solvent-streets/internal/textutil"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 
@@ -204,7 +205,7 @@ func runCreate(ctx context.Context, opts *CreateOptions) error {
 	for _, r := range rows {
 		printCreateRow(opts.IO, r)
 	}
-	fmt.Fprintf(opts.IO.Out, "created %s: %d %s\n", snap.Name, snap.CityCount, cityNoun(snap.CityCount))
+	fmt.Fprintf(opts.IO.Out, "created %s: %d %s\n", snap.Name, snap.CityCount, textutil.Plural(snap.CityCount, "city", "cities"))
 	return nil
 }
 
@@ -258,7 +259,7 @@ func reportRefused(ctx context.Context, opts *CreateOptions, cfg *config.Config,
 		printCreateRow(opts.IO, r)
 	}
 	fmt.Fprintf(opts.IO.Out, "refused %q: %d of %d %s refused; nothing was created\n",
-		refused.Name, len(rows), len(cities), cityNoun(len(cities)))
+		refused.Name, len(rows), len(cities), textutil.Plural(len(cities), "city", "cities"))
 	return result
 }
 
@@ -274,7 +275,7 @@ func refusalError(name string, rows []createRow, cityCount int, onlyUncomputed b
 		first = "pvmt --city " + rows[0].City + " all compute"
 	}
 	return first, cmdutil.NeedsFirst(fmt.Errorf("snapshot %q refused: nothing computed under the current settings in %d of %d %s",
-		name, len(rows), cityCount, cityNoun(cityCount)), first)
+		name, len(rows), cityCount, textutil.Plural(cityCount, "city", "cities")), first)
 }
 
 // hintSentence is a row's hint as printed: a bare command (the --json hint
@@ -284,13 +285,6 @@ func hintSentence(h string) string {
 		return "run '" + h + "'"
 	}
 	return h
-}
-
-func cityNoun(n int) string {
-	if n == 1 {
-		return "city"
-	}
-	return "cities"
 }
 
 // printCreateRow writes a city's refusal ("oakland-ca: refused: <reasons>")

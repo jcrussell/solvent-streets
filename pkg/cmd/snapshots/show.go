@@ -9,6 +9,7 @@ import (
 
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
+	"github.com/jcrussell/solvent-streets/internal/textutil"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 
@@ -133,7 +134,7 @@ func runShow(ctx context.Context, opts *ShowOptions) error {
 	ios := opts.IO
 	fmt.Fprintf(ios.ErrOut, "Snapshot %s: created %s, compute epoch %d, %d %s\n", snap.Name,
 		iostreams.FormatTimestamp(snap.CreatedAt.UTC().Format(time.RFC3339), ios.IsTTY()),
-		snap.ComputeEpoch, snap.CityCount, cityNoun(snap.CityCount))
+		snap.ComputeEpoch, snap.CityCount, textutil.Plural(snap.CityCount, "city", "cities"))
 	if len(rows) == 0 {
 		fmt.Fprintf(ios.ErrOut, "It does not cover the selected city.\n")
 		return nil
