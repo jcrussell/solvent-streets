@@ -398,3 +398,49 @@ func TestAddDocumentJSONFlags_RejectsMisuseEarly(t *testing.T) {
 		}
 	}
 }
+
+// TestAddJSONFlags_Completion: --json completes the fields not yet listed,
+// after the ones typed, without a trailing space; --jq and --template
+// complete nothing, and never a file name.
+func TestAddJSONFlags_Completion(t *testing.T) {
+	cmd := &cobra.Command{Use: "x"}
+	var e Exporter
+	AddJSONFlags(cmd, &e, []string{"city", "resource_type", "run_id"})
+	complete := func(flag, toComplete string) ([]cobra.Completion, cobra.ShellCompDirective) {
+		t.Helper()
+		fn, ok := cmd.GetFlagCompletionFunc(flag)
+		if !ok {
+			t.Fatalf("--%s has no completion", flag)
+		}
+		return fn(cmd, nil, toComplete)
+	}
+	for toComplete, want := range map[string]string{
+		"":             "city resource_type run_id",
+		"r":            "resource_type run_id",
+		"city,":        "city,resource_type city,run_id",
+		"city,run_id,": "city,run_id,resource_type",
+		"city,x":       "",
+	} {
+		got, dir := complete("json", toComplete)
+		if strings.Join(got, " ") != want {
+			t.Errorf("--json %q completes %q, want %q", toComplete, got, want)
+		}
+		if dir&cobra.ShellCompDirectiveNoFileComp == 0 || dir&cobra.ShellCompDirectiveNoSpace == 0 {
+			t.Errorf("--json %q: directive %v, want NoFileComp|NoSpace", toComplete, dir)
+		}
+	}
+	for _, flag := range []string{"jq", "template"} {
+		if got, dir := complete(flag, ""); len(got) != 0 || dir&cobra.ShellCompDirectiveNoFileComp == 0 {
+			t.Errorf("--%s completes %q (%v), want nothing and no files", flag, got, dir)
+		}
+	}
+
+	doc := &cobra.Command{Use: "y"}
+	var de *DocumentExporter
+	AddDocumentJSONFlags(doc, &de, "usage")
+	for _, flag := range []string{"jq", "template"} {
+		if _, ok := doc.GetFlagCompletionFunc(flag); !ok {
+			t.Errorf("document --%s has no completion", flag)
+		}
+	}
+}

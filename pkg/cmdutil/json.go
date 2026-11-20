@@ -65,6 +65,8 @@ func AddJSONFlags(cmd *cobra.Command, exporter *Exporter, validFields []string) 
 	cmd.Flags().StringVar(&jqExpr, "jq", "", "Filter JSON output using a jq expression (requires --json)")
 	cmd.Flags().StringVar(&tmplStr, "template", "", "Format JSON output using a Go template (requires --json)")
 	cmd.MarkFlagsMutuallyExclusive("jq", "template")
+	_ = cmd.RegisterFlagCompletionFunc("json", jsonFieldCompletion(validFields))
+	registerFilterCompletion(cmd)
 
 	oldPreRun := cmd.PreRunE
 	cmd.PreRunE = func(cmd *cobra.Command, args []string) error {
@@ -74,6 +76,35 @@ func AddJSONFlags(cmd *cobra.Command, exporter *Exporter, validFields []string) 
 			}
 		}
 		return buildExporter(jsonFields, jqExpr, tmplStr, validFields, exporter)
+	}
+}
+
+// jsonFieldCompletion completes a --json field list: the valid fields not yet
+// in it, each after the fields already typed ("city,re" offers
+// "city,resource_type"), without a trailing space so another ",field" can
+// follow.
+func jsonFieldCompletion(validFields []string) cobra.CompletionFunc {
+	return func(_ *cobra.Command, _ []string, toComplete string) ([]cobra.Completion, cobra.ShellCompDirective) {
+		prefix, partial := "", toComplete
+		if i := strings.LastIndexByte(toComplete, ','); i >= 0 {
+			prefix, partial = toComplete[:i+1], toComplete[i+1:]
+		}
+		typed := strings.Split(prefix, ",")
+		var out []cobra.Completion
+		for _, f := range validFields {
+			if strings.HasPrefix(f, partial) && !slices.Contains(typed, f) {
+				out = append(out, prefix+f)
+			}
+		}
+		return out, cobra.ShellCompDirectiveNoFileComp | cobra.ShellCompDirectiveNoSpace | cobra.ShellCompDirectiveKeepOrder
+	}
+}
+
+// registerFilterCompletion makes --jq and --template complete nothing: an
+// expression is not a file name.
+func registerFilterCompletion(cmd *cobra.Command) {
+	for _, name := range []string{"jq", "template"} {
+		_ = cmd.RegisterFlagCompletionFunc(name, cobra.NoFileCompletions)
 	}
 }
 
@@ -166,6 +197,7 @@ func AddDocumentJSONFlags(cmd *cobra.Command, exporter **DocumentExporter, usage
 	cmd.Flags().StringVar(&jqExpr, "jq", "", "Filter JSON output using a jq expression (requires --json)")
 	cmd.Flags().StringVar(&tmplStr, "template", "", "Format JSON output using a Go template (requires --json)")
 	cmd.MarkFlagsMutuallyExclusive("jq", "template")
+	registerFilterCompletion(cmd)
 
 	oldPreRun := cmd.PreRunE
 	cmd.PreRunE = func(cmd *cobra.Command, args []string) error {
