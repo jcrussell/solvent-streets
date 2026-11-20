@@ -169,7 +169,7 @@ func TestPinNamed(t *testing.T) {
 	if len(entries[0].Latest) != 1 || len(entries[0].Snapshots) != 2 {
 		t.Errorf("A City kept latest %v and snapshots %v, want both read", entries[0].Latest, entries[0].Snapshots)
 	}
-	if got := out.String(); !strings.Contains(got, "A City: snapshot v1 was created under other settings") ||
+	if got := out.String(); !strings.Contains(got, `A City: snapshot "v1" was created under other settings`) ||
 		!strings.Contains(got, "serving it as created") || strings.Contains(got, "B City") {
 		t.Errorf("warnings = %q, want only A City's other-settings warning", got)
 	}

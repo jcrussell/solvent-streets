@@ -272,7 +272,7 @@ func TestSnapshotSettingsWarning(t *testing.T) {
 		t.Errorf("current snapshot warned %q", w)
 	}
 	w := entry.SnapshotSettingsWarning(&db.SnapshotCity{ID: 2, Name: "v0.4", ConfigHash: "0ld0ld0ld0ld0ld0"})
-	for _, want := range []string{"snapshot v0.4", "0ld0ld0ld0ld0ld0", "hex_edge_m", "pvmt --city test-city all compute", "pvmt snapshots create <name>"} {
+	for _, want := range []string{`snapshot "v0.4"`, "0ld0ld0ld0ld0ld0", "hex_edge_m", "pvmt --city test-city all compute", "pvmt snapshots create <name>"} {
 		if !strings.Contains(w, want) {
 			t.Errorf("warning %q lacks %q", w, want)
 		}
