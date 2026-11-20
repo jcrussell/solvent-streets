@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
@@ -487,6 +488,7 @@ func TestRootDBWithClose_ClosesOnlyIfOpened(t *testing.T) {
 
 func newTestFactoryForHTTP(t *testing.T) *cmdutil.Factory {
 	t.Helper()
+	allowLoopbackDials(t)
 	tmp := t.TempDir()
 	f := &cmdutil.Factory{}
 	f.Paths = func() (*paths.Paths, error) {
@@ -643,6 +645,7 @@ func TestHintForConfigError_ExampleConfigLoads(t *testing.T) {
 // header deadline above the queries' [timeout:N]; every other host keeps the
 // short one, so a dead server still fails fast.
 func TestHostTransport_OverpassWaitsLongerForHeaders(t *testing.T) {
+	allowLoopbackDials(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		time.Sleep(300 * time.Millisecond) // a query still running
 		_, _ = w.Write([]byte("{}"))
@@ -681,6 +684,7 @@ func TestHostTransport_OverpassWaitsLongerForHeaders(t *testing.T) {
 // that holds its headers past the Overpass header deadline is dead, so the
 // full client stack makes one attempt, not seven.
 func TestOverpassHeaderTimeout_NotRetried(t *testing.T) {
+	allowLoopbackDials(t)
 	var attempts atomic.Int32
 	release := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -772,4 +776,37 @@ func TestHttpClient_RefusesHTTPSDowngradeRedirect(t *testing.T) {
 	if err := client.CheckRedirect(req("https://10.0.0.2/q"), []*http.Request{req("https://10.0.0.1/q")}); err != nil {
 		t.Errorf("https to https: %v", err)
 	}
+}
+
+// allowLoopbackDials lets transports built during the test dial a loopback
+// httptest server past the PublicDialer.
+func allowLoopbackDials(t *testing.T) {
+	t.Helper()
+	prev := dialExempt
+	dialExempt = netip.Addr.IsLoopback
+	t.Cleanup(func() { dialExempt = prev })
+}
+
+// TestNewTransport_RefusesPrivateDial: the transport refuses to connect to a
+// loopback address even when the URL was never checked (a DNS answer that
+// changed after the check), unless the request opted in with AllowPrivate.
+func TestNewTransport_RefusesPrivateDial(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("{}"))
+	}))
+	t.Cleanup(srv.Close)
+	client := &http.Client{Transport: newTransport(5 * time.Second)}
+
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL, nil)
+	_, err := client.Do(req)
+	if _, ok := errors.AsType[*ingest.BlockedAddressError](err); !ok {
+		t.Fatalf("dial to loopback = %v, want a BlockedAddressError", err)
+	}
+
+	req, _ = http.NewRequestWithContext(ingest.WithAllowPrivate(context.Background()), http.MethodGet, srv.URL, nil)
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("AllowPrivate dial to loopback: %v", err)
+	}
+	_ = resp.Body.Close()
 }

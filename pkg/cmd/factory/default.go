@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -68,14 +69,26 @@ func newPVMTTransport() *http.Transport {
 	return newTransport(30 * time.Second)
 }
 
-// newTransport is newPVMTTransport with the given ResponseHeaderTimeout.
+// dialExempt is the PublicDialer's Exempt: nil, so every non-public address
+// is refused. Tests set it to reach a loopback httptest server.
+var dialExempt func(netip.Addr) bool
+
+// newTransport is newPVMTTransport with the given ResponseHeaderTimeout. It
+// dials through an ingest.PublicDialer, so a connection to a non-public
+// address is refused unless the request opted in with
+// ingest.WithAllowPrivate (allow_private_arcgis), whatever DNS answered
+// when the URL was checked.
 func newTransport(headerTimeout time.Duration) *http.Transport {
-	return &http.Transport{
-		Proxy: http.ProxyFromEnvironment,
-		DialContext: (&net.Dialer{
+	dialer := &ingest.PublicDialer{
+		Dialer: &net.Dialer{
 			Timeout:   10 * time.Second,
 			KeepAlive: 30 * time.Second,
-		}).DialContext,
+		},
+		Exempt: dialExempt,
+	}
+	return &http.Transport{
+		Proxy:                 dialer.Proxy(http.ProxyFromEnvironment),
+		DialContext:           dialer.DialContext,
 		ForceAttemptHTTP2:     true,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ResponseHeaderTimeout: headerTimeout,

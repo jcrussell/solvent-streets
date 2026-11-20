@@ -53,7 +53,12 @@ Out of scope:
   endpoint must be `https://` and resolve to public addresses. So must an
   `arcgis_url`, unless its city sets `allow_private_arcgis = true`, which
   also permits `http://` and private addresses for a self-hosted endpoint.
-  pvmt never follows a redirect from `https://` to `http://`.
+  The address check applies to every redirect and to the address each
+  connection is actually made to, not only to the first DNS answer, and
+  pvmt never follows a redirect from `https://` to `http://`. Through an
+  HTTP(S) proxy (`HTTPS_PROXY`), pvmt connects only to the proxy, so the
+  connection-time check cannot see the upstream's address; the proxy
+  resolves it.
 - Issues that require a malicious `pvmt.toml` or local SQLite database
   controlled by the attacker; `pvmt` trusts its own configuration and
   on-disk state by design.
