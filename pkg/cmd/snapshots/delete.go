@@ -134,7 +134,9 @@ func runDelete(ctx context.Context, opts *DeleteOptions) error {
 	if !ok {
 		// Lost a race with another deleter between the lookup and the
 		// delete: not found rather than a silent success.
-		return hint.Withf(fmt.Errorf("snapshot %q not found", opts.Name), "check 'pvmt snapshots list' for available names")
+		// The name was valid a moment ago, so not a usage error: exit 1.
+		return hint.Withf(fmt.Errorf("no snapshot named %q: another process deleted it", opts.Name),
+			"check 'pvmt snapshots list' for available names")
 	}
 	if opts.Exporter != nil {
 		return cmdutil.WriteRows(opts.IO, opts.Exporter, []deletedRow{{snapshotRow: newSnapshotRow(*snap), Deleted: true}})

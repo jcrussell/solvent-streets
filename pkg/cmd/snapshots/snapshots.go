@@ -6,11 +6,8 @@ package snapshots
 
 import (
 	"context"
-	"errors"
-	"fmt"
 
 	"github.com/jcrussell/solvent-streets/internal/db"
-	"github.com/jcrussell/solvent-streets/internal/hint"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 
 	"github.com/spf13/cobra"
@@ -90,12 +87,7 @@ func snapshotNameArgs(n int) cobra.PositionalArgs {
 	}
 }
 
-// lookupSnapshot reads the snapshot named name, with a hint naming `list`
-// when there is none.
+// lookupSnapshot reads the snapshot named name (cmdutil.LookupSnapshot).
 func lookupSnapshot(ctx context.Context, root db.RootStorer, name string) (*db.Snapshot, error) {
-	snap, err := root.Snapshot(ctx, name)
-	if errors.Is(err, db.ErrSnapshotNotFound) {
-		return nil, hint.Withf(fmt.Errorf("snapshot %q not found", name), "check 'pvmt snapshots list' for available names")
-	}
-	return snap, err
+	return cmdutil.LookupSnapshot(ctx, root, name)
 }

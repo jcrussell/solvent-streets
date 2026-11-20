@@ -132,6 +132,9 @@ func runServe(ctx context.Context, opts *Options) error {
 		return err
 	}
 	if opts.Snapshot != "" {
+		if _, err := cmdutil.LookupSnapshot(ctx, rootDB, opts.Snapshot); err != nil {
+			return err
+		}
 		err = pinNamed(ctx, entries, opts.Snapshot, opts.IO.ErrOut)
 	} else {
 		err = pinEntries(ctx, entries, opts.IO.ErrOut)

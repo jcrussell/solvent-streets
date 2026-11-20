@@ -151,6 +151,11 @@ func runExport(ctx context.Context, opts *Options) error {
 	if err != nil {
 		return fmt.Errorf("database: %w", err)
 	}
+	if opts.Snapshot != "" {
+		if _, err := cmdutil.LookupSnapshot(ctx, rootDB, opts.Snapshot); err != nil {
+			return err
+		}
+	}
 
 	cities, err := opts.Cities()
 	if err != nil {

@@ -296,12 +296,8 @@ func checkSnapshotExists(ctx context.Context, f *cmdutil.Factory, name string) e
 	if err != nil {
 		return fmt.Errorf("database: %w", err)
 	}
-	if _, err := root.Snapshot(ctx, name); errors.Is(err, db.ErrSnapshotNotFound) {
-		return hint.Withf(fmt.Errorf("no snapshot named %q", name), "check 'pvmt snapshots list' for available names")
-	} else if err != nil {
-		return err
-	}
-	return nil
+	_, err = cmdutil.LookupSnapshot(ctx, root, name)
+	return err
 }
 
 // runForecast simulates and prints one city's forecast. It only reads: the

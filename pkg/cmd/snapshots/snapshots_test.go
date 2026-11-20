@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -220,10 +221,8 @@ func TestRunShow(t *testing.T) {
 	}
 
 	opts.Name = "nope"
-	err := runShow(context.Background(), opts)
-	var h *hint.ErrHint
-	if err == nil || !errors.As(err, &h) || !strings.Contains(h.Hint, "pvmt snapshots list") {
-		t.Errorf("unknown name: err = %v, want a hint naming snapshots list", err)
+	if err := runShow(context.Background(), opts); !isUnknownSnapshot(err, "nope") {
+		t.Errorf("unknown name: err = %v, want the unknown-snapshot usage error", err)
 	}
 }
 
@@ -334,10 +333,19 @@ func TestRunDelete_NotFoundReturnsHint(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
 	opts := &DeleteOptions{IO: ios, RootDB: rootDBFunc(tagRoot(nil)), Name: "v9", Yes: true}
 	err := runDelete(context.Background(), opts)
-	var h *hint.ErrHint
-	if err == nil || !strings.Contains(err.Error(), `snapshot "v9" not found`) || !errors.As(err, &h) {
-		t.Errorf("err = %v, want not found with a hint", err)
+	if !isUnknownSnapshot(err, "v9") {
+		t.Errorf("err = %v, want the unknown-snapshot usage error", err)
 	}
+}
+
+// isUnknownSnapshot reports whether err is cmdutil.UnknownSnapshotError for
+// name: a usage error, worded once, with the hint naming 'pvmt snapshots
+// list'.
+func isUnknownSnapshot(err error, name string) bool {
+	var fe *cmdutil.FlagError
+	var h *hint.ErrHint
+	return errors.As(err, &fe) && errors.As(err, &h) && strings.Contains(h.Hint, "'pvmt snapshots list'") &&
+		err.Error() == fmt.Sprintf("no snapshot named %q", name) && errors.Is(err, db.ErrSnapshotNotFound)
 }
 
 // TestDelete_RejectsCityAndBadNames: --city and an invalid name are flag
@@ -543,5 +551,19 @@ func TestPrune_JSONFailsPartway(t *testing.T) {
 	}
 	if len(rows) != 1 || rows[0]["name"] != "v2" || rows[0]["deleted"] != true {
 		t.Errorf("rows = %v, want v2 deleted", rows)
+	}
+}
+
+// TestRunDelete_LostRaceIsNotAUsageError: a snapshot another process deletes
+// between the lookup and the delete is a plain failure (exit 1), not the
+// usage error an unknown name is.
+func TestRunDelete_LostRaceIsNotAUsageError(t *testing.T) {
+	root := tagRoot(nil)
+	root.DeleteSnapshotFunc = func(context.Context, string) (bool, error) { return false, nil }
+	ios, _, _, _ := iostreams.Test()
+	err := runDelete(context.Background(), &DeleteOptions{IO: ios, RootDB: rootDBFunc(root), Name: "v1", Yes: true})
+	var fe *cmdutil.FlagError
+	if err == nil || errors.As(err, &fe) || !strings.Contains(err.Error(), `no snapshot named "v1"`) {
+		t.Errorf("err = %v, want a not-found failure that is not a usage error", err)
 	}
 }

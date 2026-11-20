@@ -252,7 +252,7 @@ func TestDiff_NoCityInBoth(t *testing.T) {
 	if _, errOut, err := fx.run(t, "v1", "v3"); !errors.Is(err, cmdutil.ErrNoResults) || !strings.Contains(errOut, "no city is in both v1 and v3") {
 		t.Errorf("v1 vs v3: err = %v, stderr %q; want ErrNoResults", err, errOut)
 	}
-	if _, _, err := fx.run(t, "v1", "nope"); err == nil || !strings.Contains(err.Error(), `snapshot "nope" not found`) {
+	if _, _, err := fx.run(t, "v1", "nope"); !isUnknownSnapshot(err, "nope") {
 		t.Errorf("unknown name: err = %v", err)
 	}
 	if _, _, err := fx.run(t, "v1"); err == nil {
