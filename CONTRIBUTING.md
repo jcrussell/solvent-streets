@@ -206,7 +206,9 @@ Keep a PR to one change, with its tests. Architectural choices are explained in
 ## Releasing and publishing the showcase
 
 Pushing a `v*` tag releases. The release workflow first smoke-tests a snapshot
-build (`--version`, `--help`, and `status` in `examples/livermore-ca`), so that
+build (`--version`, `--help`, and `status` in `examples/livermore-ca`, then an
+`export` there that must reach the snapshot check, which proves the forecast
+WASM is embedded), so that
 example's path is release-blocking; `TestShippedExamplesLoad` (`integration/`)
 pins it and checks that every example still loads. GoReleaser then builds Linux and macOS
 binaries (amd64 and arm64) and a `.deb`, and publishes them to GitHub Releases.

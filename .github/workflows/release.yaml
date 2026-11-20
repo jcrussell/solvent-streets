@@ -32,7 +32,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Smoke-test binary (--version, --help, status)
+      - name: Smoke-test binary (--version, --help, status, embedded WASM)
         run: |
           set -euo pipefail
           bin="$(find "$PWD/dist" -type f -name pvmt -perm -u+x | head -n1)"
@@ -73,6 +73,20 @@ jobs:
           # data dir, not cwd (pkg/cmd/factory/default.go) — the checkout stays
           # clean.
           (cd examples/livermore-ca && "$bin" status)
+          # Proves the forecast WASM is embedded. export loads its assets before
+          # the database, so a binary built without the WASM fails there with
+          # export.ErrNoWasm (exit 1). With it, export reaches the snapshot
+          # check and, on this empty database, refuses with exit 3 before
+          # writing anything.
+          set +e
+          export_err="$(cd examples/livermore-ca && "$bin" export -o "$RUNNER_TEMP/smoke-site" 2>&1)"
+          export_status=$?
+          set -e
+          echo "$export_err"
+          if [ "$export_status" -ne 3 ] || echo "$export_err" | grep -q 'without the forecast WASM'; then
+            echo "::error::pvmt export exited $export_status, want 3 (no snapshot): is the forecast WASM embedded?"
+            exit 1
+          fi
 
   release:
     name: Release
