@@ -63,7 +63,7 @@ type Factory struct {
 	Logger *slog.Logger
 
 	// LogLevel is the handler's level knob. PersistentPreRunE sets it
-	// from --log-level / -v / PVMT_LOG so existing Logger instances
+	// from --log-level / -v / PVMT_LOG_LEVEL so existing Logger instances
 	// (snapshotted into Options) see the updated level.
 	LogLevel *slog.LevelVar
 

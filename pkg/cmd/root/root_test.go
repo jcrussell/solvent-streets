@@ -184,7 +184,7 @@ func TestLogLevelFlag_RejectsBadValueAtParseTime(t *testing.T) {
 }
 
 // TestApplyLogLevel_Precedence locks in the precedence ladder documented
-// on applyLogLevel: flag > -v/-vv > PVMT_LOG > default. Tests the helper
+// on applyLogLevel: flag > -v/-vv > PVMT_LOG_LEVEL > default. Tests the helper
 // directly so we don't have to plumb through Execute() for every case.
 func TestApplyLogLevel_Precedence(t *testing.T) {
 	mustSet := func(t *testing.T, v string) cmdutil.LogLevel {
@@ -215,15 +215,42 @@ func TestApplyLogLevel_Precedence(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv("PVMT_LOG", tt.env)
+			t.Setenv(EnvLogLevel, tt.env)
 			if tt.env == "" {
-				os.Unsetenv("PVMT_LOG")
+				os.Unsetenv(EnvLogLevel)
 			}
+			t.Setenv(EnvLogLevelShort, "")
+			os.Unsetenv(EnvLogLevelShort)
 			lv := new(slog.LevelVar)
 			lv.Set(slog.LevelWarn)
 			f := &cmdutil.Factory{LogLevel: lv}
 			flag := tt.flag
 			applyLogLevel(f, tt.verbose, &flag)
+			if got := lv.Level(); got != tt.want {
+				t.Errorf("got %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestApplyLogLevel_ShortEnv pins PVMT_LOG as the accepted short spelling of
+// PVMT_LOG_LEVEL, and PVMT_LOG_LEVEL winning when both are set.
+func TestApplyLogLevel_ShortEnv(t *testing.T) {
+	tests := []struct {
+		name        string
+		long, short string
+		want        slog.Level
+	}{
+		{"short alone", "", "debug", slog.LevelDebug},
+		{"long beats short", "error", "debug", slog.LevelError},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(EnvLogLevel, tt.long)
+			t.Setenv(EnvLogLevelShort, tt.short)
+			lv := new(slog.LevelVar)
+			lv.Set(slog.LevelWarn)
+			applyLogLevel(&cmdutil.Factory{LogLevel: lv}, 0, &cmdutil.LogLevel{})
 			if got := lv.Level(); got != tt.want {
 				t.Errorf("got %v, want %v", got, tt.want)
 			}
@@ -324,7 +351,9 @@ func TestWarnInvalidEnv_BadValuesEmitWarning(t *testing.T) {
 		{"pci out of range", map[string]string{"PVMT_FORECAST_INITIAL_PCI": "500"}, "must be in (0, 100]"},
 		{"pci zero", map[string]string{"PVMT_FORECAST_INITIAL_PCI": "0"}, "must be in (0, 100]"},
 		{"valid pci silent", map[string]string{"PVMT_FORECAST_INITIAL_PCI": "85"}, ""},
-		{"invalid log level", map[string]string{"PVMT_LOG": "trace"}, "PVMT_LOG"},
+		{"invalid log level", map[string]string{"PVMT_LOG_LEVEL": "trace"}, "PVMT_LOG_LEVEL="},
+		{"invalid short log level", map[string]string{"PVMT_LOG": "trace"}, "PVMT_LOG="},
+		{"valid long log level silent", map[string]string{"PVMT_LOG_LEVEL": "info"}, ""},
 		{"valid log level silent", map[string]string{"PVMT_LOG": "debug"}, ""},
 		{"valid log level warning silent", map[string]string{"PVMT_LOG": "warning"}, ""},
 	}
@@ -339,7 +368,7 @@ func TestWarnInvalidEnv_BadValuesEmitWarning(t *testing.T) {
 			// t.Setenv can't unset a variable, and the cleanup here has
 			// to *conditionally* unset-or-restore, so os.Setenv/Unsetenv
 			// are the right tools; silence usetesting for this block.
-			for _, k := range []string{"PVMT_UNITS", "PVMT_FORECAST_YEARS", "PVMT_HEX_EDGE_M", "PVMT_FORECAST_INITIAL_PCI", "PVMT_LOG"} {
+			for _, k := range []string{"PVMT_UNITS", "PVMT_FORECAST_YEARS", "PVMT_HEX_EDGE_M", "PVMT_FORECAST_INITIAL_PCI", "PVMT_LOG", "PVMT_LOG_LEVEL"} {
 				if orig, ok := os.LookupEnv(k); ok {
 					t.Cleanup(func() { _ = os.Setenv(k, orig) }) //nolint:usetesting // see block comment above
 				} else {

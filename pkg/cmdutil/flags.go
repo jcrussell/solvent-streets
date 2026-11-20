@@ -115,7 +115,7 @@ func CitySlugCompletion(f *Factory) cobra.CompletionFunc {
 // LogLevel is the --log-level enum for the root command. Empty means
 // "not set"; non-empty values are parsed strictly so a typo fails at
 // flag-parse time rather than silently degrading to Warn the way the
-// PVMT_LOG env fallback does.
+// PVMT_LOG_LEVEL env fallback does.
 type LogLevel struct {
 	set   bool
 	level slog.Level
@@ -139,7 +139,7 @@ func (l *LogLevel) String() string { return l.raw }
 func (l *LogLevel) Type() string   { return "level" }
 
 // IsSet reports whether --log-level was provided on the command line.
-// Callers use this to decide whether to fall back to -v / PVMT_LOG.
+// Callers use this to decide whether to fall back to -v / PVMT_LOG_LEVEL.
 func (l *LogLevel) IsSet() bool { return l != nil && l.set }
 
 // Level returns the parsed slog.Level. Meaningful only when IsSet is true.

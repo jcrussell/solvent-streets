@@ -41,7 +41,7 @@ fields that differ.
 | `PVMT_FORECAST_YEARS` | `[forecast].years` (1–200) |
 | `PVMT_FORECAST_INITIAL_PCI` | `[forecast].initial_pci` |
 | `PVMT_OVERPASS_URL` | `[overpass].url` (see [Overpass endpoint](#overpass-endpoint-overpass)) |
-| `PVMT_LOG` | the log level (`debug`, `info`, `warn`, `error`; default `warn`) |
+| `PVMT_LOG_LEVEL` | the log level, as `--log-level` (`debug`, `info`, `warn`, `error`; default `warn`). `PVMT_LOG` is accepted too; `PVMT_LOG_LEVEL` wins when both are set |
 
 An environment value that doesn't parse, or is out of range, is ignored with a
 `warning:` on stderr, and the next layer wins. `PVMT_HEX_EDGE_M` changes

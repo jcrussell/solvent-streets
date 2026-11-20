@@ -56,7 +56,7 @@ var middlewares = []middleware{
 // this middleware is the signal. Which values those are is config's to say
 // (config.EnvProblems, computed by the functions that apply the overrides), so
 // a warning implies the env will be ignored and silence implies it will be
-// honored. PVMT_LOG is the one variable read here rather than by config.
+// honored. The log-level variables are the ones read here rather than by config.
 func warnInvalidEnv(_ *cobra.Command, f *cmdutil.Factory) error {
 	ios := f.IOStreams
 	if ios == nil {
@@ -68,12 +68,29 @@ func warnInvalidEnv(_ *cobra.Command, f *cmdutil.Factory) error {
 	for _, p := range config.EnvProblems() {
 		warnf("%s=%q %s", p.Variable, p.Value, p.Reason)
 	}
-	if v, ok := os.LookupEnv("PVMT_LOG"); ok && v != "" {
+	if name, v := logLevelEnv(); v != "" {
 		if _, valid := cmdutil.ParseLogLevel(v); !valid {
-			warnf("PVMT_LOG=%q is not a valid log level (debug|info|warn|error)", v)
+			warnf("%s=%q is not a valid log level (debug|info|warn|error)", name, v)
 		}
 	}
 	return nil
+}
+
+// The log-level variables. EnvLogLevel matches the --log-level flag;
+// EnvLogLevelShort is its accepted short spelling.
+const (
+	EnvLogLevel      = "PVMT_LOG_LEVEL"
+	EnvLogLevelShort = "PVMT_LOG"
+)
+
+// logLevelEnv returns the log-level variable in force and its value:
+// PVMT_LOG_LEVEL when set and non-empty, else PVMT_LOG. The value is "" when
+// neither is set.
+func logLevelEnv() (name, value string) {
+	if v := os.Getenv(EnvLogLevel); v != "" {
+		return EnvLogLevel, v
+	}
+	return EnvLogLevelShort, os.Getenv(EnvLogLevelShort)
 }
 
 // (display.units needs no warning here: Config.validate hard-rejects an
@@ -199,15 +216,15 @@ func refuseUnknownHelpTopics(root *cobra.Command) {
 //
 //	--log-level   (explicit; wins when set)
 //	-v / -vv      (Info / Debug; loses to --log-level)
-//	PVMT_LOG=...  (env var; loses to both flags, beats the default)
+//	PVMT_LOG_LEVEL / PVMT_LOG  (env; loses to both flags, beats the default)
 //	default       (Warn)
 //
 // Direction is deliberately opposite to config's env > file > default:
 // logging verbosity is per-invocation, so a -vv on the command line must
-// not be silenced by a stale PVMT_LOG=warn in the environment.
+// not be silenced by a stale PVMT_LOG_LEVEL=warn in the environment.
 //
 // The flag path is strict (validated at parse time by cmdutil.LogLevel), but
-// the env path is lenient: an unparseable PVMT_LOG silently lands on Warn
+// the env path is lenient: an unparseable value silently lands on Warn
 // rather than failing the invocation, matching the other PVMT_ env vars.
 func applyLogLevel(f *cmdutil.Factory, verbose int, logLevel *cmdutil.LogLevel) {
 	if f == nil || f.LogLevel == nil {
@@ -220,9 +237,11 @@ func applyLogLevel(f *cmdutil.Factory, verbose int, logLevel *cmdutil.LogLevel) 
 		f.LogLevel.Set(slog.LevelDebug)
 	case verbose == 1:
 		f.LogLevel.Set(slog.LevelInfo)
-	case os.Getenv("PVMT_LOG") != "":
-		level, _ := cmdutil.ParseLogLevel(os.Getenv("PVMT_LOG"))
-		f.LogLevel.Set(level)
+	default:
+		if _, v := logLevelEnv(); v != "" {
+			level, _ := cmdutil.ParseLogLevel(v)
+			f.LogLevel.Set(level)
+		}
 	}
 }
 
