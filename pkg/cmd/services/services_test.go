@@ -295,11 +295,21 @@ func TestServicesCompute_NoReachCommitsEmptyRun(t *testing.T) {
 		return inner(ctx, rt)
 	}
 	f := testFactory(store)
+	ios, _, out, errOut := iostreams.Test()
+	f.IOStreams = ios
 	if err := RunComputeForCity(context.Background(), f, "fire", nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if len(saved) == 0 {
 		t.Fatal("expected the network's hexes saved as unreachable, got nothing")
+	}
+	// No station routed, so there is no coverage figure to print: a 0% would
+	// measure the missing station, and the export shows none either.
+	if strings.Contains(out.String(), "Within") {
+		t.Errorf("printed a within-threshold share with no station routing:\n%s", out.String())
+	}
+	if !strings.Contains(errOut.String(), "no fire facility reached the road network") {
+		t.Errorf("no warning that no station reached the network; stderr:\n%s", errOut.String())
 	}
 	for _, r := range saved {
 		if r.Metric != services.MetricFire || r.Subject != services.SubjectUnreachable || r.RunID != saved[0].RunID {
@@ -373,10 +383,11 @@ func TestSummarize_UnreachableLowersShare(t *testing.T) {
 		t.Errorf("median = %v, want 300 over the reached hexes", row.MedianResponseS)
 	}
 
-	// Nothing reached: the share is 0, not omitted, and there is no median.
-	none := summarize(testCity.Slug(), spec, services.Coverage{Unreachable: []string{"e"}}, 1, 9)
-	if none.WithinThresholdShare == nil || *none.WithinThresholdShare != 0 || none.MedianResponseS != nil {
-		t.Errorf("all unreachable: share %v, median %v; want 0 and none", none.WithinThresholdShare, none.MedianResponseS)
+	// Nothing reached: no facility routed, so there is no share (the export
+	// shows none either) and no median.
+	none := summarize(testCity.Slug(), spec, services.Coverage{Unreachable: []string{"e"}, Unsnapped: []int{0}}, 1, 9)
+	if none.WithinThresholdShare != nil || none.MedianResponseS != nil {
+		t.Errorf("all unreachable: share %v, median %v; want neither", none.WithinThresholdShare, none.MedianResponseS)
 	}
 }
 
@@ -458,6 +469,7 @@ func TestServicesCompute_FreezesFacilitiesAndTurnout(t *testing.T) {
 // routing roads it is unplaced and reaches nothing.
 func TestServicesCompute_StationOutsideTheBoundaryServesEdgeHexes(t *testing.T) {
 	run := func(withRouting bool) []db.HexMetric {
+		t.Helper()
 		var saved []db.HexMetric
 		store := fixtureStore(&saved, nil)
 		inner := store.ListFeaturesFunc
@@ -474,8 +486,15 @@ func TestServicesCompute_StationOutsideTheBoundaryServesEdgeHexes(t *testing.T) 
 			}
 			return inner(ctx, rt)
 		}
-		if err := RunComputeForCity(context.Background(), testFactory(store), "fire", nil, nil); err != nil {
+		f := testFactory(store)
+		ios, _, _, errOut := iostreams.Test()
+		f.IOStreams = ios
+		if err := RunComputeForCity(context.Background(), f, "fire", nil, nil); err != nil {
 			t.Fatal(err)
+		}
+		// Missing routing roads are named, since they cost the edge hexes.
+		if warned := strings.Contains(errOut.String(), "no routing roads stored"); warned == withRouting {
+			t.Errorf("with routing roads %v: routing-roads warning shown = %v; stderr:\n%s", withRouting, warned, errOut.String())
 		}
 		var reached []db.HexMetric
 		for _, r := range saved {

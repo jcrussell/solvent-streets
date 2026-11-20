@@ -54,8 +54,10 @@ type computeRow struct {
 	ThresholdS       float64 `json:"threshold_s"`
 	// WithinThresholdShare is the fraction (0..1) of the hexes on the
 	// network, reached or not, whose travel time is within ThresholdS; nil
-	// (and omitted) when there are none. MedianResponseS is over the reached
-	// hexes, nil when none was reached.
+	// (and omitted) when no hex was reached: with no facility routing, a 0%
+	// would measure the missing facilities, not the coverage, and the export
+	// shows no figure either. MedianResponseS is over the reached hexes, nil
+	// when none was reached.
 	WithinThresholdShare *float64 `json:"within_threshold_share,omitempty"`
 	MedianResponseS      *float64 `json:"median_response_s,omitempty"`
 	RunID                int64    `json:"run_id,omitempty"`
@@ -124,7 +126,10 @@ The result updates the service's own part of the city's latest compute, so
 a later roads compute leaves it in place; run 'pvmt snapshots create <name>' to
 publish it, and rerun this after re-ingesting roads or facilities. Hexes off
 the network carry no value; hexes on it that no facility reaches are recorded
-as unreachable, with no time, and count against the within-threshold share.`,
+as unreachable, with no time, and count against the within-threshold share.
+When no facility reaches any hex (every one too far from a road, say), there
+is no share: the run is still stored, so the map shows no coverage, and the
+warnings say why.`,
 		Example: `  # Fire response coverage for every configured city
   pvmt services compute
 
@@ -284,6 +289,9 @@ func loadInputs(ctx context.Context, errOut io.Writer, opts *Options) (*inputs, 
 	if err != nil {
 		return nil, fmt.Errorf("list routing roads: %w", err)
 	}
+	if len(routingRows) == 0 {
+		cmdutil.FprintWarnf(errOut, "no routing roads stored for %s, so routes run only on the city's own roads and a %s facility across the city line cannot reach it; run 'pvmt services ingest'", city.Name, in.spec.Name)
+	}
 	in.roads = services.WithRoutingRoads(in.roads, in.source, db.ResourceFeatures(routingRows))
 	return in, nil
 }
@@ -344,6 +352,9 @@ func route(ctx context.Context, out, progress, errOut io.Writer, notify tui.Phas
 	}
 	for _, i := range cov.Isolated {
 		cmdutil.FprintWarnf(errOut, "%s facility %s (%s) snapped to a road fragment of fewer than %d vertices (an apron or driveway OSM does not join to the street); it reaches almost nothing", spec.Name, facilities[i].ID, facilities[i].Name, services.MinFacilityComponent)
+	}
+	if len(cov.Hexes) == 0 {
+		cmdutil.FprintWarnf(errOut, "no %s facility reached the road network for %s, so there is no coverage figure; the warnings above say why", spec.Name, city.Name)
 	}
 	notify.PhaseDone(phaseRoute, nil)
 
@@ -426,10 +437,10 @@ func summarize(citySlug string, spec services.Spec, cov services.Coverage, facil
 	// The share's denominator is every hex on the network: an unreachable
 	// hex is not within the threshold, and leaving it out would bias the
 	// share upward.
-	onNetwork := len(cov.Hexes) + len(cov.Unreachable)
-	if onNetwork == 0 {
+	if len(cov.Hexes) == 0 {
 		return row
 	}
+	onNetwork := len(cov.Hexes) + len(cov.Unreachable)
 	secs := make([]float64, len(cov.Hexes))
 	within := 0
 	for i, h := range cov.Hexes {
