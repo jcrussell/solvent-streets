@@ -143,7 +143,10 @@ same way.
 `pvmt serve` serves such a city from its latest compute, and says so at
 startup (`<city> has no snapshot; serving its latest compute (not
 snapshotted)`). With nothing computed either, it logs `no snapshot for <city>;
-serving it without data` and a hint. `pvmt forecast` and `pvmt status` read the
+serving it without data` and a hint, as long as another city has data. When
+none does, it refuses to start with `nothing to serve` and exit 3, naming
+`pvmt all ingest` when no city has a boundary stored and `pvmt all compute`
+otherwise. `pvmt forecast` and `pvmt status` read the
 latest compute: for a city with nothing computed under the current settings,
 `pvmt forecast` warns `<slug> was computed, but not under the current settings
 …` and exits 3 when no city has results, and `pvmt status` shows a blank *Last

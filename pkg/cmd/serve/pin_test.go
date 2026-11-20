@@ -10,6 +10,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
 	exportpkg "github.com/jcrussell/solvent-streets/internal/export"
+	"github.com/jcrussell/solvent-streets/internal/hint"
 )
 
 // TestPinEntries: serve shows each city's newest snapshot whatever settings it
@@ -30,6 +31,7 @@ func TestPinEntries(t *testing.T) {
 			ListSnapshotsFunc: func(context.Context) ([]db.SnapshotCity, error) { return snaps, nil },
 			LatestComputeFunc: func(context.Context, string) ([]db.LatestPart, error) { return latest, nil },
 			WithRunsFunc:      func(runs []int64) db.Store { pins[name] = pin{runs: runs}; return &dbtest.MockStore{} },
+			GetBoundaryFunc:   func(context.Context) (string, error) { return `{"type":"Polygon"}`, nil },
 		}
 		store.WithSnapshotFunc = func(id int64) db.Store {
 			if id == 0 { // unpinned: LatestComputeEntry clearing any snapshot pin
@@ -103,7 +105,8 @@ func TestPinEntries_StaleLatestWarns(t *testing.T) {
 		InputStatesFunc: func(context.Context) ([]db.InputState, error) {
 			return []db.InputState{{Input: db.InputBoundary, Digest: "new"}, {Input: "roads", Digest: "r"}}, nil
 		},
-		WithRunsFunc: func([]int64) db.Store { return &dbtest.MockStore{} },
+		WithRunsFunc:    func([]int64) db.Store { return &dbtest.MockStore{} },
+		GetBoundaryFunc: func(context.Context) (string, error) { return `{"type":"Polygon"}`, nil },
 	}
 	store.WithSnapshotFunc = func(int64) db.Store { return store }
 	entries := []exportpkg.CityEntry{{Config: cfg, City: city, Slug: city.Slug(), Store: store}}
@@ -113,6 +116,45 @@ func TestPinEntries_StaleLatestWarns(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "Moved City's latest compute is stale: roads (boundary re-ingested") {
 		t.Errorf("no stale-latest warning:\n%s", out.String())
+	}
+}
+
+// TestPinEntries_RefusesWithNothingToServe: serve refuses to start (exit 3)
+// when no city has a boundary, naming the ingest, or when none has a snapshot
+// or a latest compute, naming the compute, and prints no per-city warnings.
+func TestPinEntries_RefusesWithNothingToServe(t *testing.T) {
+	cfg := &config.Config{}
+	entry := func(name, boundary string) exportpkg.CityEntry {
+		city := config.CityConfig{Name: name}
+		store := &dbtest.MockStore{
+			GetBoundaryFunc: func(context.Context) (string, error) { return boundary, nil },
+		}
+		store.WithSnapshotFunc = func(int64) db.Store { return store }
+		return exportpkg.CityEntry{Config: cfg, City: city, Slug: city.Slug(), Store: store}
+	}
+	for _, tc := range []struct {
+		name     string
+		entries  []exportpkg.CityEntry
+		command  string
+		contains string
+	}{
+		{"fresh database", []exportpkg.CityEntry{entry("A", ""), entry("B", "")}, "pvmt all ingest", "none of the 2 cities has a boundary stored"},
+		{"never computed", []exportpkg.CityEntry{entry("A", `{"type":"Polygon"}`)}, "pvmt all compute", "A has no snapshot or latest compute"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var out strings.Builder
+			err := pinEntries(context.Background(), tc.entries, &out)
+			if _, ok := errors.AsType[*hint.PrereqError](err); !ok {
+				t.Fatalf("err = %v, want a PrereqError (exit 3)", err)
+			}
+			h, ok := errors.AsType[*hint.ErrHint](err)
+			if !ok || !strings.Contains(h.Hint, tc.command) || !strings.Contains(err.Error(), tc.contains) {
+				t.Errorf("err = %v (hint %v), want %q naming %q", err, h, tc.contains, tc.command)
+			}
+			if out.Len() != 0 {
+				t.Errorf("a refused serve warned:\n%s", out.String())
+			}
+		})
 	}
 }
 
