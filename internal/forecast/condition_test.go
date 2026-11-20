@@ -126,16 +126,16 @@ func TestConditionSpreadCalibration(t *testing.T) {
 
 func TestAggregateCohortSummariesByClass(t *testing.T) {
 	in := []CohortSummary{
-		{Classification: "a", EndPCI: 80, Area: 100, DecayRate: 0.03, TotalSpend: 10, TotalDeficit: 1},
-		{Classification: "a", EndPCI: 40, Area: 300, DecayRate: 0.03, TotalSpend: 30, TotalDeficit: 3},
-		{Classification: "b", EndPCI: 50, Area: 200, DecayRate: 0.05, TotalSpend: 5, TotalDeficit: 2},
+		{Classification: "a", EndPCI: 80, Area: 100, DecayRate: 0.03, TotalSpend: 10, DeferredBacklog: 1},
+		{Classification: "a", EndPCI: 40, Area: 300, DecayRate: 0.03, TotalSpend: 30, DeferredBacklog: 3},
+		{Classification: "b", EndPCI: 50, Area: 200, DecayRate: 0.05, TotalSpend: 5, DeferredBacklog: 2},
 	}
 	out := AggregateCohortSummariesByClass(in)
 	if len(out) != 2 {
 		t.Fatalf("got %d rows, want 2", len(out))
 	}
 	a := out[0]
-	if a.Classification != "a" || a.Area != 400 || a.TotalSpend != 40 || a.TotalDeficit != 4 {
+	if a.Classification != "a" || a.Area != 400 || a.TotalSpend != 40 || a.DeferredBacklog != 4 {
 		t.Errorf("class a aggregate wrong: %+v", a)
 	}
 	// area-weighted EndPCI = (80*100 + 40*300)/400 = 50

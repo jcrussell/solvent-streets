@@ -445,7 +445,11 @@ func (d TemplateData) GameConfigJSON() template.JS {
 }
 
 type MetaJSON struct {
-	ProjectName  string     `json:"project_name"`
+	// ProjectName is the display name: the city's, or the multi-city
+	// page's title.
+	ProjectName string `json:"name"`
+	// City is the city's slug; omitted on a multi-city page's own meta.
+	City         string     `json:"city,omitempty"`
 	BBox         [4]float64 `json:"bbox"`   // [west, south, east, north]
 	Center       [2]float64 `json:"center"` // [lon, lat]
 	SnapshotDate string     `json:"snapshot_date"`
@@ -468,7 +472,7 @@ type MetaJSON struct {
 	// layer; check-site lists such cities. Omitted when
 	// every resource has data, and on a multi-city page's own meta.
 	MissingResources []string `json:"missing_resources,omitempty"`
-	// IngestFailures maps a resource to the configured sources whose newest
+	// FailingSources maps a resource to the configured sources whose newest
 	// ingest attempt failed and that hold none of its rows (no earlier
 	// fetch of theirs left any): resource -> sources, in source order. A
 	// resource also in MissingResources failed outright; one with data is
@@ -476,15 +480,15 @@ type MetaJSON struct {
 	// dashboard marks a partial layer and ranks the city like one missing
 	// it; check-site warns. Read from the city's
 	// ingest history at export time. Omitted when no source is failing.
-	IngestFailures map[string][]string `json:"ingest_failures,omitempty"`
-	// EmptyResources maps each resource in MissingResources that every
+	FailingSources map[string][]string `json:"failing_sources,omitempty"`
+	// EmptySources maps each resource in MissingResources that every
 	// configured source last answered with no rows to those sources: upstream
 	// maps none there (a small town with no sidewalks in OpenStreetMap), so a
 	// re-ingest cannot fill it. The dashboard says none is mapped and
 	// check-site does not ask for a re-ingest; the layer stays missing, out
 	// of rankings, since no data is not a measured zero.
 	// Read from the city's ingest history at export time. Omitted when none.
-	EmptyResources map[string][]string `json:"empty_resources,omitempty"`
+	EmptySources map[string][]string `json:"empty_sources,omitempty"`
 	// SettingsTOML is the settings the city's figures are computed under
 	// (CityResolvedTOML), which a multi-city page's Config tab shows for
 	// the city in view. Omitted when the entry carries no config.
@@ -494,7 +498,7 @@ type MetaJSON struct {
 type StatJSON struct {
 	ResourceType string  `json:"resource_type"`
 	Color        string  `json:"color"`
-	TotalArea    float64 `json:"total_area"`
+	TotalArea    float64 `json:"area"`
 	// EstimatedSpaces is the parking resource's estimated vehicle capacity
 	// (OSM capacity tags, else footprint area over a per-space constant; see
 	// resource.EstimateParkingSpaces). Omitted for other resources.
@@ -659,6 +663,7 @@ func BuildMetaOn(ctx context.Context, entry CityEntry, snapshotID int64, grid *D
 	}
 	meta := MetaJSON{
 		ProjectName:   entry.City.Name,
+		City:          entry.Slug,
 		BBox:          geoJSONBBox(bbox),
 		Center:        [2]float64{lon, lat},
 		SnapshotDate:  stamp.date,
@@ -670,7 +675,7 @@ func BuildMetaOn(ctx context.Context, entry CityEntry, snapshotID int64, grid *D
 		return MetaJSON{}, err
 	}
 
-	if meta.IngestFailures, meta.EmptyResources, err = ingestGaps(ctx, entry, meta.MissingResources); err != nil {
+	if meta.FailingSources, meta.EmptySources, err = ingestGaps(ctx, entry, meta.MissingResources); err != nil {
 		return MetaJSON{}, fmt.Errorf("city %s ingest history: %w", entry.City.Name, err)
 	}
 
@@ -777,8 +782,8 @@ func dataStamp(ctx context.Context, entry CityEntry, snapshotID int64) (stamp, e
 	return stamp{date: time.Now().Format(time.DateOnly)}, nil
 }
 
-// ingestGaps reads entry's ingest history for MetaJSON's IngestFailures and
-// EmptyResources. failures: per pavement resource, the city's configured
+// ingestGaps reads entry's ingest history for MetaJSON's FailingSources and
+// EmptySources. failures: per pavement resource, the city's configured
 // sources whose newest attempt failed and whose last answer, if any, left no
 // rows. A failed source keeps the rows an earlier fetch stored (the save
 // replaces only the sources that answered), so a source with a successful

@@ -30,8 +30,8 @@ const grid = hexFC([
 ]);
 
 const costSummary = {
-  all: { roads: { total_area: 1500, year1_need: 15000 }, parking: { total_area: 3000, year1_need: 6000 } },
-  city: { roads: { total_area: 1500, year1_need: 15000 }, parking: { total_area: 3000, year1_need: 6000 } },
+  all: { roads: { area: 1500, year1_need: 15000 }, parking: { area: 3000, year1_need: 6000 } },
+  city: { roads: { area: 1500, year1_need: 15000 }, parking: { area: 3000, year1_need: 6000 } },
 };
 
 const population = {

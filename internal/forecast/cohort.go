@@ -21,10 +21,10 @@ type CohortSummary struct {
 	// semantics — not the year-0 input area, and not the multi-year area basis
 	// TotalSpend accumulated against. Falls back to the year-0 area when the
 	// simulation ran zero years. See Simulate in scenario.go.
-	Area         float64 `json:"area"`
-	DecayRate    float64 `json:"decay_rate"`
-	TotalSpend   float64 `json:"total_spend"`
-	TotalDeficit float64 `json:"total_deficit"`
+	Area            float64 `json:"area"`
+	DecayRate       float64 `json:"decay_rate"`
+	TotalSpend      float64 `json:"total_spend"`
+	DeferredBacklog float64 `json:"deferred_backlog"`
 }
 
 // CohortInput is a minimal struct for building cohorts without importing db.

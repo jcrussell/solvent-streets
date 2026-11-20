@@ -54,7 +54,7 @@ type binding struct {
 
 // seriesBindings are the keys app.js reads off one scenario series (an entry
 // of scenarios.json's city/all arrays, or forecast.json's baseline,
-// all_baseline and scenarios[]).
+// city_baseline and scenarios[]).
 func seriesBindings(prefix string) []binding {
 	b := []binding{{prefix, []string{"object"}}}
 	for _, k := range []string{"scenario.name", "scenario.label"} {
@@ -70,7 +70,7 @@ func seriesBindings(prefix string) []binding {
 	b = append(b, binding{prefix + ".years[].cost_tier", []string{"string"}})
 	b = append(b, binding{prefix + ".final_cohorts[]", []string{"object"}})
 	b = append(b, binding{prefix + ".final_cohorts[].classification", []string{"string"}})
-	for _, k := range []string{"area", "decay_rate", "end_pci", "total_deficit", "total_spend"} {
+	for _, k := range []string{"area", "decay_rate", "end_pci", "deferred_backlog", "total_spend"} {
 		b = append(b, binding{prefix + ".final_cohorts[]." + k, []string{"number"}})
 	}
 	return b
@@ -290,14 +290,14 @@ func TestForecastJSON_Contract(t *testing.T) {
 		{"[].current_budget", []string{"number"}},
 	}
 	bindings = append(bindings, seriesBindings("[].baseline")...)
-	bindings = append(bindings, seriesBindings("[].all_baseline")...)
+	bindings = append(bindings, seriesBindings("[].city_baseline")...)
 	bindings = append(bindings, seriesBindings("[].scenarios[]")...)
 	checkBindings(t, doc, bindings)
 
 	var entries []struct {
 		ResourceType    string   `json:"resource_type"`
 		Baseline        series   `json:"baseline"`
-		AllBaseline     series   `json:"all_baseline"`
+		CityBaseline    *series  `json:"city_baseline"`
 		Scenarios       []series `json:"scenarios"`
 		InsolvencyYear  *int     `json:"insolvency_year"`
 		FundingGap      *float64 `json:"funding_gap"`
@@ -311,11 +311,16 @@ func TestForecastJSON_Contract(t *testing.T) {
 	for _, e := range entries {
 		types = append(types, e.ResourceType)
 		checkSeries(t, e.ResourceType+"/baseline", e.Baseline, fc.HorizonYears)
-		checkSeries(t, e.ResourceType+"/all_baseline", e.AllBaseline, fc.HorizonYears)
+		// Scenarios run on the primary scope: the city one when present.
+		primary := e.Baseline
+		if e.CityBaseline != nil {
+			checkSeries(t, e.ResourceType+"/city_baseline", *e.CityBaseline, fc.HorizonYears)
+			primary = *e.CityBaseline
+		}
 		for _, s := range e.Scenarios {
 			checkSeries(t, e.ResourceType, s, fc.HorizonYears)
 		}
-		checkFundingLadder(t, e.ResourceType, append([]series{e.Baseline}, e.Scenarios...), fc.InitialPCI)
+		checkFundingLadder(t, e.ResourceType, append([]series{primary}, e.Scenarios...), fc.InitialPCI)
 		if got, want := names(e.Scenarios), []string{"fund-25pct", "fund-50pct", "fund-100pct"}; !slices.Equal(got, want) {
 			t.Errorf("%s scenarios = %v, want %v", e.ResourceType, got, want)
 		}

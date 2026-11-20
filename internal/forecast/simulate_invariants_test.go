@@ -179,8 +179,8 @@ func checkFinalCohorts(t *testing.T, cohorts []forecast.Cohort, r forecast.Scena
 		if c.EndPCI < 0 || c.EndPCI > 100 || math.IsNaN(c.EndPCI) {
 			t.Errorf("cohort %d (%s): EndPCI %g outside [0,100]", j, c.Classification, c.EndPCI)
 		}
-		if c.TotalSpend < 0 || c.TotalDeficit < 0 {
-			t.Errorf("cohort %d (%s): negative spend %g or deficit %g", j, c.Classification, c.TotalSpend, c.TotalDeficit)
+		if c.TotalSpend < 0 || c.DeferredBacklog < 0 {
+			t.Errorf("cohort %d (%s): negative spend %g or deficit %g", j, c.Classification, c.TotalSpend, c.DeferredBacklog)
 		}
 		if c.Classification != cohorts[j].Classification || c.DecayRate != cohorts[j].DecayRate {
 			t.Errorf("cohort %d: summary (%s, %g) does not match input (%s, %g)",
@@ -193,7 +193,7 @@ func checkFinalCohorts(t *testing.T, cohorts []forecast.Cohort, r forecast.Scena
 		areaSum += c.Area
 		pciArea += c.EndPCI * c.Area
 		cohortSpend += c.TotalSpend
-		cohortDeficit += c.TotalDeficit
+		cohortDeficit += c.DeferredBacklog
 	}
 	if !near(areaSum, last.Area) {
 		t.Errorf("cohort areas sum to %g, want the final-year area %g", areaSum, last.Area)
@@ -207,7 +207,7 @@ func checkFinalCohorts(t *testing.T, cohorts []forecast.Cohort, r forecast.Scena
 	// Every cohort shares one funding ratio, so either all are short of need
 	// or none is, and the per-cohort deficits add up to the network backlog.
 	if !near(cohortDeficit, last.DeferredBacklog) {
-		t.Errorf("cohort TotalDeficit sums to %g, want the final backlog %g", cohortDeficit, last.DeferredBacklog)
+		t.Errorf("cohort DeferredBacklog sums to %g, want the final backlog %g", cohortDeficit, last.DeferredBacklog)
 	}
 }
 

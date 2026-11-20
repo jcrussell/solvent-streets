@@ -812,7 +812,7 @@
         // source of truth for which bucket buildBlendedHexFC / the click
         // handler read from.
         let hexDataByScope = { city: {}, all: {} };       // { scope: { type: [features] } }
-        let costSummaryByScope = { city: {}, all: {} };   // { scope: { type: {year1_need,total_area} } }
+        let costSummaryByScope = { city: {}, all: {} };   // { scope: { type: {year1_need,area} } }
         let activeTypes = new Set(Object.keys(layerColors));
         // #stats shows either the city summary or one detail panel (a clicked
         // hex, a dragged region) over it. savedPanelHTML is the summary the
@@ -943,22 +943,22 @@
             return (meta && Array.isArray(meta.missing_resources)) ? meta.missing_resources : [];
         }
 
-        // ingestFailures is meta.json's ingest_failures: resource -> the
+        // ingestFailures is meta.json's failing_sources: resource -> the
         // configured sources whose last ingest failed and that hold none of its
         // rows. partialLayers are those resources that still have data from
         // another source (Albany's roads: ArcGIS answered, OpenStreetMap did
         // not). They are shown with a note and ranked like a missing layer.
         /** @param {any} meta @returns {Object<string, string[]>} */
         function ingestFailures(meta) {
-            return (meta && meta.ingest_failures && typeof meta.ingest_failures === 'object') ? meta.ingest_failures : {};
+            return (meta && meta.failing_sources && typeof meta.failing_sources === 'object') ? meta.failing_sources : {};
         }
-        // emptyLayers is meta.json's empty_resources: missing resource -> the
+        // emptyLayers is meta.json's empty_sources: missing resource -> the
         // configured sources, every one of which last answered with no rows
         // (OpenStreetMap maps no sidewalks in a small town). Still missing,
         // and still unranked: no data is not a measured zero.
         /** @param {any} meta @returns {Object<string, string[]>} */
         function emptyLayers(meta) {
-            return (meta && meta.empty_resources && typeof meta.empty_resources === 'object') ? meta.empty_resources : {};
+            return (meta && meta.empty_sources && typeof meta.empty_sources === 'object') ? meta.empty_sources : {};
         }
         /** @param {any} meta @returns {string[]} */
         function partialLayers(meta) {
@@ -1012,12 +1012,12 @@
 
             for (const type of activeTypes) {
                 const cs = costSummary[type];
-                if (!cs || !cs.total_area) continue;
+                if (!cs || !cs.area) continue;
                 const features = hexDataByType[type] || [];
                 for (const f of features) {
                     const hid = f.properties.hex_id;
                     if (!byHex[hid]) continue;
-                    byHex[hid].year1_need += ((f.properties.area || 0) / cs.total_area) * cs.year1_need;
+                    byHex[hid].year1_need += ((f.properties.area || 0) / cs.area) * cs.year1_need;
                 }
             }
 
@@ -1088,7 +1088,7 @@
             const code = document.getElementById('config-city-toml');
             if (!code) return;
             const name = document.getElementById('config-city-name');
-            if (name) name.textContent = meta.project_name || currentCityName();
+            if (name) name.textContent = meta.name || currentCityName();
             code.textContent = meta.settings_toml || 'No settings were published for this city.';
         }
 
@@ -1143,11 +1143,11 @@
                     '</div>';
             });
             (meta.stats || []).filter(s => !missing.includes(s.resource_type)).forEach(s => {
-                const areaLargeVal = toAreaLarge(s.total_area);
+                const areaLargeVal = toAreaLarge(s.area);
                 statsHTML +=
                     '<div class="stat-card"><h3>' + s.resource_type + '</h3>' +
                     '<div class="stat-row"><span class="stat-label">Area (' + areaLargeUnit() + ')</span><span class="stat-value">' + fmtNum1(areaLargeVal) + '</span></div>' +
-                    '<div class="stat-row"><span class="stat-label">Area (' + areaVeryLargeUnit() + ')</span><span class="stat-value">' + toAreaVeryLarge(s.total_area).toFixed(2) + '</span></div>' +
+                    '<div class="stat-row"><span class="stat-label">Area (' + areaVeryLargeUnit() + ')</span><span class="stat-value">' + toAreaVeryLarge(s.area).toFixed(2) + '</span></div>' +
                     // Parking only: a unitless count, so no units conversion.
                     (s.estimated_spaces > 0 ? '<div class="stat-row"><span class="stat-label">Est. Spaces</span><span class="stat-value">' + s.estimated_spaces.toLocaleString() + '</span></div>' : '') +
                     (partial.includes(s.resource_type) ? '<div class="stat-row stat-note">Partial: no ' + esc(sourceNames(failures[s.resource_type])) + ' data (its last ingest failed)</div>' : '') +
@@ -1244,7 +1244,7 @@
             let total = 0;
             for (const t of activeTypes) {
                 if (prop === 'year1_need') {
-                    if (cs[t] && cs[t].total_area > 0) total += cs[t].year1_need || 0;
+                    if (cs[t] && cs[t].area > 0) total += cs[t].year1_need || 0;
                     continue;
                 }
                 const field = DERIVE_PROPS[prop];
@@ -1303,7 +1303,7 @@
                 const badgeEl = selectById('latest-compute-badge');
                 if (badgeEl) badgeEl.hidden = !(meta && meta.latest_compute);
                 if (meta) {
-                    setCityHeading(meta.project_name);
+                    setCityHeading(meta.name);
                     lastCityMeta = meta;
                     renderCityStats(meta);
                     renderCitySettings(meta);
@@ -1583,8 +1583,8 @@
                 totalSpaces += match.properties.spaces || 0;
                 let cost = 0;
                 const cs = costSummary[type];
-                if (cs && cs.total_area) {
-                    cost = (area / cs.total_area) * cs.year1_need;
+                if (cs && cs.area) {
+                    cost = (area / cs.area) * cs.year1_need;
                 }
                 totalArea += area;
                 totalPct += pct;
@@ -1665,7 +1665,7 @@
             const types = [...activeTypes].filter(t => (byType[t] || []).length > 0);
             if (prop === 'year1_need') {
                 const cs = costSummaryByScope[currentScope] || {};
-                return types.some(t => cs[t] && cs[t].total_area > 0);
+                return types.some(t => cs[t] && cs[t].area > 0);
             }
             if (prop === 'spaces') return types.some(t => byType[t].some(f => f.properties.spaces > 0));
             return types.length > 0;
@@ -2709,7 +2709,7 @@
             ['decay_rate', 'number'],
             ['end_pci', 'number'],
             ['total_spend', 'number'],
-            ['total_deficit', 'number']
+            ['deferred_backlog', 'number']
         ];
 
         function renderCohortBreakdown(cohorts, keepSort) {
@@ -2721,7 +2721,7 @@
                 ...c,
                 area_pct: totalArea > 0 ? c.area / totalArea * 100 : 0,
                 total_spend: c.total_spend || 0,
-                total_deficit: c.total_deficit || 0
+                deferred_backlog: c.deferred_backlog || 0
             }));
 
             // Sort
@@ -2753,7 +2753,7 @@
                 const cls = pciBadgeClass(pci);
 
                 totalSpend += c.total_spend;
-                totalDeficit += c.total_deficit;
+                totalDeficit += c.deferred_backlog;
 
                 const tr = document.createElement('tr');
                 tr.innerHTML =
@@ -2763,7 +2763,7 @@
                     '<td class="number">' + c.decay_rate.toFixed(4) + '</td>' +
                     '<td class="number"><span class="pci-badge ' + cls + '">' + pci + '</span></td>' +
                     '<td class="number">' + fmtMoney(c.total_spend, { full: true }) + '</td>' +
-                    '<td class="number">' + fmtMoney(c.total_deficit, { full: true }) + '</td>';
+                    '<td class="number">' + fmtMoney(c.deferred_backlog, { full: true }) + '</td>';
                 tbody.appendChild(tr);
             });
 
@@ -3388,7 +3388,7 @@
             // Single-city pages have no CITIES; the loaded meta.json names the
             // city. The last resort is read mid-sentence
             // ("At current funding, this city's ..."), so it is lower case.
-            if (lastCityMeta && lastCityMeta.project_name) return lastCityMeta.project_name;
+            if (lastCityMeta && lastCityMeta.name) return lastCityMeta.name;
             return 'this city';
         }
 
@@ -3489,7 +3489,7 @@
         function renderCohortFromForecast(scope) {
             if (!forecastData) return;
             const roads = forecastData.find(f => f.resource_type === 'roads');
-            const src = (scope === 'all' && roads && roads.all_baseline) ? roads.all_baseline : (roads && roads.baseline);
+            const src = roads && ((scope !== 'all' && roads.city_baseline) || roads.baseline);
             if (src && src.final_cohorts && src.final_cohorts.length > 1) {
                 renderCohortBreakdown(src.final_cohorts);
             } else {
@@ -4764,17 +4764,17 @@
             var statByType = {};
             if (city.meta && city.meta.stats) {
                 city.meta.stats.forEach(function(st) { statByType[st.resource_type] = st; });
-                m.totalAreaLarge = city.meta.stats.reduce(function(s, st) { return s + toAreaLarge(st.total_area || 0); }, 0);
-                m.totalSqM = city.meta.stats.reduce(function(s, st) { return s + (st.total_area || 0); }, 0);
+                m.totalAreaLarge = city.meta.stats.reduce(function(s, st) { return s + toAreaLarge(st.area || 0); }, 0);
+                m.totalSqM = city.meta.stats.reduce(function(s, st) { return s + (st.area || 0); }, 0);
             } else {
                 m.totalAreaLarge = 0; m.totalSqM = 0;
             }
-            m.roadsAreaLarge = toAreaLarge(statByType.roads ? statByType.roads.total_area || 0 : 0);
-            m.parkingAreaLarge = toAreaLarge(statByType.parking ? statByType.parking.total_area || 0 : 0);
-            m.sidewalksAreaLarge = toAreaLarge(statByType.sidewalks ? statByType.sidewalks.total_area || 0 : 0);
-            m.roadsSqM = statByType.roads ? statByType.roads.total_area : 0;
-            m.parkingSqM = statByType.parking ? statByType.parking.total_area : 0;
-            m.sidewalksSqM = statByType.sidewalks ? statByType.sidewalks.total_area : 0;
+            m.roadsAreaLarge = toAreaLarge(statByType.roads ? statByType.roads.area || 0 : 0);
+            m.parkingAreaLarge = toAreaLarge(statByType.parking ? statByType.parking.area || 0 : 0);
+            m.sidewalksAreaLarge = toAreaLarge(statByType.sidewalks ? statByType.sidewalks.area || 0 : 0);
+            m.roadsSqM = statByType.roads ? statByType.roads.area : 0;
+            m.parkingSqM = statByType.parking ? statByType.parking.area : 0;
+            m.sidewalksSqM = statByType.sidewalks ? statByType.sidewalks.area : 0;
             // Estimated parking spaces (lots + garages); 0 when the city was
             // computed before the estimate existed, which the leaderboard
             // category filters out rather than ranking at zero.

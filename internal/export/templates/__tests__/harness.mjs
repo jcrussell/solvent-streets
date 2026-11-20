@@ -205,7 +205,7 @@ export function defaultSimulate(input) {
     final_cohorts: (input.cohorts ?? []).map((c) => ({
       classification: c.classification ?? 'residential',
       end_pci: pci, area: c.area ?? 1e5, decay_rate: c.decay_rate ?? 0.04,
-      total_spend: 1e6, total_deficit: 1e5,
+      total_spend: 1e6, deferred_backlog: 1e5,
     })),
   };
 }

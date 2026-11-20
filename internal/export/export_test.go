@@ -140,7 +140,7 @@ func TestRunSingleCity_ReusesExportedMetaAndSeed(t *testing.T) {
 		t.Errorf("meta.json = %s; want %s", gotMeta, wantMetaBytes)
 	}
 
-	// index.html was rendered from the reused meta (project_name comes straight
+	// index.html was rendered from the reused meta (meta.json name comes straight
 	// from MetaJSON). Its presence confirms renderHTML ran on the export's meta
 	// rather than failing or being skipped.
 	indexHTML, err := os.ReadFile(filepath.Join(dir, "index.html"))

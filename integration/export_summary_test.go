@@ -59,7 +59,7 @@ func TestExportForecast_SummaryGolden(t *testing.T) {
 	var fe []struct {
 		ResourceType    string          `json:"resource_type"`
 		Baseline        summarySeries   `json:"baseline"`
-		AllBaseline     summarySeries   `json:"all_baseline"`
+		CityBaseline    *summarySeries  `json:"city_baseline"`
 		Scenarios       []summarySeries `json:"scenarios"`
 		InsolvencyYear  *int            `json:"insolvency_year"`
 		FundingGap      *float64        `json:"funding_gap"`
@@ -68,8 +68,10 @@ func TestExportForecast_SummaryGolden(t *testing.T) {
 	}
 	roundTrip(t, forecasts, &fe)
 	for _, e := range fe {
-		writeLine(t, &buf, e.Baseline.summary("forecast.json", "city", e.ResourceType))
-		writeLine(t, &buf, e.AllBaseline.summary("forecast.json", "all", e.ResourceType))
+		if e.CityBaseline != nil {
+			writeLine(t, &buf, e.CityBaseline.summary("forecast.json", "city", e.ResourceType))
+		}
+		writeLine(t, &buf, e.Baseline.summary("forecast.json", "all", e.ResourceType))
 		for _, s := range e.Scenarios {
 			writeLine(t, &buf, s.summary("forecast.json", "city", e.ResourceType))
 		}

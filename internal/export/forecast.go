@@ -117,10 +117,17 @@ func cohortInputs(stats []results.Cohort) []forecast.CohortInput {
 }
 
 // ForecastExport holds per-resource forecast results.
+//
+// Baseline is the do-nothing run over every jurisdiction's pavement, and
+// CityBaseline the one over city-maintained pavement, present when the city
+// has a city-maintained view (the forecast_seed.json cohorts/city_cohorts
+// pairing). The primary scope is the city one when CityBaseline is present,
+// else all: Scenarios and the solvency metrics are run on it, since that is
+// what a city budget covers.
 type ForecastExport struct {
 	ResourceType string                    `json:"resource_type"`
 	Baseline     forecast.ScenarioResult   `json:"baseline"`
-	AllBaseline  *forecast.ScenarioResult  `json:"all_baseline,omitempty"` // all-jurisdiction scope (shown when the "All" scope is toggled)
+	CityBaseline *forecast.ScenarioResult  `json:"city_baseline,omitempty"`
 	Scenarios    []forecast.ScenarioResult `json:"scenarios"`
 
 	// Solvency metrics — populated for the roads resource only (a city's
@@ -152,6 +159,15 @@ type ForecastExport struct {
 	hasCityTotal  bool
 }
 
+// Primary is the baseline of the primary scope: CityBaseline when present,
+// else Baseline. Scenarios and the solvency metrics are run on it.
+func (fe ForecastExport) Primary() forecast.ScenarioResult {
+	if fe.CityBaseline != nil {
+		return *fe.CityBaseline
+	}
+	return fe.Baseline
+}
+
 // errSkipResource sentinel: a resource has no compute run yet (or returned
 // a nil row), and the caller should silently skip it rather than treat it
 // as a real failure. Distinguishes "legitimate empty for this resource"
@@ -160,8 +176,7 @@ var errSkipResource = errors.New("no compute result for resource")
 
 // BuildForecastsForCity builds per-resource forecast exports for a city.
 // Prefers city-scoped data (excluding state/federal roads) as the primary
-// baseline since that matches what a city budget covers. The all-jurisdiction
-// baseline is stored as AllBaseline for the "All Roads" toggle.
+// scope since that matches what a city budget covers (see ForecastExport).
 //
 // Returns (forecasts, nil) on success, (nil, err) on any real DB failure.
 // A resource with no city totals is treated as "no compute run yet for this
@@ -243,8 +258,8 @@ func buildResourceForecast(rt resource.Source, fc *config.ForecastConfig, costTi
 		fe.cityTotalArea, fe.hasCityTotal = cityResult.Area, true
 	}
 	if hasCityScope {
-		allBaseline := forecast.CollapseBands(forecast.SimulateBaseline(allCohorts, years, rtParams))
-		fe.AllBaseline = &allBaseline
+		fe.CityBaseline = &baseline
+		fe.Baseline = forecast.CollapseBands(forecast.SimulateBaseline(allCohorts, years, rtParams))
 	}
 
 	// Roads-only solvency metrics. Computed on primaryCohorts (city-scope when
@@ -517,7 +532,7 @@ func roundScenarioResult(r forecast.ScenarioResult) forecast.ScenarioResult {
 		c.Area = roundArea(c.Area)
 		c.DecayRate = geo.RoundTo(c.DecayRate, emitRateDecimals)
 		c.TotalSpend = roundMoney(c.TotalSpend)
-		c.TotalDeficit = roundMoney(c.TotalDeficit)
+		c.DeferredBacklog = roundMoney(c.DeferredBacklog)
 		cohorts[i] = c
 	}
 	r.FinalCohorts = cohorts
@@ -547,9 +562,9 @@ func RoundForecastsForEmission(fes []ForecastExport) []ForecastExport {
 	out := make([]ForecastExport, len(fes))
 	for i, fe := range fes {
 		fe.Baseline = roundScenarioResult(fe.Baseline)
-		if fe.AllBaseline != nil {
-			bb := roundScenarioResult(*fe.AllBaseline)
-			fe.AllBaseline = &bb
+		if fe.CityBaseline != nil {
+			cb := roundScenarioResult(*fe.CityBaseline)
+			fe.CityBaseline = &cb
 		}
 		fe.Scenarios = roundScenarioResults(fe.Scenarios)
 		fe.BreakEvenBudget = roundMoney(fe.BreakEvenBudget)
@@ -610,27 +625,21 @@ func BuildHexCostSummary(forecasts []ForecastExport) map[string]map[string]map[s
 }
 
 // scopeYear1Needs reads the year-1 annual need for each scope out of a
-// ForecastExport. The convention is set in buildResourceForecast: when
-// AllBaseline is non-nil, Baseline is the city-scoped run; when nil,
-// Baseline carries the all-scope run alone.
+// ForecastExport: Baseline's for all, CityBaseline's (when present) for city.
 func scopeYear1Needs(fe ForecastExport) (city, all float64, hasCity bool) {
-	hasCity = fe.AllBaseline != nil
-	if hasCity {
-		if len(fe.Baseline.Years) > 0 {
-			city = fe.Baseline.Years[0].AnnualNeed
-		}
-		if len(fe.AllBaseline.Years) > 0 {
-			all = fe.AllBaseline.Years[0].AnnualNeed
-		}
-		return city, all, true
-	}
 	if len(fe.Baseline.Years) > 0 {
 		all = fe.Baseline.Years[0].AnnualNeed
 	}
-	return 0, all, false
+	if fe.CityBaseline == nil {
+		return 0, all, false
+	}
+	if len(fe.CityBaseline.Years) > 0 {
+		city = fe.CityBaseline.Years[0].AnnualNeed
+	}
+	return city, all, true
 }
 
-// addScopeRow writes the {year1_need, total_area} pair under
+// addScopeRow writes the {year1_need, area} pair under
 // out[scope][t.Bare()].
 func addScopeRow(out map[string]map[string]map[string]float64, scope string, t resource.Type, year1Need, totalArea float64) {
 	if out[scope] == nil {
@@ -638,7 +647,7 @@ func addScopeRow(out map[string]map[string]map[string]float64, scope string, t r
 	}
 	out[scope][string(t.Bare())] = map[string]float64{
 		"year1_need": year1Need,
-		"total_area": totalArea,
+		"area":       totalArea,
 	}
 }
 

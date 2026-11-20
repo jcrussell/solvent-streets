@@ -22,13 +22,13 @@ function perCity(file, base, tag) {
 
 test('a slow load for the previous city cannot overwrite the city switched to', async () => {
   const data = {
-    ...perCity('meta.json', metaJSON, (m, who) => ({ ...m, project_name: who + ' project' })),
+    ...perCity('meta.json', metaJSON, (m, who) => ({ ...m, name: who + ' project' })),
     ...fullData,
   };
   // The page loads CITIES[0] (Alpha) once the map is ready; hold Alpha's
   // meta.json so that load is still in flight when the user switches to Beta.
   const { win, get, flush, release, fireMap } = load({ data, hold: ['cities/alpha-ca/data/meta.json'] });
-  const shown = () => get('lastCityMeta && lastCityMeta.project_name');
+  const shown = () => get('lastCityMeta && lastCityMeta.name');
   await flush();
   fireMap('load');
   await flush();

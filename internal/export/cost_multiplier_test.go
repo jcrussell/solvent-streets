@@ -24,7 +24,6 @@ var dollarFields = map[string]bool{
 	"annual_spend":      true,
 	"deferred_backlog":  true,
 	"total_spend":       true,
-	"total_deficit":     true,
 	"break_even_budget": true,
 	"annual_budget":     true,
 }

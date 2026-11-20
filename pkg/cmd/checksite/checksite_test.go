@@ -254,7 +254,7 @@ func TestCheckSite_EmptyUpstreamDoesNotAskForReingest(t *testing.T) {
 	dir := buildValidSite(t)
 	m := export.MetaJSON{ProjectName: "Demo", PavedShare: 0.2, TotalPaved: 20000, CityArea: 100000,
 		MissingResources: []string{"parking", "sidewalks"},
-		EmptyResources:   map[string][]string{"sidewalks": {"overpass"}}}
+		EmptySources:     map[string][]string{"sidewalks": {"overpass"}}}
 	writeJSONFile(t, filepath.Join(dir, "demo-ca", "data", "meta.json"), m)
 	out, err := run(t, dir, false)
 	if err != nil {
@@ -277,7 +277,7 @@ func TestCheckSite_PartialResourcesWarn(t *testing.T) {
 	dir := buildValidSite(t)
 	m := export.MetaJSON{ProjectName: "Demo", PavedShare: 0.2, TotalPaved: 20000, CityArea: 100000,
 		MissingResources: []string{"sidewalks"},
-		IngestFailures:   map[string][]string{"roads": {"overpass"}, "sidewalks": {"overpass"}}}
+		FailingSources:   map[string][]string{"roads": {"overpass"}, "sidewalks": {"overpass"}}}
 	writeJSONFile(t, filepath.Join(dir, "demo-ca", "data", "meta.json"), m)
 	out, err := run(t, dir, false)
 	if err != nil {
@@ -859,7 +859,7 @@ func TestCheckSite_LowCoverageSkipsExplainedLayers(t *testing.T) {
 			pop := 1000.0
 			m := export.MetaJSON{ProjectName: "Demo", PavedShare: 0.2, TotalPaved: 20000, CityArea: 100000,
 				Metrics:        map[string]export.MetricSummaryJSON{"population": {Total: &pop}},
-				IngestFailures: map[string][]string{"parking": {"overpass"}}}
+				FailingSources: map[string][]string{"parking": {"overpass"}}}
 			for _, rt := range []string{"roads", "parking", "sidewalks"} {
 				m.Stats = append(m.Stats, export.StatJSON{ResourceType: rt, TotalArea: areas[rt]})
 			}

@@ -21,7 +21,7 @@ async function page(tiers, scenarios = readFixture('scenarios.json')) {
 /** badges renders the cohort table for the given end PCIs and returns each badge's class. */
 function badges(win, pcis) {
   win.renderCohortBreakdown(pcis.map((pci, i) => ({
-    classification: 'class' + i, area: 1000 - i, decay_rate: 0.04, end_pci: pci, total_spend: 0, total_deficit: 0,
+    classification: 'class' + i, area: 1000 - i, decay_rate: 0.04, end_pci: pci, total_spend: 0, deferred_backlog: 0,
   })));
   // Rows sort by area descending, which is the order given.
   return Array.from(win.document.querySelectorAll('#cohort-table tbody .pci-badge'),

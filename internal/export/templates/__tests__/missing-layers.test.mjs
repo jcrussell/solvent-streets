@@ -9,7 +9,7 @@ import { metaJSON, fullData } from './fixtures.mjs';
 
 const noSidewalks = {
   ...metaJSON,
-  stats: metaJSON.stats.map((s) => (s.resource_type === 'sidewalks' ? { ...s, total_area: 0 } : s)),
+  stats: metaJSON.stats.map((s) => (s.resource_type === 'sidewalks' ? { ...s, area: 0 } : s)),
   missing_resources: ['sidewalks'],
 };
 
@@ -65,17 +65,17 @@ test('Compare drops a city missing sidewalks from Walkability and its award', as
   assert.match(doc.getElementById('infra-cards').textContent, /No sidewalks data/);
 });
 
-// A layer one of whose sources failed is partial (meta.json ingest_failures):
+// A layer one of whose sources failed is partial (meta.json failing_sources):
 // its card keeps its data with a note, and Compare ranks the city like one
 // missing it, so a data gap cannot win a medal (Albany's 100% city-owned
 // roads came from ArcGIS alone).
 const partialRoads = {
   ...metaJSON,
-  ingest_failures: { roads: ['overpass'] },
+  failing_sources: { roads: ['overpass'] },
 };
 const failedSidewalks = {
   ...noSidewalks,
-  ingest_failures: { sidewalks: ['overpass'] },
+  failing_sources: { sidewalks: ['overpass'] },
 };
 
 // statCard returns the stats-panel card titled rt.
@@ -120,9 +120,9 @@ test('a missing layer whose ingest failed says so', async () => {
 });
 
 // A layer every source answered empty for is not
-// un-ingested: OpenStreetMap maps none there (meta.json empty_resources).
+// un-ingested: OpenStreetMap maps none there (meta.json empty_sources).
 test('a missing layer no source has says none is mapped, not not ingested', async () => {
-  const emptySidewalks = { ...noSidewalks, empty_resources: { sidewalks: ['overpass'] } };
+  const emptySidewalks = { ...noSidewalks, empty_sources: { sidewalks: ['overpass'] } };
   const { win, $$, flush } = load({ data: { ...fullData, 'meta.json': emptySidewalks } });
   await flush();
   await win.loadCityData();

@@ -57,19 +57,13 @@ func TestExportScenariosForCity_PropagatesDBError(t *testing.T) {
 	}
 }
 
-// TestBuildResourceForecast_AllBaselineGatedOnCityScope pins the contract
-// that AllBaseline is only populated when city-scope cohorts exist. When
-// hasCityScope is false the primary baseline already reflects the all
-// cohorts, so computing a second identical Simulate is wasted work — the
-// fix routes the allBaseline call inside the `if hasCityScope` branch.
-//
-// Regression caught: reverting the gate (unconditionally running
-// forecast.Simulate over allCohorts) doubles per-resource Simulate work on
-// the common no-city-scope path. We can't directly count Simulate calls, so
-// we anchor on the observable contracts: (a) AllBaseline is nil when city
-// stats are empty, (b) AllBaseline is non-nil and equal to a fresh
-// Simulate over all cohorts when city stats are present.
-func TestBuildResourceForecast_AllBaselineGatedOnCityScope(t *testing.T) {
+// TestBuildResourceForecast_CityBaselineGatedOnCityScope pins the contract
+// that CityBaseline is only populated when city-scope cohorts exist, and that
+// Baseline is the all-jurisdiction run either way. Without a city scope the
+// reference run already is the all-jurisdiction one, so a second Simulate
+// would be wasted work: (a) CityBaseline is nil when city stats are empty,
+// (b) with city stats, Baseline covers the larger all-jurisdiction system.
+func TestBuildResourceForecast_CityBaselineGatedOnCityScope(t *testing.T) {
 	now := time.Now()
 	fc := &config.ForecastConfig{InitialPCI: 85, GrowthRate: 0.01, HorizonYears: 5}
 	costTiers := forecast.DefaultCostTiers
@@ -78,7 +72,7 @@ func TestBuildResourceForecast_AllBaselineGatedOnCityScope(t *testing.T) {
 	tAll := pavement.Type()
 	tCity := tAll.With(resource.ScopeCity)
 
-	t.Run("no_city_scope_skips_all_baseline", func(t *testing.T) {
+	t.Run("no_city_scope_skips_city_baseline", func(t *testing.T) {
 		latest := map[resource.Type]results.Totals{
 			tAll: {Area: 1000, ComputedAt: now},
 		}
@@ -89,15 +83,15 @@ func TestBuildResourceForecast_AllBaselineGatedOnCityScope(t *testing.T) {
 		if err != nil {
 			t.Fatalf("buildResourceForecast: %v", err)
 		}
-		if fe.AllBaseline != nil {
-			t.Errorf("AllBaseline = %+v; want nil when city stats are empty", fe.AllBaseline)
+		if fe.CityBaseline != nil {
+			t.Errorf("CityBaseline = %+v; want nil when city stats are empty", fe.CityBaseline)
 		}
 		if len(fe.Baseline.Years) != fc.HorizonYears {
 			t.Errorf("Baseline.Years length = %d; want %d", len(fe.Baseline.Years), fc.HorizonYears)
 		}
 	})
 
-	t.Run("city_scope_populates_all_baseline", func(t *testing.T) {
+	t.Run("city_scope_populates_city_baseline", func(t *testing.T) {
 		latest := map[resource.Type]results.Totals{
 			tAll: {Area: 2000, ComputedAt: now},
 		}
@@ -109,17 +103,17 @@ func TestBuildResourceForecast_AllBaselineGatedOnCityScope(t *testing.T) {
 		if err != nil {
 			t.Fatalf("buildResourceForecast: %v", err)
 		}
-		if fe.AllBaseline == nil {
-			t.Fatal("AllBaseline = nil; want non-nil when city stats are present")
+		if fe.CityBaseline == nil {
+			t.Fatal("CityBaseline = nil; want non-nil when city stats are present")
 		}
-		// All-scope area (2000) > city-area (500), so the all baseline must reflect
-		// a larger system than the city-scope Baseline.
-		if len(fe.AllBaseline.Years) == 0 || len(fe.Baseline.Years) == 0 {
-			t.Fatalf("expected non-empty year slices; baseline=%d all=%d", len(fe.Baseline.Years), len(fe.AllBaseline.Years))
+		// All-scope area (2000) > city-area (500), so Baseline must reflect a
+		// larger system than CityBaseline.
+		if len(fe.CityBaseline.Years) == 0 || len(fe.Baseline.Years) == 0 {
+			t.Fatalf("expected non-empty year slices; baseline=%d city=%d", len(fe.Baseline.Years), len(fe.CityBaseline.Years))
 		}
-		if fe.AllBaseline.Years[0].AnnualNeed <= fe.Baseline.Years[0].AnnualNeed {
-			t.Errorf("AllBaseline.year0 AnnualNeed = %v; want > Baseline.year0 AnnualNeed = %v",
-				fe.AllBaseline.Years[0].AnnualNeed, fe.Baseline.Years[0].AnnualNeed)
+		if fe.Baseline.Years[0].AnnualNeed <= fe.CityBaseline.Years[0].AnnualNeed {
+			t.Errorf("Baseline.year0 AnnualNeed = %v; want > CityBaseline.year0 AnnualNeed = %v",
+				fe.Baseline.Years[0].AnnualNeed, fe.CityBaseline.Years[0].AnnualNeed)
 		}
 	})
 }
@@ -185,17 +179,17 @@ func TestCityScope_AResourceTheCityMaintainsNoneOfIsEmptyEverywhere(t *testing.T
 	}
 	var cityNeed float64
 	for _, fe := range forecasts {
-		cityNeed += fe.Baseline.Years[0].AnnualNeed
-		if fe.AllBaseline == nil {
-			t.Fatalf("%s: no all-jurisdiction baseline in a city that has city scope", fe.ResourceType)
+		if fe.CityBaseline == nil {
+			t.Fatalf("%s: no city baseline in a city that has city scope", fe.ResourceType)
 		}
+		cityNeed += fe.CityBaseline.Years[0].AnnualNeed
 		if fe.ResourceType != string(resource.TypeRoads) {
 			continue
 		}
-		if y := fe.Baseline.Years[0]; y.Area != 0 || y.AnnualNeed != 0 {
+		if y := fe.CityBaseline.Years[0]; y.Area != 0 || y.AnnualNeed != 0 {
 			t.Errorf("roads city forecast: area %.0f, need %.0f; want an empty forecast", y.Area, y.AnnualNeed)
 		}
-		if fe.AllBaseline.Years[0].Area == 0 {
+		if fe.Baseline.Years[0].Area == 0 {
 			t.Error("roads all-jurisdiction baseline is empty")
 		}
 		if fe.BreakEvenBudget != 0 || fe.RoadsArea != 0 || fe.InsolvencyYear != nil || fe.FundingGap != nil {
@@ -277,8 +271,8 @@ func TestBuildForecastsForCity_RoadsEntryCarriesItsArea(t *testing.T) {
 	for _, fe := range forecasts {
 		switch fe.ResourceType {
 		case "roads":
-			if fe.RoadsArea <= 0 || fe.RoadsArea != fe.Baseline.Years[0].Area {
-				t.Errorf("roads_area = %v, want the baseline's year-1 area %v", fe.RoadsArea, fe.Baseline.Years[0].Area)
+			if fe.RoadsArea <= 0 || fe.RoadsArea != fe.Primary().Years[0].Area {
+				t.Errorf("roads_area = %v, want the primary baseline's year-1 area %v", fe.RoadsArea, fe.Primary().Years[0].Area)
 			}
 		default:
 			if fe.RoadsArea != 0 {

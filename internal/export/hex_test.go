@@ -485,16 +485,16 @@ func TestBuildHexGeoJSON_NoCityRowsOmitsCity(t *testing.T) {
 
 // TestBuildHexCostSummary_NestedByScope: the summary is
 // map[scope]map[resource]{...}. Both "city" and "all" keys appear when
-// AllBaseline is set on the forecast export (the marker that compute produced
-// both scopes).
+// CityBaseline is set on the forecast export (the marker that compute
+// produced both scopes).
 func TestBuildHexCostSummary_NestedByScope(t *testing.T) {
-	allBaseline := forecast.ScenarioResult{
-		Years: []forecast.ScenarioYear{{AnnualNeed: 50000}},
+	cityBaseline := forecast.ScenarioResult{
+		Years: []forecast.ScenarioYear{{AnnualNeed: 25000}},
 	}
 	forecasts := []ForecastExport{{
 		ResourceType:  "roads",
-		Baseline:      forecast.ScenarioResult{Years: []forecast.ScenarioYear{{AnnualNeed: 25000}}},
-		AllBaseline:   &allBaseline,
+		Baseline:      forecast.ScenarioResult{Years: []forecast.ScenarioYear{{AnnualNeed: 50000}}},
+		CityBaseline:  &cityBaseline,
 		totalArea:     2000,
 		cityTotalArea: 1000,
 		hasCityTotal:  true,
@@ -511,34 +511,34 @@ func TestBuildHexCostSummary_NestedByScope(t *testing.T) {
 		t.Fatalf("missing 'all' key in %v", out)
 	}
 	if city["roads"]["year1_need"] != 25000 {
-		t.Errorf("city roads year1_need = %v; want 25000 (from Baseline)", city["roads"]["year1_need"])
+		t.Errorf("city roads year1_need = %v; want 25000 (from CityBaseline)", city["roads"]["year1_need"])
 	}
-	if city["roads"]["total_area"] != 1000 {
-		t.Errorf("city roads total_area = %v; want 1000 (city-scope row)", city["roads"]["total_area"])
+	if city["roads"]["area"] != 1000 {
+		t.Errorf("city roads area = %v; want 1000 (city-scope row)", city["roads"]["area"])
 	}
 	if all["roads"]["year1_need"] != 50000 {
-		t.Errorf("all roads year1_need = %v; want 50000 (from AllBaseline)", all["roads"]["year1_need"])
+		t.Errorf("all roads year1_need = %v; want 50000 (from Baseline)", all["roads"]["year1_need"])
 	}
-	if all["roads"]["total_area"] != 2000 {
-		t.Errorf("all roads total_area = %v; want 2000 (all-scope row)", all["roads"]["total_area"])
+	if all["roads"]["area"] != 2000 {
+		t.Errorf("all roads area = %v; want 2000 (all-scope row)", all["roads"]["area"])
 	}
 }
 
-// TestBuildHexCostSummary_AllOnlyWhenNoCity: when AllBaseline is nil
+// TestBuildHexCostSummary_AllOnlyWhenNoCity: when CityBaseline is nil
 // (single-scope compute), the output has only the "all" key and
 // Baseline carries the all-scope numbers.
 func TestBuildHexCostSummary_AllOnlyWhenNoCity(t *testing.T) {
 	forecasts := []ForecastExport{{
 		ResourceType: "roads",
 		Baseline:     forecast.ScenarioResult{Years: []forecast.ScenarioYear{{AnnualNeed: 50000}}},
-		// AllBaseline left nil → no city scope.
+		// CityBaseline left nil → no city scope.
 		totalArea: 2000,
 	}}
 
 	out := BuildHexCostSummary(forecasts)
 
 	if _, ok := out["city"]; ok {
-		t.Errorf("'city' key must be absent when AllBaseline is nil; got %v", out)
+		t.Errorf("'city' key must be absent when CityBaseline is nil; got %v", out)
 	}
 	if out["all"]["roads"]["year1_need"] != 50000 {
 		t.Errorf("all roads year1_need = %v; want 50000", out["all"]["roads"]["year1_need"])
@@ -571,14 +571,14 @@ func TestBuildHexCostSummary_TotalsFromForecastRead(t *testing.T) {
 
 	out := BuildHexCostSummary(forecasts)
 
-	if got := out["all"]["roads"]["total_area"]; got != 2000 {
-		t.Errorf("all roads total_area = %v, want 2000", got)
+	if got := out["all"]["roads"]["area"]; got != 2000 {
+		t.Errorf("all roads area = %v, want 2000", got)
 	}
-	if got := out["all"]["parking"]["total_area"]; got != 300 {
-		t.Errorf("all parking total_area = %v, want 300", got)
+	if got := out["all"]["parking"]["area"]; got != 300 {
+		t.Errorf("all parking area = %v, want 300", got)
 	}
-	if got := out["city"]["roads"]["total_area"]; got != 1000 {
-		t.Errorf("city roads total_area = %v, want 1000", got)
+	if got := out["city"]["roads"]["area"]; got != 1000 {
+		t.Errorf("city roads area = %v, want 1000", got)
 	}
 	if _, ok := out["city"]["parking"]; ok {
 		t.Errorf("city parking present without a city-scope total: %v", out["city"])

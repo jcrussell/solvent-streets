@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/jcrussell/solvent-streets/internal/export"
+	"github.com/jcrussell/solvent-streets/internal/forecast"
 	"github.com/jcrussell/solvent-streets/internal/metric"
 )
 
@@ -78,7 +79,7 @@ func (r *runner) checkMeta(label, path string) {
 	// there, and a re-ingest cannot fill it.
 	var reingest []string
 	for _, rt := range meta.MissingResources {
-		if sources, ok := meta.EmptyResources[rt]; ok {
+		if sources, ok := meta.EmptySources[rt]; ok {
 			r.passf("reasonableness: %s: no %s mapped upstream (%s answered empty)", label, rt, strings.Join(sources, ", "))
 			continue
 		}
@@ -89,12 +90,12 @@ func (r *runner) checkMeta(label, path string) {
 	}
 	// A layer with data whose other configured source failed is partial: its
 	// totals and rankings would undercount the city.
-	for _, rt := range slices.Sorted(maps.Keys(meta.IngestFailures)) {
+	for _, rt := range slices.Sorted(maps.Keys(meta.FailingSources)) {
 		if slices.Contains(meta.MissingResources, rt) {
 			continue
 		}
 		r.warnf("reasonableness: %s: partial %s: no %s data (its last ingest failed) — re-ingest before publishing",
-			label, rt, strings.Join(meta.IngestFailures[rt], ", "))
+			label, rt, strings.Join(meta.FailingSources[rt], ", "))
 	}
 }
 
@@ -131,12 +132,12 @@ func (r *runner) checkForecast(label, slug, path string) {
 		// causes rather than guessing: ingest fetches by bounding box, and
 		// features that all lie outside the city boundary are clipped to
 		// zero area, which is not a geometry bug. `<resource> status` shows
-		// the ingested count beside the area, read-only. With an all-scope
-		// baseline present, Baseline is the city-maintained scope, so only
-		// that part is known to be zero.
+		// the ingested count beside the area, read-only. With a city
+		// baseline present, the primary scope is the city-maintained one, so
+		// only that part is known to be zero.
 		if baselineAreaAllZero(fc) {
 			what := "resource has zero paved area"
-			if fc.AllBaseline != nil {
+			if fc.CityBaseline != nil {
 				what = "resource has zero city-maintained paved area"
 			}
 			r.warnf("reasonableness: %s [%s]: %s — every feature may lie outside the city boundary, or its geometry was dropped (compare the ingested count and area with 'pvmt --city %s %s status')",
@@ -150,13 +151,13 @@ func (r *runner) checkForecast(label, slug, path string) {
 	}
 }
 
-// baselineAreaAllZero reports whether fc's baseline carries no paved area:
+// baselineAreaAllZero reports whether fc's primary baseline carries no paved area:
 // the year-0 area is zero (equivalently, every baseline year's area is zero,
 // since do-nothing area only grows). A baseline with no years is treated as
 // zero-area. Callers use this to surface a zero-area warning without
 // false-failing a legitimately empty resource.
 func baselineAreaAllZero(fc export.ForecastExport) bool {
-	years := fc.Baseline.Years
+	years := fc.Primary().Years
 	if len(years) == 0 {
 		return true
 	}
@@ -168,9 +169,10 @@ func baselineAreaAllZero(fc export.ForecastExport) bool {
 	return true
 }
 
-// baselineViolation returns a non-empty description when fc's baseline years
-// violate the expected do-nothing physics, or "" when they hold (or there is
-// nothing to validate).
+// baselineViolation returns a non-empty description when one of fc's
+// baselines (every jurisdiction's, and the city-maintained one when present)
+// violates the expected do-nothing physics, or "" when they hold (or there
+// is nothing to validate). The description names the baseline's key.
 //
 // A genuine regression is an *increase* in PCI or a *decrease* in deferred
 // backlog under do-nothing — physically impossible, so always a FAIL. A flat
@@ -179,14 +181,23 @@ func baselineAreaAllZero(fc export.ForecastExport) bool {
 // all-zero — and is not a regression, so it is tolerated rather than FAILed on
 // the strict-decrease rule.
 func baselineViolation(fc export.ForecastExport) string {
-	years := fc.Baseline.Years
+	if msg := yearsViolation("baseline", fc.Baseline.Years); msg != "" {
+		return msg
+	}
+	if fc.CityBaseline != nil {
+		return yearsViolation("city_baseline", fc.CityBaseline.Years)
+	}
+	return ""
+}
+
+func yearsViolation(name string, years []forecast.ScenarioYear) string {
 	for i := 1; i < len(years); i++ {
 		prev, cur := years[i-1], years[i]
 		if cur.PCI > prev.PCI {
-			return "baseline PCI increased year over year (do-nothing cannot improve)"
+			return name + " PCI increased year over year (do-nothing cannot improve)"
 		}
 		if cur.DeferredBacklog < prev.DeferredBacklog {
-			return "baseline deferred_backlog decreased year over year"
+			return name + " deferred_backlog decreased year over year"
 		}
 	}
 	return ""

@@ -145,7 +145,7 @@ func jsFixtureEntry(t *testing.T) CityEntry {
 		db.HexMetric{HexID: h[2], Metric: metric.FireResponseS, Subject: services.SubjectUnreachable})
 	store.HexMetrics = append(store.HexMetrics, results.HexCoverageRows(resource.TypeRoads,
 		[]results.HexCoverage{{HexID: h[0], Area: 1}, {HexID: h[1], Area: 1}})...)
-	// Matches a city option in the rendered index.html, so meta.project_name and
+	// Matches a city option in the rendered index.html, so meta.name and
 	// the DOM describe the same place.
 	entry.City.Name = "Alpha, CA"
 	entry.Slug = "alpha-ca"

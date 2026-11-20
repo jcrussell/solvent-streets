@@ -105,7 +105,7 @@ func TestBuildMultiCityMeta_AggregatesAcrossEntries(t *testing.T) {
 		t.Fatalf("BuildMultiCityMeta: %v", err)
 	}
 	if meta.ProjectName != "Test Region" {
-		t.Errorf("project_name = %q; want %q", meta.ProjectName, "Test Region")
+		t.Errorf("name = %q; want %q", meta.ProjectName, "Test Region")
 	}
 
 	// Per-resource totals sum across cities.
@@ -487,8 +487,8 @@ func TestBuildMeta_IngestFailures(t *testing.T) {
 		t.Fatalf("BuildMeta: %v", err)
 	}
 	want := map[string][]string{"roads": {"overpass"}, "sidewalks": {"overpass"}}
-	if !maps.EqualFunc(meta.IngestFailures, want, slices.Equal) {
-		t.Errorf("IngestFailures = %v; want %v", meta.IngestFailures, want)
+	if !maps.EqualFunc(meta.FailingSources, want, slices.Equal) {
+		t.Errorf("FailingSources = %v; want %v", meta.FailingSources, want)
 	}
 
 	entry.Store.(*dbtest.MockStore).IngestHistoryFunc = func(context.Context) ([]db.IngestHistory, error) {
@@ -526,8 +526,8 @@ func TestBuildMeta_EmptyResources(t *testing.T) {
 		t.Fatalf("BuildMeta: %v", err)
 	}
 	want := map[string][]string{"sidewalks": {"overpass"}}
-	if !maps.EqualFunc(meta.EmptyResources, want, slices.Equal) {
-		t.Errorf("EmptyResources = %v; want %v", meta.EmptyResources, want)
+	if !maps.EqualFunc(meta.EmptySources, want, slices.Equal) {
+		t.Errorf("EmptySources = %v; want %v", meta.EmptySources, want)
 	}
 	if !slices.Contains(meta.MissingResources, "sidewalks") {
 		t.Errorf("an empty layer must stay in MissingResources (kept out of rankings): %v", meta.MissingResources)
@@ -538,8 +538,8 @@ func TestBuildMeta_EmptyResources(t *testing.T) {
 	if meta, err = BuildMeta(t.Context(), entry, 0); err != nil {
 		t.Fatalf("BuildMeta: %v", err)
 	}
-	if len(meta.EmptyResources) != 0 {
-		t.Errorf("EmptyResources = %v; want none while arcgis has not answered", meta.EmptyResources)
+	if len(meta.EmptySources) != 0 {
+		t.Errorf("EmptySources = %v; want none while arcgis has not answered", meta.EmptySources)
 	}
 }
 

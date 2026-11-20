@@ -76,11 +76,12 @@ The following checks run over the given directory (default "site"):
     between 0 and 0.01 signals the near-zero-area bug, unless the city
     still paves 10 m² or more per resident, which is a rural city and only
     warned), and every
-    forecast.json baseline has monotonically falling PCI and non-decreasing
-    deferred backlog year over year. A city whose meta.json lists
+    forecast.json baseline (baseline, and city_baseline when present) has
+    monotonically falling PCI and non-decreasing deferred backlog year over
+    year. A city whose meta.json lists
     missing_resources (a layer with no ingested data) or a partial layer in
-    ingest_failures (a configured source whose last ingest failed) is warned,
-    except a layer every source answered empty for (empty_resources):
+    failing_sources (a configured source whose last ingest failed) is warned,
+    except a layer every source answered empty for (empty_sources):
     upstream maps none, so re-ingesting cannot help, and it passes.
   - CONSISTENCY: on a nested multi-export tree, a city slug shared across
     exports reports the same paved area in each. (A single-root export has

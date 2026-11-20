@@ -33,7 +33,7 @@ const lowCoverageFraction = 0.10
 // (Rolling Hills has no sidewalks).
 //
 // A city that appears in several examples counts once. A resource that is
-// missing, partial (ingest_failures) or zero is skipped: checkMeta and the
+// missing, partial (failing_sources) or zero is skipped: checkMeta and the
 // zero-area forecast warning already name it, with their own cause. A
 // meta.json that cannot be read is skipped quietly, since checkMeta fails it.
 func (r *runner) checkCoverage(s *site) {
@@ -70,7 +70,7 @@ func (r *runner) perResidentByResource(s *site) map[string][]cityCoverage {
 			continue
 		}
 		for _, st := range meta.Stats {
-			_, partial := meta.IngestFailures[st.ResourceType]
+			_, partial := meta.FailingSources[st.ResourceType]
 			if st.TotalArea > 0 && !partial && !slices.Contains(meta.MissingResources, st.ResourceType) {
 				byRes[st.ResourceType] = append(byRes[st.ResourceType], cityCoverage{d.label, st.TotalArea / *pop.Total})
 			}

@@ -57,7 +57,7 @@ test('Year-1 need per acre divides the city-scope need by the city-maintained ar
 
   const need = mostlyState.scenarios.city[0].years[0].annual_need;
   const want = need / win.toAreaLarge(mostlyState.scenarios.city[0].years[0].area);
-  const statsArea = mostlyState.meta.stats.reduce((s, st) => s + win.toAreaLarge(st.total_area || 0), 0);
+  const statsArea = mostlyState.meta.stats.reduce((s, st) => s + win.toAreaLarge(st.area || 0), 0);
   assert.ok(Math.abs(want - need / statsArea) > 1, 'fixture cannot tell the two denominators apart');
   assert.equal(dollars(headline(doc, /^Year-1 Need per acre$/)), Math.round(want));
 
@@ -81,7 +81,7 @@ test('under ?scope=all the per-acre need divides by the all-jurisdiction area', 
 test('per-area figures divide by the maintained area, not the paved footprint', async () => {
   const c = city('Alpha', (x) => { x.meta.total_paved = x.seed.maintained_area / 2; });
   const { win, doc } = await page([c], '?scope=all');
-  const statsSqM = c.meta.stats.reduce((s, st) => s + (st.total_area || 0), 0);
+  const statsSqM = c.meta.stats.reduce((s, st) => s + (st.area || 0), 0);
   assert.ok(statsSqM > 0, 'fixture meta.json has no stats area');
   assert.ok(Math.abs(c.seed.maintained_area - statsSqM) < 1e-6 * statsSqM,
     `forecast_seed maintained_area ${c.seed.maintained_area} is not the meta.stats sum ${statsSqM}`);

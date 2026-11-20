@@ -22,10 +22,10 @@ func emitTestForecasts() []ForecastExport {
 				{Year: 1, PCI: 61.234567890123, Area: 704.5835576057434, AnnualNeed: 1234567.8901234567, AnnualSpend: 987654.3210987654, DeferredBacklog: 246913.57802469135},
 			},
 			FinalCohorts: []forecast.CohortSummary{
-				{Classification: "residential", EndPCI: 42.987654321, Area: 704.5835576057434, DecayRate: 0.04523456789, TotalSpend: 1234567.8901234567, TotalDeficit: 246913.57802469135},
+				{Classification: "residential", EndPCI: 42.987654321, Area: 704.5835576057434, DecayRate: 0.04523456789, TotalSpend: 1234567.8901234567, DeferredBacklog: 246913.57802469135},
 			},
 		},
-		AllBaseline:     &all,
+		CityBaseline:    &all,
 		Scenarios:       []forecast.ScenarioResult{all},
 		BreakEvenBudget: 18234567.891234567,
 		CurrentBudget:   15000000.000000002,
@@ -112,11 +112,11 @@ func TestRoundForecastsForEmission_RoundsToDisplayPrecision(t *testing.T) {
 		}
 	}
 
-	// AllBaseline and Scenarios must be rounded too — they are the same shape
+	// CityBaseline and Scenarios must be rounded too — they are the same shape
 	// and the same size cost, and an unrounded one would look identical on the
 	// page while shipping the full float.
-	if got.AllBaseline.Years[0].AnnualNeed != 1234568 {
-		t.Errorf("all_baseline not rounded: %v", got.AllBaseline.Years[0].AnnualNeed)
+	if got.CityBaseline.Years[0].AnnualNeed != 1234568 {
+		t.Errorf("city_baseline not rounded: %v", got.CityBaseline.Years[0].AnnualNeed)
 	}
 	if got.Scenarios[0].Years[0].AnnualNeed != 1234568 {
 		t.Errorf("scenarios not rounded: %v", got.Scenarios[0].Years[0].AnnualNeed)

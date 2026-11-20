@@ -16,7 +16,7 @@ test('the fixture meta.json carries the city settings the exporter resolved', ()
 });
 
 test('the Config tab shows the city in view and switches with the city select', async () => {
-  const beta = { ...metaJSON, project_name: 'Beta, CA', settings_toml: '[[cities]]\n  name = "Beta, CA"\n' };
+  const beta = { ...metaJSON, name: 'Beta, CA', settings_toml: '[[cities]]\n  name = "Beta, CA"\n' };
   // Key order matters: the fetch stub takes the first key the path ends with.
   const data = { 'beta-ca/data/meta.json': beta, ...fullData };
   const { win, $, flush } = load({ data, url: 'https://example.test/index.html?city=alpha-ca&tab=config-tab' });

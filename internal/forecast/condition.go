@@ -87,7 +87,7 @@ func applyConditionSpread(cohorts []Cohort) []Cohort {
 
 // AggregateCohortSummariesByClass collapses per-band sub-cohort summaries back to
 // one row per classification, preserving first-seen order. EndPCI is area-weighted;
-// Area/TotalSpend/TotalDeficit are summed; DecayRate is taken from the first
+// Area/TotalSpend/DeferredBacklog are summed; DecayRate is taken from the first
 // occurrence (sub-cohorts of one class share it). Idempotent — a slice already
 // unique by classification is returned with equivalent values.
 func AggregateCohortSummariesByClass(summaries []CohortSummary) []CohortSummary {
@@ -110,7 +110,7 @@ func AggregateCohortSummariesByClass(summaries []CohortSummary) []CohortSummary 
 		}
 		out[i].Area += s.Area
 		out[i].TotalSpend += s.TotalSpend
-		out[i].TotalDeficit += s.TotalDeficit
+		out[i].DeferredBacklog += s.DeferredBacklog
 		pciArea[i] += s.EndPCI * s.Area
 	}
 	for i := range out {

@@ -432,12 +432,12 @@ func Simulate(s Scenario, cohorts []Cohort, years int, p *Params) ScenarioResult
 			area = areaValues[len(areaValues)-1] * sm.states[j].areaFrac
 		}
 		result.FinalCohorts[j] = CohortSummary{
-			Classification: c.Classification,
-			EndPCI:         sm.states[j].currentPCI,
-			Area:           area,
-			DecayRate:      c.DecayRate,
-			TotalSpend:     sm.spendAcc[j],
-			TotalDeficit:   sm.deficitAcc[j],
+			Classification:  c.Classification,
+			EndPCI:          sm.states[j].currentPCI,
+			Area:            area,
+			DecayRate:       c.DecayRate,
+			TotalSpend:      sm.spendAcc[j],
+			DeferredBacklog: sm.deficitAcc[j],
 		}
 	}
 

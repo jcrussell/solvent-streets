@@ -142,8 +142,8 @@ func TestPipeline_ComputeForecastExport(t *testing.T) {
 	t.Run("meta.json carries the fixture city", func(t *testing.T) {
 		var meta map[string]any
 		readJSON(t, filepath.Join(cityDir, "data", "meta.json"), &meta)
-		if got, _ := meta["project_name"].(string); got != city.Name {
-			t.Errorf("meta.project_name = %q; want %q", got, city.Name)
+		if got, _ := meta["name"].(string); got != city.Name {
+			t.Errorf("meta.name = %q; want %q", got, city.Name)
 		}
 	})
 
