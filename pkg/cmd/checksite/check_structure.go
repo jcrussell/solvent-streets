@@ -23,7 +23,7 @@ func (r *runner) checkStructure(s *site) {
 	}
 
 	if len(s.examples) == 0 {
-		r.failf(chkStructure, "no examples found under %s (expected at least one)", s.dir)
+		r.failf(chkStructure, "no exports found under %s (expected at least one)", s.dir)
 		return
 	}
 

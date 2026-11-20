@@ -100,8 +100,9 @@ per subdirectory is discovered and audited per subdirectory.
 
 The following checks run over the given directory (default "site"):
 
-  - STRUCTURE: the site root has its shared assets (index.html, .nojekyll,
-    pvmt.wasm, wasm_exec.js, app.js, game.js, selectors.js); a multi-city
+  - STRUCTURE: the site root has its shared assets (index.html, play.html,
+    .nojekyll, pvmt.wasm, wasm_exec.js, app.js, game.js, selectors.js,
+    common.js); a multi-city
     tree has cities.json and the compare.json rollup; and every city
     carries the expected data files (boundary.geojson, hexgrid.geojson,
     meta.json, forecast_seed.json, forecast.json, hex-cost-summary.json,

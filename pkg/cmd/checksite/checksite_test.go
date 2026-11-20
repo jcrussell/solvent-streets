@@ -611,7 +611,7 @@ func TestCheckSite_SingleRootLayout(t *testing.T) {
 	if strings.Contains(out, "FAIL") {
 		t.Errorf("valid single-root site produced a FAIL line:\n%s", out)
 	}
-	if strings.Contains(out, "no examples found") {
+	if strings.Contains(out, "no exports found") {
 		t.Errorf("single-root site should be discovered as an example, not empty:\n%s", out)
 	}
 	if !strings.Contains(out, "0 failed") {
@@ -1013,5 +1013,26 @@ func TestCheckSite_HelpNamesEveryCheck(t *testing.T) {
 		if !strings.Contains(long, heading) {
 			t.Errorf("check-site --help has no %q section", heading)
 		}
+	}
+}
+
+// TestCheckSite_HelpListsEverySiteRootFile: --help's STRUCTURE item names
+// every file the check requires at the site root.
+func TestCheckSite_HelpListsEverySiteRootFile(t *testing.T) {
+	ios, _, _, _ := iostreams.Test()
+	long := strings.Join(strings.Fields(NewCmdCheckSite(&cmdutil.Factory{IOStreams: ios}, nil).Long), " ")
+	for _, name := range export.SiteRootFiles() {
+		if !strings.Contains(long, name) {
+			t.Errorf("check-site --help does not list the site-root file %s", name)
+		}
+	}
+}
+
+// TestCheckSite_NoExportsFound: a directory with no export in it says so in
+// those words.
+func TestCheckSite_NoExportsFound(t *testing.T) {
+	out, err := run(t, t.TempDir(), false)
+	if err == nil || !strings.Contains(out, "FAIL  structure: no exports found under ") {
+		t.Errorf("empty dir: (%v)\n%s", err, out)
 	}
 }
