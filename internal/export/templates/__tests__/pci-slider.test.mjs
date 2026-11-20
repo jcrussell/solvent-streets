@@ -63,7 +63,7 @@ test('a next city whose seed lacks initial_pci still gets the shipped track back
   // The restore lives in seedRangeInput, so an early
   // return on an unusable initial_pci left the previous city's widened track
   // and its PCI on the slider. Fall back to the markup default instead, as
-  // the overhead slider falls back to 1.
+  // the multiplier slider falls back to 1.
   const data = withPCI(45);
   const h = await ready(data);
   assert.equal(parseFloat(h.$('#pci-slider').min), 45);

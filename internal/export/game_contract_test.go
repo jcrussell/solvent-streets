@@ -168,7 +168,7 @@ func TestForecastSeedJSON_PlayContract(t *testing.T) {
 		{".horizon_years", []string{"number"}},
 		{".treatment_cycle_years", []string{"number"}},
 		{".growth_rate", []string{"number"}},
-		{".cost_overhead", []string{"number"}},
+		{".cost_multiplier", []string{"number"}},
 		{".cost_tiers[]", []string{"object"}},
 		{".cost_tiers[].min_pci", []string{"number"}},
 		{".cost_tiers[].max_pci", []string{"number"}},
@@ -208,14 +208,14 @@ func TestHexGridJSON_PlayContract(t *testing.T) {
 // TestPlayConfig_FromExportStartsAGame: the gameInit config game.js builds
 // from an export starts a game, and its pregame projection at the roads
 // budget names the year forecast.json's insolvency_year does — bare and at a
-// loaded cost overhead, at budgets that run out and one that does not.
+// loaded cost multiplier, at budgets that run out and one that does not.
 func TestPlayConfig_FromExportStartsAGame(t *testing.T) {
 	entry := boardEntry(t)
 	insolvent := 0
-	for _, overhead := range []float64{1, 1.5} {
+	for _, multiplier := range []float64{1, 1.5} {
 		for _, budgetShare := range []float64{0.05, 0.2, 0.5, 2} {
 			fc := exporttest.ForecastConfig()
-			fc.CostOverhead = overhead
+			fc.CostMultiplier = multiplier
 			// Long enough for an underfunded network to defer a full
 			// treatment cycle of need, which the fixture's 10 years is not.
 			fc.HorizonYears = 30
@@ -224,17 +224,17 @@ func TestPlayConfig_FromExportStartsAGame(t *testing.T) {
 			fc.CurrentBudget = 0
 			breakEven := playConfig(t, exportPlayFiles(t, entry, fc)).AnnualBudget
 			if breakEven <= 0 {
-				t.Fatalf("overhead %g: no break-even budget", overhead)
+				t.Fatalf("multiplier %g: no break-even budget", multiplier)
 			}
 			fc.CurrentBudget = budgetShare * breakEven
 
 			files := exportPlayFiles(t, entry, fc)
 			cfg := playConfig(t, files)
 			if _, err := game.New(cfg); err != nil {
-				t.Fatalf("overhead %g, budget %.0f: game.New refused the exported config: %v", overhead, fc.CurrentBudget, err)
+				t.Fatalf("multiplier %g, budget %.0f: game.New refused the exported config: %v", multiplier, fc.CurrentBudget, err)
 			}
-			if cfg.CostOverhead != overhead {
-				t.Errorf("overhead %g: the seed carried cost_overhead %g", overhead, cfg.CostOverhead)
+			if cfg.CostMultiplier != multiplier {
+				t.Errorf("multiplier %g: the seed carried cost_multiplier %g", multiplier, cfg.CostMultiplier)
 			}
 
 			var forecasts []struct {
@@ -253,9 +253,9 @@ func TestPlayConfig_FromExportStartsAGame(t *testing.T) {
 			year, ok := game.ProjectInsolvency(cfg)
 			switch {
 			case want == nil && ok:
-				t.Errorf("overhead %g, budget %.0f: Play projects insolvency in year %d; Financials says solvent", overhead, fc.CurrentBudget, year)
+				t.Errorf("multiplier %g, budget %.0f: Play projects insolvency in year %d; Financials says solvent", multiplier, fc.CurrentBudget, year)
 			case want != nil && (!ok || year != *want):
-				t.Errorf("overhead %g, budget %.0f: Play projects (%d, %v); Financials says year %d", overhead, fc.CurrentBudget, year, ok, *want)
+				t.Errorf("multiplier %g, budget %.0f: Play projects (%d, %v); Financials says year %d", multiplier, fc.CurrentBudget, year, ok, *want)
 			case want != nil:
 				insolvent++
 			}

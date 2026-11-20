@@ -101,7 +101,7 @@ func interpolateCost(anchors []costAnchor, pci float64) float64 {
 type TieredCostProjector struct {
 	Tiers []CostTier // if nil, uses DefaultCostTiers
 
-	// Overhead multiplies every tier's cost to turn a BARE construction price
+	// Multiplier multiplies every tier's cost to turn a BARE construction price
 	// into the LOADED program cost a municipality actually budgets: ADA
 	// curb-ramp compliance, design/inspection/project management, and
 	// contingency (docs/validation.md §3). It is a separate knob from Tiers
@@ -111,7 +111,7 @@ type TieredCostProjector struct {
 	//
 	// A value <= 0 means 1.0 (bare), NOT the config default. Two reasons this
 	// matters and must not be "helpfully" changed to default to
-	// DefaultCostOverhead here:
+	// DefaultCostMultiplier here:
 	//
 	//  1. The zero value of a freshly-constructed projector would silently
 	//     acquire whatever the config default happens to be, so any
@@ -124,9 +124,9 @@ type TieredCostProjector struct {
 	//     dollar those paths produce, and every export golden with them.
 	//
 	// The default is injected by config resolution
-	// (config.ForecastConfig.CostOverhead, currently
-	// config.DefaultCostOverhead = 1.0). This package never defaults it.
-	Overhead float64
+	// (config.ForecastConfig.CostMultiplier, currently
+	// config.DefaultCostMultiplier = 1.0). This package never defaults it.
+	Multiplier float64
 
 	// anchors is memoized from Tiers on first use. ProjectCost runs once per
 	// cohort per year in Simulate, and the tier set is immutable for a
@@ -135,20 +135,20 @@ type TieredCostProjector struct {
 	anchors     []costAnchor
 }
 
-// resolvedOverhead is the effective multiplier: Overhead when positive, else
+// resolvedMultiplier is the effective multiplier: Multiplier when positive, else
 // 1.0. Non-finite values are also treated as 1.0 — a NaN would otherwise turn
 // every dollar on the page into NaN, which renders as blank rather than wrong,
 // and is the harder failure to trace.
-func (p *TieredCostProjector) resolvedOverhead() float64 {
-	if p.Overhead <= 0 || math.IsNaN(p.Overhead) || math.IsInf(p.Overhead, 0) {
+func (p *TieredCostProjector) resolvedMultiplier() float64 {
+	if p.Multiplier <= 0 || math.IsNaN(p.Multiplier) || math.IsInf(p.Multiplier, 0) {
 		return 1
 	}
-	return p.Overhead
+	return p.Multiplier
 }
 
 // resolvedAnchors returns the memoized anchor set, building it lazily from Tiers
 // (falling back to DefaultCostTiers when Tiers is empty) on first call.
-// Overhead is folded into the memoized anchors rather than applied at each
+// The multiplier is folded into the memoized anchors rather than applied at each
 // ProjectCost call: it is immutable for a projector's lifetime exactly like
 // Tiers, and applying it once here means every consumer of the anchors gets it
 // by construction rather than by remembering to multiply.
@@ -159,7 +159,7 @@ func (p *TieredCostProjector) resolvedAnchors() []costAnchor {
 			tiers = DefaultCostTiers
 		}
 		anchors := buildAnchors(tiers)
-		if oh := p.resolvedOverhead(); oh != 1 {
+		if oh := p.resolvedMultiplier(); oh != 1 {
 			for i := range anchors {
 				anchors[i].cost *= oh
 			}

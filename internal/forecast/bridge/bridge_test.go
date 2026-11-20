@@ -367,7 +367,7 @@ func TestJSONKeyContract(t *testing.T) {
 		{"GrowthRate", "GrowthRate", "growth_rate"},
 		{"HorizonYears", "HorizonYears", "horizon_years"},
 		{"CostTiers", "CostTiers", "cost_tiers"},
-		{"CostOverhead", "CostOverhead", "cost_overhead"},
+		{"CostMultiplier", "CostMultiplier", "cost_multiplier"},
 		{"Cohorts", "Cohorts", "cohorts"},
 	}
 	for _, s := range inputShared {
@@ -395,21 +395,21 @@ func TestJSONKeyContract(t *testing.T) {
 	}
 }
 
-// TestRun_MissingCostOverheadPricesBareNotZero is the stale-seed guard.
+// TestRun_MissingCostMultiplierPricesBareNotZero is the stale-seed guard.
 //
 // Input is decoded from untrusted browser JSON. A partially-rebuilt site pairs
 // a new pvmt.wasm with an old per-city forecast_seed.json that has no
-// cost_overhead field at all, which decodes to 0.0. A bare multiply would then
+// cost_multiplier field at all, which decodes to 0.0. A bare multiply would then
 // price every figure on the page at $0 — and $0 renders as a plausible-looking
 // "fully funded" rather than as an error. Bare figures are wrong by ~1.5x;
 // blank ones are wrong by everything.
-func TestRun_MissingCostOverheadPricesBareNotZero(t *testing.T) {
+func TestRun_MissingCostMultiplierPricesBareNotZero(t *testing.T) {
 	base := `{"area":1000000,"initial_pci":70,"decay_rate":0.04,"horizon_years":3,
 	          "treatment_cycle_years":12,"annual_budget":0,"strategy":"do-nothing"}`
 
 	out, err := Run([]byte(base))
 	if err != nil {
-		t.Fatalf("Run with no cost_overhead: %v", err)
+		t.Fatalf("Run with no cost_multiplier: %v", err)
 	}
 	var got struct {
 		Years []struct {
@@ -423,15 +423,15 @@ func TestRun_MissingCostOverheadPricesBareNotZero(t *testing.T) {
 		t.Fatal("no years returned")
 	}
 	if got.Years[0].AnnualNeed <= 0 {
-		t.Fatalf("annual_need = %g with an absent cost_overhead; a stale seed must price bare, not zero",
+		t.Fatalf("annual_need = %g with an absent cost_multiplier; a stale seed must price bare, not zero",
 			got.Years[0].AnnualNeed)
 	}
 
-	// And an explicit overhead must actually scale, so the test above is not
+	// And an explicit multiplier must actually scale, so the test above is not
 	// passing because the field is ignored entirely.
-	loaded, err := Run([]byte(base[:len(base)-1] + `,"cost_overhead":2}`))
+	loaded, err := Run([]byte(base[:len(base)-1] + `,"cost_multiplier":2}`))
 	if err != nil {
-		t.Fatalf("Run with cost_overhead: %v", err)
+		t.Fatalf("Run with cost_multiplier: %v", err)
 	}
 	var got2 struct {
 		Years []struct {
@@ -442,18 +442,18 @@ func TestRun_MissingCostOverheadPricesBareNotZero(t *testing.T) {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	if want := got.Years[0].AnnualNeed * 2; math.Abs(got2.Years[0].AnnualNeed-want) > 1e-6*want {
-		t.Errorf("annual_need at overhead 2 = %g, want %g (bare %g x 2)",
+		t.Errorf("annual_need at multiplier 2 = %g, want %g (bare %g x 2)",
 			got2.Years[0].AnnualNeed, want, got.Years[0].AnnualNeed)
 	}
 }
 
-// A negative overhead is a caller error, not a stale seed, so it is rejected
+// A negative multiplier is a caller error, not a stale seed, so it is rejected
 // rather than clamped — clamping it to bare would hide the mistake.
-func TestRun_NegativeCostOverheadIsRejected(t *testing.T) {
+func TestRun_NegativeCostMultiplierIsRejected(t *testing.T) {
 	in := `{"area":1000,"initial_pci":70,"decay_rate":0.04,"horizon_years":1,
-	        "annual_budget":0,"strategy":"do-nothing","cost_overhead":-1}`
+	        "annual_budget":0,"strategy":"do-nothing","cost_multiplier":-1}`
 	if _, err := Run([]byte(in)); err == nil {
-		t.Error("a negative cost_overhead was accepted; want a validation error")
+		t.Error("a negative cost_multiplier was accepted; want a validation error")
 	}
 }
 
@@ -553,7 +553,7 @@ func TestRun_SidewalkCohortsPricedAtTheSidewalkRate(t *testing.T) {
 	run := func(resourceType string) float64 {
 		t.Helper()
 		in := fmt.Sprintf(`{"area":2000,"initial_pci":70,"horizon_years":3,"treatment_cycle_years":12,
-			"cost_overhead":1,"annual_budget":0,"strategy":"do-nothing",
+			"cost_multiplier":1,"annual_budget":0,"strategy":"do-nothing",
 			"cohorts":[{"resource_type":%q,"classification":"sidewalks","area":2000,"decay_rate":0.025}]}`, resourceType)
 		out, err := Run([]byte(in))
 		if err != nil {
@@ -578,12 +578,12 @@ func TestRun_SidewalkCohortsPricedAtTheSidewalkRate(t *testing.T) {
 	}
 }
 
-// TestTranslate_CostOverheadReachesTheProjectorOnce pins how a payload's
-// cost_overhead prices: an absent (0) one is bare, a positive one multiplies
+// TestTranslate_CostMultiplierReachesTheProjectorOnce pins how a payload's
+// cost_multiplier prices: an absent (0) one is bare, a positive one multiplies
 // every dollar by exactly itself, and a negative or non-finite one is refused.
-// The projector owns the "unset is bare" rule (TieredCostProjector.Overhead);
+// The projector owns the "unset is bare" rule (TieredCostProjector.Multiplier);
 // the expected price here is worked out from the tiers alone.
-func TestTranslate_CostOverheadReachesTheProjectorOnce(t *testing.T) {
+func TestTranslate_CostMultiplierReachesTheProjectorOnce(t *testing.T) {
 	const area, pci = 1000.0, 55.0
 	base := Input{Area: area, InitialPCI: 70, HorizonYears: 1, Strategy: "do-nothing"}
 	bare := (&forecast.TieredCostProjector{}).ProjectCost(area, pci)
@@ -591,23 +591,23 @@ func TestTranslate_CostOverheadReachesTheProjectorOnce(t *testing.T) {
 		t.Fatalf("bare cost = %g, want > 0", bare)
 	}
 
-	for overhead, multiple := range map[float64]float64{0: 1, 1: 1, 0.5: 0.5, 1.5: 1.5, 5: 5} {
+	for multiplier, multiple := range map[float64]float64{0: 1, 1: 1, 0.5: 0.5, 1.5: 1.5, 5: 5} {
 		in := base
-		in.CostOverhead = overhead
+		in.CostMultiplier = multiplier
 		_, _, _, params, err := Translate(in)
 		if err != nil {
-			t.Fatalf("Translate(cost_overhead=%g): %v", overhead, err)
+			t.Fatalf("Translate(cost_multiplier=%g): %v", multiplier, err)
 		}
 		if got, want := params.Cost.ProjectCost(area, pci), bare*multiple; math.Abs(got-want) > 1e-9*want {
-			t.Errorf("cost_overhead %g prices %g, want %g (bare %g x %g)", overhead, got, want, bare, multiple)
+			t.Errorf("cost_multiplier %g prices %g, want %g (bare %g x %g)", multiplier, got, want, bare, multiple)
 		}
 	}
 
-	for _, overhead := range []float64{-1, -1e-9, math.NaN(), math.Inf(1), math.Inf(-1), 5.5} {
+	for _, multiplier := range []float64{-1, -1e-9, math.NaN(), math.Inf(1), math.Inf(-1), 5.5} {
 		in := base
-		in.CostOverhead = overhead
+		in.CostMultiplier = multiplier
 		if _, _, _, _, err := Translate(in); err == nil {
-			t.Errorf("Translate accepted cost_overhead %g", overhead)
+			t.Errorf("Translate accepted cost_multiplier %g", multiplier)
 		}
 	}
 }

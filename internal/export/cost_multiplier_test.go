@@ -17,7 +17,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/export/exporttest"
 )
 
-// dollarFields are the emitted keys that must scale with the cost overhead.
+// dollarFields are the emitted keys that must scale with the cost multiplier.
 // Everything else — areas, PCI, decay rates, years, counts — must not.
 var dollarFields = map[string]bool{
 	"annual_need":       true,
@@ -29,7 +29,7 @@ var dollarFields = map[string]bool{
 	"annual_budget":     true,
 }
 
-// invariantFields must be byte-identical across overheads: they describe the
+// invariantFields must be byte-identical across multipliers: they describe the
 // network and the model, not its price.
 var invariantFields = map[string]bool{
 	"area":           true,
@@ -39,28 +39,28 @@ var invariantFields = map[string]bool{
 	"current_budget": true, // the city's real dollars; costs changing does not change them
 }
 
-// TestOverhead_ExportScalesDollarsOnly walks the whole emitted forecast payload
+// TestCostMultiplier_ExportScalesDollarsOnly walks the whole emitted forecast payload
 // and checks the multiplier landed on every dollar and nothing else.
 //
 // This is the end-to-end version of the projector-level test in
 // internal/forecast: it runs the real BuildForecastsForCity, so it catches a
-// path that resolves tiers without the overhead (prices bare) or applies it a
-// second time (prices at overhead squared) — both of which produce
+// path that resolves tiers without the multiplier (prices bare) or applies it a
+// second time (prices at multiplier squared) — both of which produce
 // plausible-looking numbers that no amount of eyeballing an export would catch.
 //
 // PCI is deliberately NOT asserted invariant. Scenarios funded from a FIXED
 // budget legitimately reach a different condition when the same dollars buy
 // less work — that is the whole point of the loaded regime.
-func TestOverhead_ExportScalesDollarsOnly(t *testing.T) {
+func TestCostMultiplier_ExportScalesDollarsOnly(t *testing.T) {
 	const factor = 2.0
 
-	emit := func(overhead float64) map[string]any {
+	emit := func(multiplier float64) map[string]any {
 		entry := fixtureEntry(t)
 		fc := exporttest.ForecastConfig()
-		fc.CostOverhead = overhead
+		fc.CostMultiplier = multiplier
 		got, err := BuildForecastsForCity(context.Background(), entry, &fc, ConvertCostTiers(&fc))
 		if err != nil {
-			t.Fatalf("BuildForecastsForCity(overhead=%v): %v", overhead, err)
+			t.Fatalf("BuildForecastsForCity(multiplier=%v): %v", multiplier, err)
 		}
 		b, err := json.Marshal(map[string]any{"forecasts": got})
 		if err != nil {
@@ -82,7 +82,7 @@ func TestOverhead_ExportScalesDollarsOnly(t *testing.T) {
 		case map[string]any:
 			bv, ok := b.(map[string]any)
 			if !ok {
-				t.Errorf("%s: shape diverged between overheads", path)
+				t.Errorf("%s: shape diverged between multipliers", path)
 				return
 			}
 			for k, v := range av {
@@ -91,7 +91,7 @@ func TestOverhead_ExportScalesDollarsOnly(t *testing.T) {
 		case []any:
 			bv, ok := b.([]any)
 			if !ok || len(bv) != len(av) {
-				t.Errorf("%s: length diverged between overheads", path)
+				t.Errorf("%s: length diverged between multipliers", path)
 				return
 			}
 			for i := range av {
@@ -113,7 +113,7 @@ func TestOverhead_ExportScalesDollarsOnly(t *testing.T) {
 				}
 				want := av * factor
 				if math.Abs(bv-want) > 1e-6*math.Abs(want) {
-					t.Errorf("%s: %g -> %g, want %g (exactly %gx). Off by this much means the overhead was missed on one path or applied twice on another",
+					t.Errorf("%s: %g -> %g, want %g (exactly %gx). Off by this much means the multiplier was missed on one path or applied twice on another",
 						path, av, bv, want, factor)
 				}
 			}
@@ -122,17 +122,17 @@ func TestOverhead_ExportScalesDollarsOnly(t *testing.T) {
 	walk(bare, loaded, "", "")
 }
 
-// TestOverhead_SeedShipsUnscaledTiers pins the split that keeps the multiplier
+// TestCostMultiplier_SeedShipsUnscaledTiers pins the split that keeps the multiplier
 // from being applied twice: forecast_seed.json carries the BARE per-m2 schedule
-// plus the overhead as its own field. The browser renders those tiers into the
+// plus the multiplier as its own field. The browser renders those tiers into the
 // editable cost inputs and sends both back to the WASM bridge, which combines
 // them exactly once. Pre-scaling here would show the user loaded prices in
 // boxes labelled with the tier's own cost AND price the interactive line at
-// overhead squared.
-func TestOverhead_SeedShipsUnscaledTiers(t *testing.T) {
+// multiplier squared.
+func TestCostMultiplier_SeedShipsUnscaledTiers(t *testing.T) {
 	entry := fixtureEntry(t)
 	fc := exporttest.ForecastConfig()
-	fc.CostOverhead = 2
+	fc.CostMultiplier = 2
 
 	seed, err := BuildForecastSeed(context.Background(), &fc, entry.Store)
 	if err != nil {
@@ -143,14 +143,14 @@ func TestOverhead_SeedShipsUnscaledTiers(t *testing.T) {
 			CostPerSqM float64 `json:"cost_per_sqm"`
 			Label      string  `json:"label"`
 		} `json:"cost_tiers"`
-		CostOverhead float64 `json:"cost_overhead"`
+		CostMultiplier float64 `json:"cost_multiplier"`
 	}
 	if err := json.Unmarshal([]byte(seed), &got); err != nil {
 		t.Fatalf("unmarshal seed: %v", err)
 	}
 
-	if got.CostOverhead != 2 {
-		t.Errorf("seed cost_overhead = %v, want 2", got.CostOverhead)
+	if got.CostMultiplier != 2 {
+		t.Errorf("seed cost_multiplier = %v, want 2", got.CostMultiplier)
 	}
 	want := ConvertCostTiers(&fc)
 	if len(got.CostTiers) != len(want) {
@@ -164,12 +164,12 @@ func TestOverhead_SeedShipsUnscaledTiers(t *testing.T) {
 	}
 }
 
-// TestOverhead_MultiCitySeedMatchesSingleCity pins the two seed builders to one
+// TestCostMultiplier_MultiCitySeedMatchesSingleCity pins the two seed builders to one
 // contract.
 //
-// BuildMultiCityForecastSeed had simply omitted CostOverhead from its literal.
+// BuildMultiCityForecastSeed had simply omitted CostMultiplier from its literal.
 // The field has no omitempty, so the regional site/index.html shipped
-// "cost_overhead":0 inline while every cities/<slug>/data/forecast_seed.json
+// "cost_multiplier":0 inline while every cities/<slug>/data/forecast_seed.json
 // carried the real multiplier — the seed is the documented contract for what
 // the browser prices with, and half of it disagreed with the other half.
 //
@@ -179,10 +179,10 @@ func TestOverhead_SeedShipsUnscaledTiers(t *testing.T) {
 // too, but only because a single-entry region is by definition the same network
 // as the city it contains — that equality is what makes the region's headline
 // tiles trustworthy at all.
-func TestOverhead_MultiCitySeedMatchesSingleCity(t *testing.T) {
+func TestCostMultiplier_MultiCitySeedMatchesSingleCity(t *testing.T) {
 	entry := fixtureEntry(t)
 	fc := exporttest.ForecastConfig()
-	fc.CostOverhead = 1.75
+	fc.CostMultiplier = 1.75
 	// The region reads each city's cohort decay rate from that city's own
 	// resolved forecast, so the entry's config must
 	// state the same forecast the single-city builder is handed.
@@ -195,8 +195,8 @@ func TestOverhead_MultiCitySeedMatchesSingleCity(t *testing.T) {
 		return BuildMultiCityForecastSeed(context.Background(), &fc, []CityEntry{entry})
 	})
 
-	if got := multi["cost_overhead"]; got != 1.75 {
-		t.Errorf("multi-city seed cost_overhead = %v, want 1.75 — the browser would price the region bare", got)
+	if got := multi["cost_multiplier"]; got != 1.75 {
+		t.Errorf("multi-city seed cost_multiplier = %v, want 1.75 — the browser would price the region bare", got)
 	}
 
 	singleKeys := slices.Sorted(maps.Keys(single))
@@ -260,17 +260,17 @@ func sortedCohorts(v any) any {
 	return out
 }
 
-// TestOverhead_ResolvedTOMLReportsIt: the Config tab renders ResolvedTOML, so a
+// TestCostMultiplier_ResolvedTOMLReportsIt: the Config tab renders ResolvedTOML, so a
 // reader can see which regime produced the dollars on the page. An unset
-// cost_overhead must show the resolved default, at the top level and for the
+// cost_multiplier must show the resolved default, at the top level and for the
 // city, not the raw 0.
-func TestOverhead_ResolvedTOMLReportsIt(t *testing.T) {
+func TestCostMultiplier_ResolvedTOMLReportsIt(t *testing.T) {
 	out := ResolvedTOML(&config.Config{Cities: []config.CityConfig{{Name: "Nowhere"}}})
-	want := fmt.Sprintf("cost_overhead = %.1f", config.DefaultCostOverhead)
+	want := fmt.Sprintf("cost_multiplier = %.1f", config.DefaultCostMultiplier)
 	if got := strings.Count(out, want); got != 2 {
 		t.Errorf("%q appears %d times, want 2 (top level + city):\n%s", want, got, out)
 	}
-	if strings.Contains(out, "cost_overhead = 0") {
-		t.Errorf("ResolvedTOML shows the raw unset cost_overhead:\n%s", out)
+	if strings.Contains(out, "cost_multiplier = 0") {
+		t.Errorf("ResolvedTOML shows the raw unset cost_multiplier:\n%s", out)
 	}
 }

@@ -77,7 +77,7 @@ const (
 	// (export.cityHexGrid) and the area figures behind
 	// meta.json's CityArea/PavedShare read store.GetBoundary directly.
 	DefaultBoundarySimplifyM = 10.0
-	// DefaultCostOverhead is 1.0 — no multiplier — and that is a calibrated
+	// DefaultCostMultiplier is 1.0 — no multiplier — and that is a calibrated
 	// choice, not an oversight. Read docs/validation.md §6 before changing it.
 	//
 	// The cost tiers are BARE construction prices, and a per-treatment
@@ -89,8 +89,8 @@ const (
 	// $5.6/m2-yr, and that cited figure is itself a loaded municipal number.
 	//
 	// Measured against the committed backtest fixtures:
-	//   overhead 1.0 -> Berkeley break_even $18.69M ($5.66/m2-yr) vs cited $18.3M
-	//   overhead 1.5 -> Berkeley break_even $28.04M ($8.50/m2-yr), +53% over
+	//   multiplier 1.0 -> Berkeley break_even $18.69M ($5.66/m2-yr) vs cited $18.3M
+	//   multiplier 1.5 -> Berkeley break_even $28.04M ($8.50/m2-yr), +53% over
 	// The second also breaks backtest_test.go's [$4.5, $6.5]/m2-yr calibration
 	// bracket. The overhead the tiers appear to be missing is already absorbed
 	// by the cycle and the spread; applying it again double-counts it.
@@ -98,7 +98,7 @@ const (
 	// The knob exists so the regime is EXPLICIT and adjustable — a city whose
 	// own numbers say otherwise sets it, and the Financials tab exposes it as a
 	// live slider — not because the shipped default needs it.
-	DefaultCostOverhead = 1.0
+	DefaultCostMultiplier = 1.0
 )
 
 // Sentinels for failure modes that warrant a remediation hint at the call
@@ -287,28 +287,28 @@ type ForecastConfig struct {
 	// in shipped examples (the site makes dollar claims about named cities).
 	CurrentBudget float64 `toml:"current_budget,omitempty"`
 
-	// CostOverhead multiplies the cost tiers to turn BARE construction prices
+	// CostMultiplier multiplies the cost tiers to turn BARE construction prices
 	// into the LOADED program cost a municipality actually budgets. Berkeley's
 	// StreetSaver schedule itemizes the stack as +20% ADA curb-ramp compliance
 	// (federal law: touch a street, rebuild the ramps), +15% soft costs
 	// (design, inspection, project management) and +10% contingency —
 	// 1.20 x 1.15 x 1.10 = 1.518. That stack is what this knob EXPRESSES, but
-	// it is NOT the default: DefaultCostOverhead is 1.0, because the shipped
+	// it is NOT the default: DefaultCostMultiplier is 1.0, because the shipped
 	// tiers and treatment cycle are calibrated against real municipal
 	// hold-steady spending and so already absorb it. Applying 1.5 on top
-	// double-counts. See DefaultCostOverhead and docs/validation.md §3.
+	// double-counts. See DefaultCostMultiplier and docs/validation.md §3.
 	//
 	// This is a separate knob from cost_tiers because the two vary
 	// independently: regional construction PRICING belongs in the tiers, which
 	// are already per-city, while the overhead stack is policy-driven and
 	// roughly structural everywhere. A city that commits its own already-loaded
-	// [[forecast.cost_tiers]] schedule should set cost_overhead = 1.0 so the
-	// load is not applied twice; examples/los-angeles-ca and
-	// examples/greater-boston-ma do exactly that.
+	// [[forecast.cost_tiers]] schedule keeps the multiplier at 1.0 so the load
+	// is not applied twice, as examples/los-angeles-ca and
+	// examples/greater-boston-ma do by leaving it at the default.
 	//
-	// 0 = unset, resolved to DefaultCostOverhead. Set 1.0 for bare
+	// 0 = unset, resolved to DefaultCostMultiplier. Set 1.0 for bare
 	// construction pricing. Validate rejects non-positive and absurd values.
-	CostOverhead float64 `toml:"cost_overhead,omitempty"`
+	CostMultiplier float64 `toml:"cost_multiplier,omitempty"`
 
 	// growthRateSet records that growth_rate was written explicitly in the
 	// TOML, as opposed to being absent and decoding to 0. GrowthRate is the one
@@ -352,7 +352,7 @@ var forecastInputNames = map[string]string{
 // Validate rejects forecast settings outside the bounds the forecast package
 // states (forecast.Inputs.Validate), naming the TOML key. Zero is allowed for
 // the fields where it means "use the default" (initial_pci, decay_rate, years,
-// treatment_cycle_years, cost_overhead); growth_rate has no such sentinel, so
+// treatment_cycle_years, cost_multiplier); growth_rate has no such sentinel, so
 // its 0 is a legitimate "no growth".
 //
 // The bounds are the forecast package's because the browser forecast and the
@@ -364,14 +364,14 @@ func (fc *ForecastConfig) Validate() error {
 		tiers[i] = forecast.CostTier{MinPCI: t.MinPCI, MaxPCI: t.MaxPCI, CostPerSqM: t.CostPerSqM, Label: t.Label}
 	}
 	in := forecast.Inputs{
-		InitialPCI:   fc.InitialPCI,
-		DecayRate:    fc.DecayRate,
-		GrowthRate:   fc.GrowthRate,
-		Years:        float64(fc.HorizonYears),
-		Budget:       fc.CurrentBudget,
-		CycleYears:   fc.TreatmentCycleYears,
-		CostOverhead: fc.CostOverhead,
-		CostTiers:    tiers,
+		InitialPCI:     fc.InitialPCI,
+		DecayRate:      fc.DecayRate,
+		GrowthRate:     fc.GrowthRate,
+		Years:          float64(fc.HorizonYears),
+		Budget:         fc.CurrentBudget,
+		CycleYears:     fc.TreatmentCycleYears,
+		CostMultiplier: fc.CostMultiplier,
+		CostTiers:      tiers,
 	}
 	// An unset horizon is the default one; a negative one stays out of range.
 	if fc.HorizonYears == 0 {
@@ -586,11 +586,11 @@ func horizonOrDefault(years int) int {
 
 // forecastDefaulted names the fields applyForecastDefaults filled.
 type forecastDefaulted struct {
-	InitialPCI, Years, CostOverhead bool
+	InitialPCI, Years, CostMultiplier bool
 }
 
 // applyForecastDefaults is the one default step for a forecast config: it
-// fills an unset or out-of-range InitialPCI, Years and CostOverhead with the
+// fills an unset or out-of-range InitialPCI, Years and CostMultiplier with the
 // package defaults and reports which it filled. DecayRate, GrowthRate,
 // CostTiers and TreatmentCycleYears take their defaults in the forecast
 // package and are left alone. Idempotent.
@@ -602,8 +602,8 @@ func applyForecastDefaults(fc *ForecastConfig) forecastDefaulted {
 	if y := horizonOrDefault(fc.HorizonYears); y != fc.HorizonYears {
 		fc.HorizonYears, d.Years = y, true
 	}
-	if oh := fc.ResolvedCostOverhead(); oh != fc.CostOverhead {
-		fc.CostOverhead, d.CostOverhead = oh, true
+	if oh := fc.ResolvedCostMultiplier(); oh != fc.CostMultiplier {
+		fc.CostMultiplier, d.CostMultiplier = oh, true
 	}
 	return d
 }
@@ -614,21 +614,21 @@ func NormalizeForecast(fc *ForecastConfig) {
 	applyForecastDefaults(fc)
 }
 
-// ResolvedCostOverhead is the effective loaded-cost multiplier: the configured
-// value when positive, else DefaultCostOverhead.
+// ResolvedCostMultiplier is the effective loaded-cost multiplier: the configured
+// value when positive, else DefaultCostMultiplier.
 //
 // Unlike DecayRate and CostTiers, this default is applied HERE rather than
-// downstream in the forecast package. The forecast core treats a zero overhead
+// downstream in the forecast package. The forecast core treats a zero multiplier
 // as 1.0 (bare) on purpose — a projector built without going through config,
 // as tests and the WASM bridge do, must not silently acquire the config
 // default — so if
 // config did not resolve it, an unset config would price at bare and the
 // default would never take effect.
-func (fc *ForecastConfig) ResolvedCostOverhead() float64 {
-	if fc == nil || fc.CostOverhead <= 0 {
-		return DefaultCostOverhead
+func (fc *ForecastConfig) ResolvedCostMultiplier() float64 {
+	if fc == nil || fc.CostMultiplier <= 0 {
+		return DefaultCostMultiplier
 	}
-	return fc.CostOverhead
+	return fc.CostMultiplier
 }
 
 // Slug returns a URL-safe slug for the city name.

@@ -517,7 +517,7 @@ func unionForecast(dst, src *ForecastConfig) []string {
 	unionGrowthRate(dst, src, &conflicts)
 	unionFloat(&dst.TreatmentCycleYears, src.TreatmentCycleYears, "forecast.treatment_cycle_years", &conflicts)
 	unionFloat(&dst.CurrentBudget, src.CurrentBudget, "forecast.current_budget", &conflicts)
-	unionFloat(&dst.CostOverhead, src.CostOverhead, "forecast.cost_overhead", &conflicts)
+	unionFloat(&dst.CostMultiplier, src.CostMultiplier, "forecast.cost_multiplier", &conflicts)
 
 	switch {
 	case len(src.CostTiers) == 0: // unset upstream; nothing to fold in
@@ -664,5 +664,5 @@ func forecastIsZero(fc ForecastConfig) bool {
 	return fc.InitialPCI == 0 && fc.DecayRate == 0 && fc.GrowthRate == 0 &&
 		fc.HorizonYears == 0 && len(fc.CostTiers) == 0 &&
 		fc.TreatmentCycleYears == 0 && fc.CurrentBudget == 0 &&
-		fc.CostOverhead == 0
+		fc.CostMultiplier == 0
 }

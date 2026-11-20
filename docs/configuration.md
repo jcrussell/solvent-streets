@@ -330,7 +330,7 @@ Every setting except `horizon_years` goes in `[forecast]` or a city's
 | `growth_rate` | 0 | −0.5–0.5 | linear annual growth of paved area; a per-city `0` overrides the top level ([Area growth](../internal/export/docs/methodology.md#area-growth)) |
 | `horizon_years` | 30 | 1–200 | the forecast horizon in years, one per config |
 | `cost_tiers` | 3 tiers | PCI 0–101 | treatment cost per m² by PCI band ([Cost model](../internal/export/docs/methodology.md#cost-model)) |
-| `cost_overhead` | 1.0 | 0–5 | a multiplier on every tier ([Bare construction cost vs. loaded program cost](../internal/export/docs/methodology.md#bare-construction-cost-vs-loaded-program-cost)) |
+| `cost_multiplier` | 1.0 | 0–5 | a factor on every tier's cost, not a percentage: 1.0 prices the tiers as written and 1.5 raises every cost by half ([Bare construction cost vs. loaded program cost](../internal/export/docs/methodology.md#bare-construction-cost-vs-loaded-program-cost)) |
 | `treatment_cycle_years` | 12 | 1–40 | the share of the network treated per year, 1/N ([Treatment cycle](../internal/export/docs/methodology.md#treatment-cycle)) |
 | `current_budget` | unset | ≥ 0 | the annual pavement budget in dollars; it enables `insolvency_year` and `funding_gap` ([Solvency metrics](../internal/export/docs/methodology.md#solvency-metrics-streetsroads-only)) |
 
@@ -346,7 +346,7 @@ and Play check the exported settings against these same ranges, so a config
 that loads exports a site whose forecast runs. The default tiers and
 cycle are calibrated together against published city figures. The evidence is
 in [validation.md](validation.md#6-how-the-cost-and-cycle-are-anchored), and
-it is why `cost_overhead` defaults to 1.0.
+it is why `cost_multiplier` defaults to 1.0.
 
 A config has one forecast horizon, so every city in it, and every city shown
 side by side on Compare and Aggregate, is forecast over the same years. A

@@ -95,7 +95,7 @@ would count the overhead twice. The
 [validation report](https://github.com/jcrussell/solvent-streets/blob/main/docs/validation.md)
 gives the evidence.
 
-The multiplier exists as `cost_overhead` (default `1.0`) so the regime is
+The multiplier exists as `cost_multiplier` (default `1.0`) so the regime is
 explicit and adjustable rather than assumed, and the Financials tab exposes
 it as a live slider for a reader whose local numbers say otherwise.
 Changing it scales every dollar figure on the tab, the hold-steady headline

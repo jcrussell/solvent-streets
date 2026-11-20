@@ -163,7 +163,7 @@ publishes. At that level the bare tiers, with the condition spread (§4) and
 the 12-year cycle (§5), already reproduce Berkeley's loaded hold-steady figure.
 Multiplying the tiers by 1.5 would put Berkeley's break-even at about $29M,
 59% above its published $18.3M. A city whose program costs genuinely run higher
-has `cost_overhead` (see the
+has `cost_multiplier` (see the
 [methodology](../internal/export/docs/methodology.md#bare-construction-cost-vs-loaded-program-cost)).
 
 ## 4. Condition spread

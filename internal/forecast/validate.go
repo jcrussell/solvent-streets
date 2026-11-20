@@ -35,23 +35,23 @@ const (
 	// in year 1 at any budget.
 	MinTreatmentCycleYears = 1.0
 	MaxTreatmentCycleYears = 40.0
-	// MaxCostOverhead bounds the loaded-cost multiplier. Documented load
+	// MaxCostMultiplier bounds the loaded-cost multiplier. Documented load
 	// stacks run near 1.5; anything past 5 is a decimal slip or a percentage.
-	MaxCostOverhead = 5.0
+	MaxCostMultiplier = 5.0
 )
 
 // The names Inputs.Validate gives each input in an InputError. A caller whose
 // own vocabulary differs passes its names to Validate.
 const (
-	FieldInitialPCI   = "initial_pci"
-	FieldDecayRate    = "decay_rate"
-	FieldGrowthRate   = "growth_rate"
-	FieldYears        = "years"
-	FieldBudget       = "budget"
-	FieldCycleYears   = "treatment_cycle_years"
-	FieldCostOverhead = "cost_overhead"
-	FieldCostTiers    = "cost_tiers"
-	FieldCohorts      = "cohorts"
+	FieldInitialPCI     = "initial_pci"
+	FieldDecayRate      = "decay_rate"
+	FieldGrowthRate     = "growth_rate"
+	FieldYears          = "years"
+	FieldBudget         = "budget"
+	FieldCycleYears     = "treatment_cycle_years"
+	FieldCostMultiplier = "cost_multiplier"
+	FieldCostTiers      = "cost_tiers"
+	FieldCohorts        = "cohorts"
 )
 
 // Inputs is everything a forecast run is parameterised by, in the form the
@@ -73,9 +73,9 @@ type Inputs struct {
 	// CycleYears is the treatment cycle, in [MinTreatmentCycleYears,
 	// MaxTreatmentCycleYears]; 0 is unset (ResolveCycleYears).
 	CycleYears float64
-	// CostOverhead is the loaded-cost multiplier, in (0, MaxCostOverhead];
+	// CostMultiplier is the loaded-cost multiplier, in (0, MaxCostMultiplier];
 	// 0 is unset.
-	CostOverhead float64
+	CostMultiplier float64
 	// CostTiers may be empty (DefaultCostTiers apply).
 	CostTiers []CostTier
 	// Cohorts may be empty.
@@ -140,8 +140,8 @@ func (in Inputs) validate() *InputError {
 			fmt.Sprintf("%g out of range (1-%d)", in.Years, MaxHorizonYears)},
 		{FieldBudget, nonNegative(in.Budget),
 			fmt.Sprintf("%g must be a non-negative finite number", in.Budget)},
-		{FieldCostOverhead, in.CostOverhead == 0 || (in.CostOverhead > 0 && in.CostOverhead <= MaxCostOverhead),
-			fmt.Sprintf("%g out of range (0 = unset, else 0-%g)", in.CostOverhead, MaxCostOverhead)},
+		{FieldCostMultiplier, in.CostMultiplier == 0 || (in.CostMultiplier > 0 && in.CostMultiplier <= MaxCostMultiplier),
+			fmt.Sprintf("%g out of range (0 = unset, else 0-%g)", in.CostMultiplier, MaxCostMultiplier)},
 		{FieldCycleYears, in.CycleYears == 0 || between(in.CycleYears, MinTreatmentCycleYears, MaxTreatmentCycleYears),
 			fmt.Sprintf("%g out of range (%g-%g, or 0 for default)", in.CycleYears, MinTreatmentCycleYears, MaxTreatmentCycleYears)},
 	}

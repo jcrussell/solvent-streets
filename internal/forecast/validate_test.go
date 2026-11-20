@@ -17,13 +17,13 @@ import (
 // moves one field tests that field alone.
 func validInputs() forecast.Inputs {
 	return forecast.Inputs{
-		InitialPCI:   80,
-		DecayRate:    0.04,
-		GrowthRate:   0.01,
-		Years:        30,
-		Budget:       1e6,
-		CycleYears:   12,
-		CostOverhead: 1.5,
+		InitialPCI:     80,
+		DecayRate:      0.04,
+		GrowthRate:     0.01,
+		Years:          30,
+		Budget:         1e6,
+		CycleYears:     12,
+		CostMultiplier: 1.5,
 		CostTiers: []forecast.CostTier{
 			{MinPCI: 70, MaxPCI: 101, CostPerSqM: 5, Label: "preventive"},
 			{MinPCI: 0, MaxPCI: 70, CostPerSqM: 150, Label: "reconstruction"},
@@ -91,11 +91,11 @@ var boundCases = []boundCase{
 	{"cycle negative", func(in *forecast.Inputs) { in.CycleYears = -3 }, forecast.FieldCycleYears},
 	{"cycle NaN", func(in *forecast.Inputs) { in.CycleYears = math.NaN() }, forecast.FieldCycleYears},
 
-	{"overhead unset", func(in *forecast.Inputs) { in.CostOverhead = 0 }, ""},
-	{"overhead 5", func(in *forecast.Inputs) { in.CostOverhead = 5 }, ""},
-	{"overhead over 5", func(in *forecast.Inputs) { in.CostOverhead = 5.5 }, forecast.FieldCostOverhead},
-	{"overhead negative", func(in *forecast.Inputs) { in.CostOverhead = -1 }, forecast.FieldCostOverhead},
-	{"overhead NaN", func(in *forecast.Inputs) { in.CostOverhead = math.NaN() }, forecast.FieldCostOverhead},
+	{"multiplier unset", func(in *forecast.Inputs) { in.CostMultiplier = 0 }, ""},
+	{"multiplier 5", func(in *forecast.Inputs) { in.CostMultiplier = 5 }, ""},
+	{"multiplier over 5", func(in *forecast.Inputs) { in.CostMultiplier = 5.5 }, forecast.FieldCostMultiplier},
+	{"multiplier negative", func(in *forecast.Inputs) { in.CostMultiplier = -1 }, forecast.FieldCostMultiplier},
+	{"multiplier NaN", func(in *forecast.Inputs) { in.CostMultiplier = math.NaN() }, forecast.FieldCostMultiplier},
 
 	{"tier cost 0", tier(func(t *forecast.CostTier) { t.CostPerSqM = 0 }), forecast.FieldCostTiers},
 	{"tier cost negative", tier(func(t *forecast.CostTier) { t.CostPerSqM = -5 }), forecast.FieldCostTiers},
@@ -183,7 +183,7 @@ func surfaceVerdicts(t *testing.T, in forecast.Inputs) map[string]bool {
 			HorizonYears:        int(in.Years),
 			CurrentBudget:       in.Budget,
 			TreatmentCycleYears: in.CycleYears,
-			CostOverhead:        in.CostOverhead,
+			CostMultiplier:      in.CostMultiplier,
 		}
 		for _, t := range in.CostTiers {
 			fc.CostTiers = append(fc.CostTiers, config.CostTierCfg{
@@ -195,16 +195,16 @@ func surfaceVerdicts(t *testing.T, in forecast.Inputs) map[string]bool {
 
 	// The browser forecast.
 	bin := bridge.Input{
-		Area:         1000,
-		InitialPCI:   in.InitialPCI,
-		DecayRate:    in.DecayRate,
-		GrowthRate:   in.GrowthRate,
-		HorizonYears: int(in.Years),
-		AnnualBudget: in.Budget,
-		Strategy:     "worst-first",
-		CycleYears:   in.CycleYears,
-		CostOverhead: in.CostOverhead,
-		CostTiers:    in.CostTiers,
+		Area:           1000,
+		InitialPCI:     in.InitialPCI,
+		DecayRate:      in.DecayRate,
+		GrowthRate:     in.GrowthRate,
+		HorizonYears:   int(in.Years),
+		AnnualBudget:   in.Budget,
+		Strategy:       "worst-first",
+		CycleYears:     in.CycleYears,
+		CostMultiplier: in.CostMultiplier,
+		CostTiers:      in.CostTiers,
 	}
 	for _, c := range in.Cohorts {
 		bin.Cohorts = append(bin.Cohorts, bridge.Cohort{Classification: c.Classification, Area: c.Area, DecayRate: c.DecayRate})
@@ -217,7 +217,7 @@ func surfaceVerdicts(t *testing.T, in forecast.Inputs) map[string]bool {
 		Hexes:               []game.HexConfig{{ID: "a", RoadsArea: 1000, DecayRate: 0.04}},
 		InitialPCI:          in.InitialPCI,
 		CostTiers:           in.CostTiers,
-		CostOverhead:        in.CostOverhead,
+		CostMultiplier:      in.CostMultiplier,
 		AnnualBudget:        in.Budget,
 		HorizonYears:        in.Years,
 		TreatmentCycleYears: in.CycleYears,

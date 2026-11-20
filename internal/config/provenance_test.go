@@ -269,7 +269,7 @@ func TestResolve_EmitsExpectedFields(t *testing.T) {
 		"forecast.horizon_years":                         false,
 		"cities[detroit].hex_edge_m":                     false,
 		"cities[detroit].forecast.treatment_cycle_years": false,
-		"forecast.cost_overhead":                         false,
+		"forecast.cost_multiplier":                       false,
 	}
 	for _, f := range fields {
 		if _, ok := want[f.Key]; ok {
@@ -356,7 +356,7 @@ func TestResolve_EmitsMinHexArea(t *testing.T) {
 	}
 }
 
-// TestResolve_EmitsCostOverhead pins that the multiplier every priced dollar
+// TestResolve_EmitsCostMultiplier pins that the multiplier every priced dollar
 // passes through is reportable by `config show --sources`. It resolves across
 // file -> per-city -> default exactly like initial_pci, and its provenance was
 // tracked at all three layers, but Resolve never emitted a field for it -- so
@@ -365,18 +365,18 @@ func TestResolve_EmitsMinHexArea(t *testing.T) {
 // Emitted unconditionally, unlike treatment_cycle_years: applyDefaultForecastProv
 // materializes the VALUE rather than deferring it to the forecast core, so
 // there is no "resolved downstream" case to omit.
-func TestResolve_EmitsCostOverhead(t *testing.T) {
-	cfg := &Config{Forecast: ForecastConfig{CostOverhead: 1.3}}
+func TestResolve_EmitsCostMultiplier(t *testing.T) {
+	cfg := &Config{Forecast: ForecastConfig{CostMultiplier: 1.3}}
 	byKey := make(map[string]ResolvedField)
 	for _, f := range cfg.Resolve("") {
 		byKey[f.Key] = f
 	}
-	got, ok := byKey["forecast.cost_overhead"]
+	got, ok := byKey["forecast.cost_multiplier"]
 	if !ok {
-		t.Fatalf("Resolve did not emit forecast.cost_overhead; got keys %v", keysOf(byKey))
+		t.Fatalf("Resolve did not emit forecast.cost_multiplier; got keys %v", keysOf(byKey))
 	}
-	if got.Value != 1.3 || got.Source.String() != "file:forecast.cost_overhead" {
-		t.Errorf("forecast.cost_overhead = %v (%s); want 1.3 (file:forecast.cost_overhead)", got.Value, got.Source)
+	if got.Value != 1.3 || got.Source.String() != "file:forecast.cost_multiplier" {
+		t.Errorf("forecast.cost_multiplier = %v (%s); want 1.3 (file:forecast.cost_multiplier)", got.Value, got.Source)
 	}
 
 	// Unset anywhere -> the resolved default, reported as a default rather than
@@ -384,16 +384,16 @@ func TestResolve_EmitsCostOverhead(t *testing.T) {
 	bare := &Config{Cities: []CityConfig{{Name: "Nowhere"}}}
 	var saw bool
 	for _, f := range bare.Resolve("") {
-		if f.Key != "forecast.cost_overhead" {
+		if f.Key != "forecast.cost_multiplier" {
 			continue
 		}
 		saw = true
-		if f.Value != DefaultCostOverhead || f.Source.Kind != SourceDefault {
-			t.Errorf("unset forecast.cost_overhead = %v (%s); want %v (default)", f.Value, f.Source, DefaultCostOverhead)
+		if f.Value != DefaultCostMultiplier || f.Source.Kind != SourceDefault {
+			t.Errorf("unset forecast.cost_multiplier = %v (%s); want %v (default)", f.Value, f.Source, DefaultCostMultiplier)
 		}
 	}
 	if !saw {
-		t.Error("unset forecast.cost_overhead must still be emitted, as a default")
+		t.Error("unset forecast.cost_multiplier must still be emitted, as a default")
 	}
 }
 
@@ -504,16 +504,16 @@ overpass = true
 	}
 }
 
-// TestResolve_EmitsPerCityCostOverhead guards the failure mode the top-level
+// TestResolve_EmitsPerCityCostMultiplier guards the failure mode the top-level
 // emission introduced on its own: Resolve's forecast block resolves with a nil
 // city, so a per-city override never reaches it. Emitting only the top-level
-// line meant a city pricing at 1.8 printed `forecast.cost_overhead = 1
+// line meant a city pricing at 1.8 printed `forecast.cost_multiplier = 1
 // (default)` and nothing else -- worse than the omission it replaced, because
 // it reads as a positive statement that the city prices bare.
-func TestResolve_EmitsPerCityCostOverhead(t *testing.T) {
+func TestResolve_EmitsPerCityCostMultiplier(t *testing.T) {
 	cfg := &Config{
 		Cities: []CityConfig{
-			{Name: "Denver", Forecast: &ForecastConfig{CostOverhead: 1.8}},
+			{Name: "Denver", Forecast: &ForecastConfig{CostMultiplier: 1.8}},
 			{Name: "Inherits"},
 		},
 	}
@@ -522,17 +522,17 @@ func TestResolve_EmitsPerCityCostOverhead(t *testing.T) {
 		byKey[f.Key] = f
 	}
 
-	got, ok := byKey["cities[denver].forecast.cost_overhead"]
+	got, ok := byKey["cities[denver].forecast.cost_multiplier"]
 	if !ok {
-		t.Fatalf("Resolve did not emit the per-city cost_overhead override; got keys %v", keysOf(byKey))
+		t.Fatalf("Resolve did not emit the per-city cost_multiplier override; got keys %v", keysOf(byKey))
 	}
-	if got.Value != 1.8 || got.Source.String() != "file:cities[denver].forecast.cost_overhead" {
-		t.Errorf("cities[denver].forecast.cost_overhead = %v (%s); want 1.8 (file:...)", got.Value, got.Source)
+	if got.Value != 1.8 || got.Source.String() != "file:cities[denver].forecast.cost_multiplier" {
+		t.Errorf("cities[denver].forecast.cost_multiplier = %v (%s); want 1.8 (file:...)", got.Value, got.Source)
 	}
 
 	// A city with no override emits no line, matching every sibling field.
-	if _, ok := byKey["cities[inherits].forecast.cost_overhead"]; ok {
-		t.Error("city without a cost_overhead override should not emit a per-city line")
+	if _, ok := byKey["cities[inherits].forecast.cost_multiplier"]; ok {
+		t.Error("city without a cost_multiplier override should not emit a per-city line")
 	}
 }
 

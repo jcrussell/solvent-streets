@@ -34,22 +34,22 @@ type Input struct {
 	// ForecastSeedJSON.TreatmentCycleYears) or the custom line diverges ~N×.
 	// 0 is resolved to forecast.DefaultTreatmentCycleYears in Simulate.
 	CycleYears float64 `json:"treatment_cycle_years"`
-	// CostOverhead is the loaded-cost multiplier (ADA + soft costs +
-	// contingency; see config.DefaultCostOverhead). Seeded from
-	// forecast_seed.json and adjustable live via the forecast page's overhead
+	// CostMultiplier is the loaded-cost multiplier (ADA + soft costs +
+	// contingency; see config.DefaultCostMultiplier). Seeded from
+	// forecast_seed.json and adjustable live via the forecast page's multiplier
 	// slider.
 	//
 	// 0 prices at 1.0 (bare), NOT at the config default: the projector reads
-	// an unset overhead as bare (forecast.TieredCostProjector.Overhead). This
+	// an unset multiplier as bare (forecast.TieredCostProjector.Multiplier). This
 	// matters: a partially-rebuilt site pairing a new pvmt.wasm with an old
-	// per-city forecast_seed.json sends no cost_overhead at all, which
+	// per-city forecast_seed.json sends no cost_multiplier at all, which
 	// decodes to 0 — and a bare multiply would then price the entire page at
-	// $0. Bare figures are off by whatever the configured overhead was
+	// $0. Bare figures are off by whatever the configured multiplier was
 	// (nothing at all under the current 1.0 default); blank ones are wrong by
 	// everything. A negative or non-finite one is a caller error and is
 	// refused by validateInput rather than read as bare.
-	CostOverhead float64  `json:"cost_overhead,omitempty"`
-	Cohorts      []Cohort `json:"cohorts,omitempty"`
+	CostMultiplier float64  `json:"cost_multiplier,omitempty"`
+	Cohorts        []Cohort `json:"cohorts,omitempty"`
 	// Solvency asks for the solvency metrics of these inputs alongside the
 	// scenario: the worst-first hold-steady (break-even) budget, and the
 	// insolvency year of the scenario as run. The Financials page anchors its
@@ -103,15 +103,15 @@ func validateInput(in Input, cohorts []forecast.RawCohort) error {
 		return fmt.Errorf("area %g must be a non-negative finite number", in.Area)
 	}
 	return forecast.Inputs{
-		InitialPCI:   in.InitialPCI,
-		DecayRate:    in.DecayRate,
-		GrowthRate:   in.GrowthRate,
-		Years:        float64(in.HorizonYears),
-		Budget:       in.AnnualBudget,
-		CycleYears:   in.CycleYears,
-		CostOverhead: in.CostOverhead,
-		CostTiers:    in.CostTiers,
-		Cohorts:      cohorts,
+		InitialPCI:     in.InitialPCI,
+		DecayRate:      in.DecayRate,
+		GrowthRate:     in.GrowthRate,
+		Years:          float64(in.HorizonYears),
+		Budget:         in.AnnualBudget,
+		CycleYears:     in.CycleYears,
+		CostMultiplier: in.CostMultiplier,
+		CostTiers:      in.CostTiers,
+		Cohorts:        cohorts,
 	}.Validate(inputNames)
 }
 
@@ -134,7 +134,7 @@ func Translate(in Input) (forecast.Scenario, []forecast.Cohort, int, *forecast.P
 		return forecast.Scenario{}, nil, 0, nil, err
 	}
 
-	params := forecast.NewParams(in.GrowthRate, in.CostTiers, in.CycleYears, in.CostOverhead)
+	params := forecast.NewParams(in.GrowthRate, in.CostTiers, in.CycleYears, in.CostMultiplier)
 
 	strategy, err := forecast.ParseStrategy(in.Strategy)
 	if err != nil {

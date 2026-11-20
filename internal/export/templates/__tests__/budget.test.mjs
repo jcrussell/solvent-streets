@@ -15,7 +15,7 @@ const TODAY = roads.current_budget;
 function solvencySim(input) {
   const out = defaultSimulate(input);
   if (input.solvency) {
-    out.break_even_budget = 30_000_000 * (input.cost_overhead || 1);
+    out.break_even_budget = 30_000_000 * (input.cost_multiplier || 1);
     out.insolvency_year = 7;
   }
   return out;
@@ -84,7 +84,7 @@ test('the dollar budget stays put when Initial PCI or the multiplier move', asyn
   drag(win, '#pci-slider', '60');
   assert.equal(lastScenario(win).annual_budget, 12_000_000,
     'moving Initial PCI rescaled the dollar budget');
-  drag(win, '#overhead-slider', '2');
+  drag(win, '#multiplier-slider', '2');
   assert.equal(lastScenario(win).annual_budget, 12_000_000,
     'moving the cost multiplier rescaled the dollar budget');
   // The anchor follows the inputs instead.
@@ -104,7 +104,7 @@ test('the solvency headline follows the cost multiplier', async () => {
   const headline = () => doc.getElementById('solvency-headline').textContent;
   assert.match(headline(), /\$30\.0M\/yr/, 'the headline is not the live figure');
 
-  drag(win, '#overhead-slider', '2');
+  drag(win, '#multiplier-slider', '2');
   assert.match(headline(), /\$60\.0M\/yr/, 'the headline ignored the multiplier');
   assert.match(headline(), /2.*cost multiplier.*slider/i, 'the basis note must name the slider');
 

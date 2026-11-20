@@ -28,15 +28,15 @@ function model(win) {
   return {
     strategy: c.strategy,
     initial_pci: c.initial_pci,
-    cost_overhead: c.cost_overhead,
+    cost_multiplier: c.cost_multiplier,
     cost_tiers: Array.from(c.cost_tiers, (t) => ({ min_pci: t.min_pci, max_pci: t.max_pci, cost_per_sqm: t.cost_per_sqm })),
   };
 }
 
 const SEED_PCI = Math.round(seedJSON.initial_pci);
-const SEED_COST = seedJSON.cost_overhead > 0 ? seedJSON.cost_overhead : 1;
+const SEED_COST = seedJSON.cost_multiplier > 0 ? seedJSON.cost_multiplier : 1;
 const SEED_TIERS = seedJSON.cost_tiers.map((t) => ({ min_pci: t.min_pci, max_pci: t.max_pci, cost_per_sqm: t.cost_per_sqm }));
-const seedModel = { strategy: 'worst-first', initial_pci: SEED_PCI, cost_overhead: SEED_COST, cost_tiers: SEED_TIERS };
+const seedModel = { strategy: 'worst-first', initial_pci: SEED_PCI, cost_multiplier: SEED_COST, cost_tiers: SEED_TIERS };
 const PCI = SEED_PCI === 60 ? 61 : 60;
 const COST = SEED_COST === 1.5 ? 2 : 1.5;
 
@@ -54,7 +54,7 @@ function type(win, sel, value) {
 function setByHand(win) {
   win.document.querySelector('#strategy-buttons button[data-strategy="preventive-first"]').click();
   type(win, '#pci-slider', String(PCI));
-  type(win, '#overhead-slider', String(COST));
+  type(win, '#multiplier-slider', String(COST));
   type(win, '#tier-inputs [data-tier="0"][data-field="cost_per_sqm"]', '7.25');
   // A gap below the top of a tier is legal; an overlap would not be run.
   type(win, '#tier-inputs [data-tier="0"][data-field="max_pci"]', String(Math.min(100, SEED_TIERS[0].max_pci) - 1));
@@ -82,7 +82,7 @@ test('a reload of the URL reproduces the forecast set by hand', async () => {
   const byHand = model(win);
   assert.equal(byHand.strategy, 'preventive-first');
   assert.equal(byHand.initial_pci, PCI);
-  assert.equal(byHand.cost_overhead, COST);
+  assert.equal(byHand.cost_multiplier, COST);
   assert.equal(byHand.cost_tiers[0].max_pci, Math.min(100, SEED_TIERS[0].max_pci) - 1);
   assert.notEqual(byHand.cost_tiers[0].cost_per_sqm, SEED_TIERS[0].cost_per_sqm);
   for (const k of MODEL_KEYS) assert.ok(params(win).get(k), `?${k}= was not written`);
@@ -157,7 +157,7 @@ test('back/forward restores the settings of the history entry', async () => {
   }));
   await flush();
   assert.deepEqual(model(win), {
-    strategy: 'preventive-first', initial_pci: PCI, cost_overhead: COST,
+    strategy: 'preventive-first', initial_pci: PCI, cost_multiplier: COST,
     cost_tiers: SEED_TIERS.map((t) => ({ ...t, cost_per_sqm: t.cost_per_sqm * 2 })),
   });
   assert.ok($('#strategy-buttons button[data-strategy="preventive-first"]').classList.contains('active'));
@@ -229,7 +229,7 @@ test('a drag does not call replaceState on every input event', async () => {
   const tier = '#tier-inputs [data-tier="0"][data-field="cost_per_sqm"]';
   for (let i = 0; i < 40; i++) {
     inputOnly(win, '#pci-slider', String(55 + i));
-    inputOnly(win, '#overhead-slider', String(1 + (i % 20) / 20));
+    inputOnly(win, '#multiplier-slider', String(1 + (i % 20) / 20));
     inputOnly(win, '#budget-slider', String(500 + i));
     inputOnly(win, tier, String(5 + i));
   }

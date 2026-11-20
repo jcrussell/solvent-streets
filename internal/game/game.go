@@ -85,11 +85,11 @@ type Config struct {
 
 	CostTiers []forecast.CostTier `json:"cost_tiers"`
 
-	// CostOverhead is the loaded-cost multiplier on every tier, as the
-	// forecast prices work (forecast_seed.json's cost_overhead). It scales the
+	// CostMultiplier is the loaded-cost multiplier on every tier, as the
+	// forecast prices work (forecast_seed.json's cost_multiplier). It scales the
 	// treatment charge, the board's need and the macro forecast alike, so the
 	// game spends the dollars Financials budgets. 0 means bare (1.0).
-	CostOverhead float64 `json:"cost_overhead"`
+	CostMultiplier float64 `json:"cost_multiplier"`
 
 	// AnnualBudget is the annual funding rate ($/sim-year) that refills the
 	// treasury and drives the macro insolvency headline: the forecast's
@@ -200,28 +200,28 @@ func (cfg Config) forecastInputs(budget float64) forecast.Inputs {
 		}
 	}
 	return forecast.Inputs{
-		InitialPCI:   cfg.InitialPCI,
-		GrowthRate:   cfg.GrowthRate,
-		Years:        cfg.HorizonYears,
-		Budget:       budget,
-		CycleYears:   cfg.TreatmentCycleYears,
-		CostTiers:    cfg.CostTiers,
-		CostOverhead: cfg.CostOverhead,
-		Cohorts:      raw,
+		InitialPCI:     cfg.InitialPCI,
+		GrowthRate:     cfg.GrowthRate,
+		Years:          cfg.HorizonYears,
+		Budget:         budget,
+		CycleYears:     cfg.TreatmentCycleYears,
+		CostTiers:      cfg.CostTiers,
+		CostMultiplier: cfg.CostMultiplier,
+		Cohorts:        raw,
 	}
 }
 
-// loadedTiers returns a copy of tiers with every cost scaled by overhead (a
+// loadedTiers returns a copy of tiers with every cost scaled by multiplier (a
 // value <= 0 is bare, as forecast.TieredCostProjector reads it). The game
 // charges treatments, bounds affordability and prices the board's need off
-// these, so all three carry the overhead the macro forecast applies.
-func loadedTiers(tiers []forecast.CostTier, overhead float64) []forecast.CostTier {
-	if overhead <= 0 {
-		overhead = 1
+// these, so all three carry the multiplier the macro forecast applies.
+func loadedTiers(tiers []forecast.CostTier, multiplier float64) []forecast.CostTier {
+	if multiplier <= 0 {
+		multiplier = 1
 	}
 	out := make([]forecast.CostTier, len(tiers))
 	for i, t := range tiers {
-		t.CostPerSqM *= overhead
+		t.CostPerSqM *= multiplier
 		out[i] = t
 	}
 	return out
@@ -306,7 +306,7 @@ func New(cfg Config) (*Game, error) {
 		return nil, err
 	}
 
-	tiers := loadedTiers(cfg.CostTiers, cfg.CostOverhead)
+	tiers := loadedTiers(cfg.CostTiers, cfg.CostMultiplier)
 
 	startBudget := noDebt(cfg.AnnualBudget)
 
@@ -491,7 +491,7 @@ func insolvencyFromForecast(in forecast.Inputs) (int, bool) {
 	// (condition.go), so the game's insolvency headline must not skip it.
 	cohorts := forecast.SpreadCohorts(in.Cohorts, in.InitialPCI)
 	cycleYears := forecast.ResolveCycleYears(in.CycleYears)
-	params := forecast.NewParams(in.GrowthRate, in.CostTiers, cycleYears, in.CostOverhead)
+	params := forecast.NewParams(in.GrowthRate, in.CostTiers, cycleYears, in.CostMultiplier)
 	scenario := forecast.Scenario{
 		Name:         "game",
 		AnnualBudget: in.Budget,

@@ -3460,14 +3460,14 @@
         // headline is live (liveSolvency), else the seed's, which is what
         // forecast.json was priced at.
         function costRegimeText() {
-            const seeded = FORECAST_SEED && Number(FORECAST_SEED.cost_overhead);
-            const oh = liveSolvency ? currentOverhead() : seeded;
+            const seeded = FORECAST_SEED && Number(FORECAST_SEED.cost_multiplier);
+            const oh = liveSolvency ? currentMultiplier() : seeded;
             if (!Number.isFinite(oh) || oh <= 1) {
                 return 'Figures are calibrated against real municipal hold-steady spending, so they are '
                     + 'comparable to a published pavement budget. See Methodology for the cost basis.';
             }
             const where = (Number.isFinite(seeded) && Math.abs(oh - seeded) < 1e-9)
-                ? 'set for this city in <code>forecast.cost_overhead</code>'
+                ? 'set for this city in <code>forecast.cost_multiplier</code>'
                 : 'set on the Cost multiplier slider';
             return 'Figures carry a <strong>' + oh.toFixed(2).replace(/0$/, '')
                 + '\u00d7 cost multiplier</strong> over the calibrated default \u2014 ' + where + '.';
@@ -3475,12 +3475,12 @@
 
         // The slider moves the interactive line's basis and the live headline, so
         // keep its label honest while the user drags.
-        function renderOverheadRegimeLabel() {
-            const el = document.getElementById('overhead-value');
+        function renderMultiplierRegimeLabel() {
+            const el = document.getElementById('multiplier-value');
             if (!el) return;
-            el.title = currentOverhead() <= 1
+            el.title = currentMultiplier() <= 1
                 ? 'Calibrated default cost basis'
-                : currentOverhead().toFixed(2).replace(/0$/, '') + '\u00d7 the calibrated default cost basis';
+                : currentMultiplier().toFixed(2).replace(/0$/, '') + '\u00d7 the calibrated default cost basis';
         }
 
         // Render the cohort breakdown from the scope-appropriate forecast
@@ -3651,17 +3651,17 @@
         //
         //   - Out of [min,max]: the UA clamps. Config validation is wider than
         //     the markup's track on both sliders (initial_pci is legal down to
-        //     0 against a 50 floor; cost_overhead up to 5 against a 2.5
+        //     0 against a 50 floor; cost_multiplier up to 5 against a 2.5
         //     ceiling), so widen the track to admit the seed rather than
         //     clamping the seed into the track.
         //   - Step-mismatched: the UA rounds to the nearest step-aligned value
         //     (HTML, the Range state's value sanitization algorithm). A legal
-        //     cost_overhead of 1.33 on step=0.05 becomes 1.35 in a browser while
+        //     cost_multiplier of 1.33 on step=0.05 becomes 1.35 in a browser while
         //     costRegimeText keeps printing "1.33x". jsdom implements the clamp
         //     but NOT the snap, so no amount of reading back .value in a test
         //     can see it — drop to step="any" whenever the seed is off-ladder.
         //
-        // step="any" costs this: on a city whose configured overhead is off the
+        // step="any" costs this: on a city whose configured multiplier is off the
         // ladder, dragging then yields arbitrary-precision values, and the label
         // (toFixed(2)) can round away up to 0.005x of what the sim prices at.
         // That is the better trade — the alternative silently misprices the
@@ -3699,8 +3699,8 @@
         // 45 reaches the seed intact — while the markup's track floors at 50.
         // Clamping it started the interactive line, and the End PCI / N-Year
         // Spend / N-Year Deficit tiles it overwrites, from a condition the city
-        // never configured. Widen, don't clamp — the same call the overhead
-        // slider makes. Like the overhead slider it always goes through
+        // never configured. Widen, don't clamp — the same call the multiplier
+        // slider makes. Like the multiplier slider it always goes through
         // seedRangeInput, which restores the shipped track: a seed with no
         // usable initial_pci falls back to the markup default (seededPCI)
         // rather than keeping the previous city's track and value.
@@ -3723,36 +3723,36 @@
         // if the seed is stale, showing construction-only dollars is recoverable,
         // and showing $0 is not.
         // The markup's 1-2.5 range covers every plausible load stack, but config
-        // validation accepts cost_overhead up to 5, and the seed is the source
+        // validation accepts cost_multiplier up to 5, and the seed is the source
         // of truth: see seedRangeInput for why the track is widened (and
         // un-stepped) to admit it rather than the other way round.
-        function syncOverheadSliderFromSeed() {
-            const slider = inputById('overhead-slider');
+        function syncMultiplierSliderFromSeed() {
+            const slider = inputById('multiplier-slider');
             if (!slider) return;
-            seedRangeInput(slider, seededOverhead());
-            renderOverheadValue();
+            seedRangeInput(slider, seededMultiplier());
+            renderMultiplierValue();
         }
 
-        // seededOverhead is the multiplier the seed prices at (see above).
-        function seededOverhead() {
-            const seeded = FORECAST_SEED && Number(FORECAST_SEED.cost_overhead);
+        // seededMultiplier is the multiplier the seed prices at (see above).
+        function seededMultiplier() {
+            const seeded = FORECAST_SEED && Number(FORECAST_SEED.cost_multiplier);
             return Number.isFinite(seeded) && seeded > 0 ? seeded : 1;
         }
 
-        function renderOverheadValue() {
-            const slider = inputById('overhead-slider');
+        function renderMultiplierValue() {
+            const slider = inputById('multiplier-slider');
             if (!slider) return;
-            document.getElementById('overhead-value').textContent =
+            document.getElementById('multiplier-value').textContent =
                 parseFloat(slider.value).toFixed(2).replace(/0$/, '') + '\u00d7';
         }
 
-        // currentOverhead is what getControlValues ships to the WASM bridge.
-        function currentOverhead() {
-            const slider = inputById('overhead-slider');
+        // currentMultiplier is what getControlValues ships to the WASM bridge.
+        function currentMultiplier() {
+            const slider = inputById('multiplier-slider');
             const v = slider ? parseFloat(slider.value) : NaN;
             return Number.isFinite(v) && v > 0 ? v : 1;
         }
-        syncOverheadSliderFromSeed();
+        syncMultiplierSliderFromSeed();
 
         /** @param {number} v */
         function roundCents(v) { return Math.round(v * 100) / 100; }
@@ -4008,7 +4008,7 @@
                 horizon_years: FORECAST_SEED.horizon_years,
                 treatment_cycle_years: FORECAST_SEED.treatment_cycle_years,
                 cost_tiers: FORECAST_SEED.cost_tiers || [],
-                cost_overhead: Number(FORECAST_SEED.cost_overhead) > 0 ? Number(FORECAST_SEED.cost_overhead) : 1,
+                cost_multiplier: Number(FORECAST_SEED.cost_multiplier) > 0 ? Number(FORECAST_SEED.cost_multiplier) : 1,
                 annual_budget: 0,
                 strategy: 'worst-first',
                 cohorts: cohorts,
@@ -4066,7 +4066,7 @@
         /** @returns {ModelSettings} */
         function currentModel() {
             const pci = parseInt(inputById('pci-slider').value);
-            const cost = currentOverhead();
+            const cost = currentMultiplier();
             const seedTiers = FORECAST_SEED.cost_tiers || [];
             const tiers = readTierInputs().map(t => ({ min_pci: t.min_pci, max_pci: t.max_pci, cost_per_sqm: t.cost_per_sqm }));
             const tiersSeeded = tiers.every((t, i) => t.min_pci === seedTiers[i].min_pci &&
@@ -4074,7 +4074,7 @@
             return {
                 strategy: currentStrategy !== DEFAULT_STRATEGY ? currentStrategy : null,
                 pci: pci !== seededPCI() ? pci : null,
-                cost: Math.abs(cost - seededOverhead()) > 1e-9 ? cost : null,
+                cost: Math.abs(cost - seededMultiplier()) > 1e-9 ? cost : null,
                 tiers: tiersSeeded ? null : tiers,
             };
         }
@@ -4085,17 +4085,17 @@
         /** @param {ModelSettings} m */
         function applyModel(m) {
             syncPCISliderFromSeed();
-            syncOverheadSliderFromSeed();
+            syncMultiplierSliderFromSeed();
             rebuildTierInputs();
             setStrategy(m.strategy || DEFAULT_STRATEGY);
             if (m.pci != null) {
                 document.getElementById('pci-value').textContent = String(seedRangeInput(inputById('pci-slider'), m.pci));
             }
             if (m.cost != null) {
-                seedRangeInput(inputById('overhead-slider'), m.cost);
-                renderOverheadValue();
+                seedRangeInput(inputById('multiplier-slider'), m.cost);
+                renderMultiplierValue();
             }
-            renderOverheadRegimeLabel();
+            renderMultiplierRegimeLabel();
             const seedTiers = FORECAST_SEED.cost_tiers || [];
             if (m.tiers && m.tiers.length === seedTiers.length) {
                 m.tiers.forEach((t, i) => {
@@ -4144,7 +4144,7 @@
                 horizon_years: FORECAST_SEED.horizon_years,
                 treatment_cycle_years: FORECAST_SEED.treatment_cycle_years,
                 cost_tiers: tiers,
-                cost_overhead: currentOverhead(),
+                cost_multiplier: currentMultiplier(),
                 annual_budget: budgetDollars,
                 strategy: currentStrategy,
                 cohorts: seedCohorts
@@ -4485,15 +4485,15 @@
             Router.replaceSoon();
         });
         flushOnRelease(pciSlider);
-        const overheadSlider = inputById('overhead-slider');
-        overheadSlider.addEventListener('input', () => {
-            renderOverheadValue();
-            renderOverheadRegimeLabel();
-            syncAriaValueNow(overheadSlider);
+        const multiplierSlider = inputById('multiplier-slider');
+        multiplierSlider.addEventListener('input', () => {
+            renderMultiplierValue();
+            renderMultiplierRegimeLabel();
+            syncAriaValueNow(multiplierSlider);
             runCustomScenario();
             Router.replaceSoon();
         });
-        flushOnRelease(overheadSlider);
+        flushOnRelease(multiplierSlider);
         queryAll('#strategy-buttons button').forEach(btn => {
             btn.addEventListener('click', () => {
                 setStrategy(btn.dataset.strategy || DEFAULT_STRATEGY);
@@ -5367,7 +5367,7 @@
 
             // Forecast divergence note: per-city [forecast] can override
             // every setting that moves a city's dollars (initial PCI, decay,
-            // growth, treatment cycle, cost overhead, cost tiers), and summed
+            // growth, treatment cycle, cost multiplier, cost tiers), and summed
             // dollars would then mix cost bases. forecast_seed.json carries
             // them all. The horizon is one per config, so it is not part of
             // the signature.
@@ -5376,13 +5376,13 @@
                 if (!allMetrics[idx].hasForecasts || !city.seed) return;
                 var s = city.seed;
                 sigs[JSON.stringify([s.initial_pci, s.decay_rate, s.growth_rate, s.treatment_cycle_years,
-                    s.cost_overhead, s.cost_tiers])] = true;
+                    s.cost_multiplier, s.cost_tiers])] = true;
             });
             var noteEl = document.getElementById('aggregate-divergence-note');
             if (Object.keys(sigs).length > 1) {
                 noteEl.hidden = false;
                 noteEl.textContent = 'Heads up: cities in this region use different forecast settings ' +
-                    '(initial PCI, decay, growth, treatment cycle, cost overhead or cost tiers). ' +
+                    '(initial PCI, decay, growth, treatment cycle, cost multiplier or cost tiers). ' +
                     'Summed dollars may mix cost bases.';
             } else {
                 noteEl.hidden = true;

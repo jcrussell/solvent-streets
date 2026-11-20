@@ -39,7 +39,7 @@ func TestForecastConfig_Validate_RejectsBad(t *testing.T) {
 		// NaN is the case a bare range check cannot catch: every ordered
 		// comparison against it is false, so `x < 0 || x > 100` admits it and
 		// the value reaches `pvmt forecast`, which prints "Initial PCI: NaN"
-		// and every dollar column as NaN with exit code 0. cost_overhead was
+		// and every dollar column as NaN with exit code 0. cost_multiplier was
 		// already covered by its `!(x > 0 && x <= 5)` form; these five were not.
 		"initial NaN": {InitialPCI: math.NaN()},
 		"decay NaN":   {DecayRate: math.NaN()},
@@ -751,7 +751,7 @@ func TestConfig_Validate_ErrChainsErrInvalidConfig(t *testing.T) {
 // Before the finite guards, this sweep passed for six of the eight knobs below:
 // forecast.{decay_rate,growth_rate,current_budget,treatment_cycle_years,
 // initial_pci} and display.min_hex_area all loaded clean with a NaN value, and
-// grid.hex_edge_m accepted +Inf. Only forecast.cost_overhead and
+// grid.hex_edge_m accepted +Inf. Only forecast.cost_multiplier and
 // export.boundary_simplify_m (its own test above) rejected anything.
 //
 // grid.hex_edge_m is the worst of them: +Inf passes resolveHexEdge's `> 0`
@@ -764,7 +764,7 @@ func TestLoadFS_RejectsNonFiniteFloatKnobs(t *testing.T) {
 		"forecast.growth_rate":           "[forecast]\ngrowth_rate = %s\n",
 		"forecast.current_budget":        "[forecast]\ncurrent_budget = %s\n",
 		"forecast.treatment_cycle_years": "[forecast]\ntreatment_cycle_years = %s\n",
-		"forecast.cost_overhead":         "[forecast]\ncost_overhead = %s\n",
+		"forecast.cost_multiplier":       "[forecast]\ncost_multiplier = %s\n",
 		"display.min_hex_area":           "[display]\nmin_hex_area = %s\n",
 		"grid.hex_edge_m":                "[grid]\nhex_edge_m = %s\n",
 	}
@@ -1021,6 +1021,14 @@ func TestLoad_RenamedKeys(t *testing.T) {
 		"per-city years": {
 			toml: city + "[cities.forecast]\nyears = 20\n",
 			want: "cities[oakland-ca].forecast.years was renamed to forecast.horizon_years",
+		},
+		"top-level cost_overhead": {
+			toml: "[forecast]\ncost_overhead = 1.5\n" + city,
+			want: "forecast.cost_overhead was renamed to forecast.cost_multiplier",
+		},
+		"per-city cost_overhead": {
+			toml: city + "[cities.forecast]\ncost_overhead = 1.5\n",
+			want: "cities[oakland-ca].forecast.cost_overhead was renamed to cities[oakland-ca].forecast.cost_multiplier",
 		},
 	}
 	for name, tc := range tests {

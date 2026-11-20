@@ -95,7 +95,7 @@ Only names that existed in v0.4.x are listed. Fields of the commands and files t
 | `scenarios.json` | scope key `bbox`; summary `city_count`, `all_count`, `city_pct`, `state_count`, `county_count`, `federal_count` | scope key `all`; the `summary` block is gone (its feature counts and city share were never shown) |
 | `hex-cost-summary.json` | scope key `bbox`; `year1_cost` | scope key `all`; `year1_need` |
 | `forecast.json` | `bbox_baseline`; `insolvency_year`, `funding_gap` as `null` | `all_baseline`; `insolvency_year`, `funding_gap` omitted |
-| `forecast_seed.json` | `years`; material `binder_pct` | `horizon_years`; material `binder_share` |
+| `forecast_seed.json` | `years`; material `binder_pct`; `cost_overhead` | `horizon_years`; material `binder_share`; `cost_multiplier` |
 | `forecast_seed.json` | `total_area`, `city_paved`: the paved footprint (the union, as `meta.json`'s `total_paved`) | `maintained_area`, `city_maintained_area`: the maintained area, roads + parking + sidewalks summed as the forecast prices them. The footprint is only in `meta.json` |
 | `PVMT_CONFIG` (dashboard) | `layerColors`, `unitSystem`, `forecastSeed`, `wasmPrefix`; `cities[].lon`, `cities[].lat` | `layer_colors`, `unit_system`, `forecast_seed`, `hexgrid_version` (`wasmPrefix` is gone); `cities[].center` |
 | `PVMT_CONFIG` (play page) | `forecastSeed`, `dataPrefix`, `mapHref`, `bandCount`, `wasmPrefix` | `data_prefix`, `map_href`, `band_count`, `hexgrid_version`; no seed (the board fetches the city's `forecast_seed.json`) and no `wasmPrefix` |
@@ -140,6 +140,7 @@ Some `pvmt.toml` keys and environment variables have new names, so each setting 
 |--------|--------|
 | `[forecast] years` | `[forecast] horizon_years` |
 | `PVMT_FORECAST_YEARS` | `PVMT_FORECAST_HORIZON_YEARS` |
+| `[forecast] cost_overhead` (and per city) | `[forecast] cost_multiplier`; the same factor, named as the dashboard's Cost multiplier slider |
 
 ### Known issues
 

@@ -18,6 +18,9 @@ import (
 var renamedKeys = map[string]string{
 	"forecast.years":        "forecast.horizon_years",
 	"cities.forecast.years": "forecast.horizon_years",
+
+	"forecast.cost_overhead":        "forecast.cost_multiplier",
+	"cities.forecast.cost_overhead": "cities.forecast.cost_multiplier",
 }
 
 // CityPath is how a message addresses one [[cities]] entry: cities[<slug>],

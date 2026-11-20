@@ -32,7 +32,7 @@ var backtestCities = []backtestCity{
 
 // backtestYears is the fixtures' own horizon. It is fixed at 25 (what
 // examples/bay-area-ca used before configs moved to one 30-year default) so
-// the §6 figures quoted in config.go's DefaultCostOverhead comment stay put.
+// the §6 figures quoted in config.go's DefaultCostMultiplier comment stay put.
 const backtestYears = 25
 
 // TestBacktest_TreatmentCycleClosesSec5Gap is the offline regression gate for the

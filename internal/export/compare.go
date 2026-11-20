@@ -61,14 +61,14 @@ type compareStat struct {
 // compareSeed keeps the cohorts and areas the tabs read, the horizon, and the
 // settings the Aggregate divergence note compares: every per-city setting
 // that moves a city's dollars (initial PCI, decay, growth, treatment cycle,
-// cost overhead, cost tiers). cost_tiers passes through verbatim so that
+// cost multiplier, cost tiers). cost_tiers passes through verbatim so that
 // comparison sees exactly the seed's value.
 type compareSeed struct {
 	InitialPCI          float64         `json:"initial_pci"`
 	DecayRate           float64         `json:"decay_rate"`
 	GrowthRate          float64         `json:"growth_rate"`
 	TreatmentCycleYears float64         `json:"treatment_cycle_years"`
-	CostOverhead        float64         `json:"cost_overhead"`
+	CostMultiplier      float64         `json:"cost_multiplier"`
 	HorizonYears        int             `json:"horizon_years"`
 	CostTiers           json.RawMessage `json:"cost_tiers,omitempty"`
 	MaintainedArea      float64         `json:"maintained_area,omitempty"`

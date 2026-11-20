@@ -411,7 +411,7 @@ func forecastAllResources(ctx context.Context, opts *Options, store db.Store, ci
 			cmdutil.Warnf(ios, "no compute results for %s, skipping", t)
 			continue
 		}
-		params := fcpkg.NewParamsForResource(string(t), fc.GrowthRate, costTiers, fc.TreatmentCycleYears, fc.ResolvedCostOverhead())
+		params := fcpkg.NewParamsForResource(string(t), fc.GrowthRate, costTiers, fc.TreatmentCycleYears, fc.ResolvedCostMultiplier())
 		rows, total, baseline := simulateResource(citySlug, scope, rt, sc.Cohorts, years, params)
 		all = append(all, rows...)
 		forecasted = true

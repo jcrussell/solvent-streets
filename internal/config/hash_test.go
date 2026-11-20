@@ -180,8 +180,8 @@ func TestCityHash_ForecastEditsDoNotMove(t *testing.T) {
 		"treatment_cycle_years": func(s string) string {
 			return strings.Replace(s, "horizon_years = 25", "horizon_years = 25\ntreatment_cycle_years = 8", 1)
 		},
-		"cost_overhead": func(s string) string {
-			return strings.Replace(s, "horizon_years = 25", "horizon_years = 25\ncost_overhead = 1.5", 1)
+		"cost_multiplier": func(s string) string {
+			return strings.Replace(s, "horizon_years = 25", "horizon_years = 25\ncost_multiplier = 1.5", 1)
 		},
 		"current_budget": func(s string) string {
 			return strings.Replace(s, "horizon_years = 25", "horizon_years = 25\ncurrent_budget = 5000000", 1)
@@ -224,7 +224,7 @@ hex_edge_m = 100
 [forecast]
 initial_pci = 85
 horizon_years = 20
-cost_overhead = 1.0
+cost_multiplier = 1.0
 growth_rate = 0
 
 [[cities]]
@@ -610,7 +610,7 @@ var configFieldRules = map[string]fieldRule{
 	"ForecastConfig.CostTiers":           {class: nested},
 	"ForecastConfig.TreatmentCycleYears": {simulated, func(c *Config) { c.Forecast.TreatmentCycleYears = 8 }},
 	"ForecastConfig.CurrentBudget":       {simulated, func(c *Config) { c.Forecast.CurrentBudget = 1e6 }},
-	"ForecastConfig.CostOverhead":        {simulated, func(c *Config) { c.Forecast.CostOverhead = 1.5 }},
+	"ForecastConfig.CostMultiplier":      {simulated, func(c *Config) { c.Forecast.CostMultiplier = 1.5 }},
 	"ForecastConfig.growthRateSet":       {class: plumbing},
 
 	"CostTierCfg.MinPCI":     {simulated, func(c *Config) { c.Forecast.CostTiers[0].MinPCI = 1 }},

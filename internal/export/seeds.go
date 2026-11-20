@@ -45,20 +45,20 @@ type ForecastSeedJSON struct {
 	// area when there are no cohorts.
 	MaintainedArea     float64 `json:"maintained_area"`
 	CityMaintainedArea float64 `json:"city_maintained_area"`
-	// CostTiers ships the BARE per-m2 schedule, unscaled by CostOverhead. The
+	// CostTiers ships the BARE per-m2 schedule, unscaled by CostMultiplier. The
 	// browser renders these into the editable #tier-inputs, so scaling them
 	// here would show the user loaded prices in boxes labelled with the tier's
-	// own cost — and the WASM bridge would then apply CostOverhead on top,
-	// pricing everything at overhead^2. Tiers and overhead travel separately
+	// own cost — and the WASM bridge would then apply CostMultiplier on top,
+	// pricing everything at multiplier^2. Tiers and multiplier travel separately
 	// and are combined exactly once, in TieredCostProjector.
 	CostTiers []forecast.CostTier `json:"cost_tiers"`
-	// CostOverhead is the resolved loaded-cost multiplier (ADA + soft costs +
-	// contingency; config.DefaultCostOverhead). Shipped resolved for the same
+	// CostMultiplier is the resolved loaded-cost multiplier (ADA + soft costs +
+	// contingency; config.DefaultCostMultiplier). Shipped resolved for the same
 	// reason as TreatmentCycleYears: the browser's interactive line must price
 	// work the same way the static export lines did, or the two diverge by this
-	// factor on the same chart. It also seeds the forecast page's overhead
-	// slider. Key matches bridge.Input.CostOverhead.
-	CostOverhead float64 `json:"cost_overhead"`
+	// factor on the same chart. It also seeds the forecast page's multiplier
+	// slider. Key matches bridge.Input.CostMultiplier.
+	CostMultiplier float64 `json:"cost_multiplier"`
 	// MaterialTiers ships the per-tier physical material intensities (asphalt
 	// mix mass + binder fraction per m^2) behind each scenario year's materials
 	// in scenarios.json, for the Materials tab's intensity table. Each tier
@@ -130,9 +130,9 @@ func marshalForecastSeed(fc *config.ForecastConfig, areas scenarioAreas, cohorts
 		TreatmentCycleYears: forecast.ResolveCycleYears(fc.TreatmentCycleYears),
 		MaintainedArea:      areas.allArea,
 		CityMaintainedArea:  areas.cityArea,
-		// Deliberately NOT scaled by the overhead — see the CostTiers field comment.
+		// Deliberately NOT scaled by the multiplier — see the CostTiers field comment.
 		CostTiers:            costTiers,
-		CostOverhead:         fc.ResolvedCostOverhead(),
+		CostMultiplier:       fc.ResolvedCostMultiplier(),
 		MaterialTiers:        materialTierSeeds(forecast.DefaultMaterialTiers),
 		BarrelsPerTonBinder:  forecast.BarrelsPerTonBinder,
 		Cohorts:              cohorts.All,

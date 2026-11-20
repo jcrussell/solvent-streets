@@ -169,7 +169,7 @@ type forecastProvenance struct {
 	CostTiers           Source
 	CurrentBudget       Source
 	TreatmentCycleYears Source
-	CostOverhead        Source
+	CostMultiplier      Source
 }
 
 // resolveForecast returns the merged forecast config (env > city > file >
@@ -224,8 +224,8 @@ func fileForecastProv(fc *ForecastConfig) forecastProvenance {
 	if fc.TreatmentCycleYears > 0 {
 		p.TreatmentCycleYears = Source{Kind: SourceFile, Detail: "forecast.treatment_cycle_years"}
 	}
-	if fc.CostOverhead > 0 {
-		p.CostOverhead = Source{Kind: SourceFile, Detail: "forecast.cost_overhead"}
+	if fc.CostMultiplier > 0 {
+		p.CostMultiplier = Source{Kind: SourceFile, Detail: "forecast.cost_multiplier"}
 	}
 	return p
 }
@@ -263,11 +263,11 @@ func applyCityForecastProv(fc *ForecastConfig, p *forecastProvenance, city *City
 		p.CurrentBudget = Source{Kind: SourceFile, Detail: fmt.Sprintf("cities[%s].forecast.current_budget", slug)}
 	}
 	// A positive test is the correct presence check here, unlike growth_rate
-	// above: cost_overhead has no meaningful 0 (Validate rejects it), so 0 is
+	// above: cost_multiplier has no meaningful 0 (Validate rejects it), so 0 is
 	// unambiguously "unset". A city that wants bare pricing writes 1.0.
-	if ov.CostOverhead > 0 {
-		fc.CostOverhead = ov.CostOverhead
-		p.CostOverhead = Source{Kind: SourceFile, Detail: fmt.Sprintf("cities[%s].forecast.cost_overhead", slug)}
+	if ov.CostMultiplier > 0 {
+		fc.CostMultiplier = ov.CostMultiplier
+		p.CostMultiplier = Source{Kind: SourceFile, Detail: fmt.Sprintf("cities[%s].forecast.cost_multiplier", slug)}
 	}
 	if ov.TreatmentCycleYears > 0 {
 		fc.TreatmentCycleYears = ov.TreatmentCycleYears
@@ -314,11 +314,11 @@ func applyDefaultForecastProv(fc *ForecastConfig, p *forecastProvenance) {
 		p.TreatmentCycleYears = Source{Kind: SourceDefault}
 	}
 	// Unlike TreatmentCycleYears, the VALUE is resolved here and not downstream:
-	// the forecast core reads a zero overhead as bare (1.0) on purpose, so a
+	// the forecast core reads a zero multiplier as bare (1.0) on purpose, so a
 	// default applied there would silently load every directly-constructed
-	// projector. See ForecastConfig.ResolvedCostOverhead.
-	if d.CostOverhead {
-		p.CostOverhead = Source{Kind: SourceDefault}
+	// projector. See ForecastConfig.ResolvedCostMultiplier.
+	if d.CostMultiplier {
+		p.CostMultiplier = Source{Kind: SourceDefault}
 	}
 }
 
@@ -407,12 +407,12 @@ func (c *Config) Resolve(flagUnits string) []ResolvedField {
 		fields = append(fields, ResolvedField{Key: "forecast.treatment_cycle_years", Value: fc.TreatmentCycleYears, Source: fprov.TreatmentCycleYears})
 	}
 	// Emitted unconditionally, unlike treatment_cycle_years: applyDefaultForecastProv
-	// resolves the VALUE here rather than downstream, so fc.CostOverhead is
+	// resolves the VALUE here rather than downstream, so fc.CostMultiplier is
 	// always a concrete positive multiplier by this point. It is a multi-layer
 	// field (file -> per-city -> default) exactly like initial_pci, so leaving it
 	// out made `config show --sources` unable to report which layer set the knob
 	// every priced dollar passes through.
-	fields = append(fields, ResolvedField{Key: "forecast.cost_overhead", Value: fc.CostOverhead, Source: fprov.CostOverhead})
+	fields = append(fields, ResolvedField{Key: "forecast.cost_multiplier", Value: fc.CostMultiplier, Source: fprov.CostMultiplier})
 
 	// The fetch settings are emitted only when a layer sets them: their
 	// defaults are constants of the ingest and cache packages, applied
@@ -467,16 +467,16 @@ func (c *Config) Resolve(flagUnits string) []ResolvedField {
 				Source: Source{Kind: SourceFile, Detail: fmt.Sprintf("cities[%s].forecast.treatment_cycle_years", slug)},
 			})
 		}
-		// Without this the top-level forecast.cost_overhead line misleads: a
+		// Without this the top-level forecast.cost_multiplier line misleads: a
 		// city overriding the multiplier to 1.8
-		// would print `forecast.cost_overhead = 1 (default)` and nothing else,
+		// would print `forecast.cost_multiplier = 1 (default)` and nothing else,
 		// reading as "every city prices bare". A positive test is the right
 		// presence check (Validate rejects 0), matching applyCityForecastProv.
-		if city.Forecast.CostOverhead > 0 {
+		if city.Forecast.CostMultiplier > 0 {
 			fields = append(fields, ResolvedField{
-				Key:    fmt.Sprintf("cities[%s].forecast.cost_overhead", slug),
-				Value:  city.Forecast.CostOverhead,
-				Source: Source{Kind: SourceFile, Detail: fmt.Sprintf("cities[%s].forecast.cost_overhead", slug)},
+				Key:    fmt.Sprintf("cities[%s].forecast.cost_multiplier", slug),
+				Value:  city.Forecast.CostMultiplier,
+				Source: Source{Kind: SourceFile, Detail: fmt.Sprintf("cities[%s].forecast.cost_multiplier", slug)},
 			})
 		}
 	}

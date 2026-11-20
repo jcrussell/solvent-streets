@@ -15,14 +15,14 @@ type Params struct {
 
 // NewParams builds forecasting parameters from config values.
 //
-// costOverhead is the loaded-cost multiplier (TieredCostProjector.Overhead);
+// costMultiplier is the loaded-cost multiplier (TieredCostProjector.Multiplier);
 // pass 0 or 1 for bare construction pricing. It is a separate parameter rather
 // than folded into costTiers so that the tiers a user sees and edits stay the
-// bare per-m2 schedule they typed, with the overhead applied once, at pricing
+// bare per-m2 schedule they typed, with the multiplier applied once, at pricing
 // time — see the seed/Config-tab note in internal/export.
-func NewParams(growthRate float64, costTiers []CostTier, cycleYears, costOverhead float64) *Params {
+func NewParams(growthRate float64, costTiers []CostTier, cycleYears, costMultiplier float64) *Params {
 	p := &Params{
-		Cost:       &TieredCostProjector{Overhead: costOverhead},
+		Cost:       &TieredCostProjector{Multiplier: costMultiplier},
 		Growth:     &LinearGrowthEstimator{AnnualGrowthRate: growthRate},
 		CycleYears: cycleYears,
 	}
@@ -83,17 +83,17 @@ func sidewalkCostTiers(costTiers []CostTier) []CostTier {
 
 // NewParamsForResource builds forecasting parameters with resource-specific defaults.
 // Sidewalks get lower cost tiers. Other resource types fall back to NewParams.
-// Overhead applies to sidewalks as well: ADA compliance, design and contingency
+// The cost multiplier applies to sidewalks as well: ADA compliance, design and contingency
 // load a sidewalk project the same way they load a road project. It composes
 // with SidewalkCostRatio by plain multiplication, so the order the two are
 // applied in does not matter.
-func NewParamsForResource(resourceType string, growthRate float64, costTiers []CostTier, cycleYears, costOverhead float64) *Params {
+func NewParamsForResource(resourceType string, growthRate float64, costTiers []CostTier, cycleYears, costMultiplier float64) *Params {
 	if resourceType == sidewalksResource {
 		return &Params{
-			Cost:       &TieredCostProjector{Tiers: sidewalkCostTiers(costTiers), Overhead: costOverhead},
+			Cost:       &TieredCostProjector{Tiers: sidewalkCostTiers(costTiers), Multiplier: costMultiplier},
 			Growth:     &LinearGrowthEstimator{AnnualGrowthRate: growthRate},
 			CycleYears: cycleYears,
 		}
 	}
-	return NewParams(growthRate, costTiers, cycleYears, costOverhead)
+	return NewParams(growthRate, costTiers, cycleYears, costMultiplier)
 }

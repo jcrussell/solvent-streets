@@ -689,10 +689,10 @@ func TestRunMultiCity_WritesCompareRollup(t *testing.T) {
 		if ok, err := readDataFile(dataDir, "forecast_seed.json", &seed); err != nil || !ok {
 			t.Fatal(err)
 		}
-		if c.Seed.CostOverhead != seed.CostOverhead || c.Seed.TreatmentCycleYears != seed.TreatmentCycleYears ||
-			c.Seed.GrowthRate != seed.GrowthRate || c.Seed.CostOverhead == 0 || c.Seed.TreatmentCycleYears == 0 {
-			t.Errorf("%s: rollup seed %+v lacks forecast_seed.json's overhead %g, cycle %g, growth %g",
-				c.Slug, c.Seed, seed.CostOverhead, seed.TreatmentCycleYears, seed.GrowthRate)
+		if c.Seed.CostMultiplier != seed.CostMultiplier || c.Seed.TreatmentCycleYears != seed.TreatmentCycleYears ||
+			c.Seed.GrowthRate != seed.GrowthRate || c.Seed.CostMultiplier == 0 || c.Seed.TreatmentCycleYears == 0 {
+			t.Errorf("%s: rollup seed %+v lacks forecast_seed.json's multiplier %g, cycle %g, growth %g",
+				c.Slug, c.Seed, seed.CostMultiplier, seed.TreatmentCycleYears, seed.GrowthRate)
 		}
 	}
 	if len(raw)*4 > perCity {

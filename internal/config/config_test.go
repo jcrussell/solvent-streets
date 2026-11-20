@@ -605,8 +605,8 @@ func TestResolvedForecast_EnvYearsOverMaximumIgnored(t *testing.T) {
 func TestForecastDefaults_OneStep(t *testing.T) {
 	for _, fc := range []ForecastConfig{
 		{},
-		{InitialPCI: 77, HorizonYears: 15, CostOverhead: 1.5},
-		{InitialPCI: -10, HorizonYears: -3, CostOverhead: -1},
+		{InitialPCI: 77, HorizonYears: 15, CostMultiplier: 1.5},
+		{InitialPCI: -10, HorizonYears: -3, CostMultiplier: -1},
 		{InitialPCI: 150},
 		{InitialPCI: 100, HorizonYears: 1},
 	} {
@@ -616,10 +616,10 @@ func TestForecastDefaults_OneStep(t *testing.T) {
 		cfg := &Config{Forecast: fc}
 		resolved, prov := cfg.resolveForecast(nil)
 		if resolved.InitialPCI != normalized.InitialPCI || resolved.HorizonYears != normalized.HorizonYears ||
-			resolved.CostOverhead != normalized.CostOverhead {
-			t.Errorf("%+v: resolveForecast = (pci %v, years %v, overhead %v), NormalizeForecast = (pci %v, years %v, overhead %v)",
-				fc, resolved.InitialPCI, resolved.HorizonYears, resolved.CostOverhead,
-				normalized.InitialPCI, normalized.HorizonYears, normalized.CostOverhead)
+			resolved.CostMultiplier != normalized.CostMultiplier {
+			t.Errorf("%+v: resolveForecast = (pci %v, years %v, multiplier %v), NormalizeForecast = (pci %v, years %v, multiplier %v)",
+				fc, resolved.InitialPCI, resolved.HorizonYears, resolved.CostMultiplier,
+				normalized.InitialPCI, normalized.HorizonYears, normalized.CostMultiplier)
 		}
 		if got := fileHorizon(cfg); got != normalized.HorizonYears {
 			t.Errorf("%+v: fileHorizon = %d, NormalizeForecast years = %d", fc, got, normalized.HorizonYears)
@@ -629,9 +629,9 @@ func TestForecastDefaults_OneStep(t *testing.T) {
 			filled bool
 			src    Source
 		}{
-			"initial_pci":   {normalized.InitialPCI != fc.InitialPCI, prov.InitialPCI},
-			"years":         {normalized.HorizonYears != fc.HorizonYears, prov.HorizonYears},
-			"cost_overhead": {normalized.CostOverhead != fc.CostOverhead, prov.CostOverhead},
+			"initial_pci":     {normalized.InitialPCI != fc.InitialPCI, prov.InitialPCI},
+			"years":           {normalized.HorizonYears != fc.HorizonYears, prov.HorizonYears},
+			"cost_multiplier": {normalized.CostMultiplier != fc.CostMultiplier, prov.CostMultiplier},
 		} {
 			if isDefault := c.src.Kind == SourceDefault; isDefault != c.filled {
 				t.Errorf("%+v: %s source = %v, but default filled = %v", fc, name, c.src, c.filled)

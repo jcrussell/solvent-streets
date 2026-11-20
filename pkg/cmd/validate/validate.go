@@ -129,7 +129,7 @@ This is an offline calibration gate: no database, no ingest, no network. The
 reference data ships with the binary and every row carries its source. Each
 city is priced as one residential class of its published paved area, PCI
 and decay rate, with the shipped cost tiers, condition spread and treatment
-cycle, no cost overhead, 0.5% annual area growth and a 25-year worst-first
+cycle, no cost multiplier, 0.5% annual area growth and a 25-year worst-first
 horizon. Exits non-zero when a city with a published hold-steady budget falls outside the
 tolerance band, so it can run in CI.
 
@@ -239,9 +239,9 @@ func evaluateCity(c referenceCity, tolerance float64) Result {
 		DecayRate:      c.DecayRate,
 	}}, c.PCI)
 
-	// Growth 0.005 and a fixed 25-year horizon match backtest_test.go, so docs/validation.md §6 stays reproducible. Cost overhead is left at bare (1) because the
+	// Growth 0.005 and a fixed 25-year horizon match backtest_test.go, so docs/validation.md §6 stays reproducible. Cost multiplier is left at bare (1) because the
 	// shipped calibration is bare tiers x spread x N=12 — see
-	// config.DefaultCostOverhead.
+	// config.DefaultCostMultiplier.
 	params := forecast.NewParams(0.005, nil, forecast.DefaultTreatmentCycleYears, 1)
 	breakEven := forecast.BreakEvenBudget(cohorts, 25, params, forecast.StrategyWorstFirst)
 

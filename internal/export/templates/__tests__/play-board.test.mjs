@@ -70,17 +70,17 @@ test('play: the map is fitted to the board, not left on the region', async () =>
   assert.deepEqual(last, want, 'the last fit was not to the board');
 });
 
-// The game prices work at the overhead the forecast priced the budget at, on
+// The game prices work at the multiplier the forecast priced the budget at, on
 // the board and in the start screen's projection alike.
-test('play: the board and the projection carry the seed cost overhead', async () => {
-  const seed = { ...structuredClone(seedJSON), cost_overhead: 1.35 };
+test('play: the board and the projection carry the seed cost multiplier', async () => {
+  const seed = { ...structuredClone(seedJSON), cost_multiplier: 1.35 };
   const h = await bootBoard(boardData(seed));
-  assert.equal(h.get('gameConfig').cost_overhead, 1.35);
+  assert.equal(h.get('gameConfig').cost_multiplier, 1.35);
   const sent = [];
   h.win.gameProjectInsolvency = (json) => { sent.push(JSON.parse(json)); return '{}'; };
   h.get('refreshProjection()');
   await new Promise((r) => setTimeout(r, 100));
-  assert.equal(sent.at(-1).cost_overhead, 1.35, 'the projection priced work bare');
+  assert.equal(sent.at(-1).cost_multiplier, 1.35, 'the projection priced work bare');
 });
 
 // On a phone the HUD is a strip across the top of the map and the dock one

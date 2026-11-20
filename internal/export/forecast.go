@@ -213,7 +213,7 @@ func buildResourceForecast(rt resource.Source, fc *config.ForecastConfig, costTi
 	}
 
 	years := fc.HorizonYears
-	rtParams := forecast.NewParamsForResource(tName, fc.GrowthRate, costTiers, fc.TreatmentCycleYears, fc.ResolvedCostOverhead())
+	rtParams := forecast.NewParamsForResource(tName, fc.GrowthRate, costTiers, fc.TreatmentCycleYears, fc.ResolvedCostMultiplier())
 
 	allCohorts := buildCohortsFromStats(t, result.Area, cohortStats[t], fc)
 
@@ -303,7 +303,7 @@ func cityHasScope(cohortStats map[resource.Type][]results.Cohort) bool {
 // which scopes exist and size the single-cohort fallback.
 func BuildScenariosData(ctx context.Context, entry CityEntry, fc *config.ForecastConfig) (map[string]any, error) {
 	costTiers := ConvertCostTiers(fc)
-	params := forecast.NewParams(fc.GrowthRate, costTiers, fc.TreatmentCycleYears, fc.ResolvedCostOverhead())
+	params := forecast.NewParams(fc.GrowthRate, costTiers, fc.TreatmentCycleYears, fc.ResolvedCostMultiplier())
 	defaultRate := forecast.ResolveDecayRate(fc.DecayRate)
 
 	areas, err := maintainedAreas(ctx, entry.Store)
