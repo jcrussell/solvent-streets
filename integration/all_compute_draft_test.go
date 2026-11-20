@@ -121,9 +121,9 @@ func TestAllCompute_FailedStepKeepsItsPart(t *testing.T) {
 	}
 }
 
-// TestAllCompute_CancelCommitsNothing: a compute cancelled part-way commits
+// TestAllCompute_CancelCommitsNothing: a compute canceled part-way commits
 // nothing, so the latest compute is the previous one, and the runs the
-// cancelled steps created are discarded.
+// canceled steps created are discarded.
 func TestAllCompute_CancelCommitsNothing(t *testing.T) {
 	ctx := context.Background()
 	base, before := computedFixture(t, ctx)
@@ -133,10 +133,10 @@ func TestAllCompute_CancelCommitsNothing(t *testing.T) {
 	probe := &draftProbeStore{Store: base, cancelOn: "sidewalks", cancel: cancel}
 	stderr, err := computeAllOver(runCtx, probe)
 	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("cancelled all compute = %v, want context.Canceled\n%s", err, stderr)
+		t.Fatalf("canceled all compute = %v, want context.Canceled\n%s", err, stderr)
 	}
 	if probe.commits != 0 {
-		t.Errorf("cancelled all compute committed %d times, want none", probe.commits)
+		t.Errorf("canceled all compute committed %d times, want none", probe.commits)
 	}
 	if len(probe.created) == 0 {
 		t.Fatal("no step created a run before the cancel; the test cancels too early to mean anything")
@@ -147,6 +147,6 @@ func TestAllCompute_CancelCommitsNothing(t *testing.T) {
 		}
 	}
 	if after := latestRuns(t, ctx, base); !maps.Equal(after, before) {
-		t.Errorf("latest compute after a cancelled run = %v, want unchanged %v", after, before)
+		t.Errorf("latest compute after a canceled run = %v, want unchanged %v", after, before)
 	}
 }

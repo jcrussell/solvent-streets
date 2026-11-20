@@ -105,7 +105,7 @@ func NewDrawnGrid(ctx context.Context, entry CityEntry, proj *geo.UTMProjector) 
 		}
 		d := encodeDrawnHexes(ctx, hexes, p, entry.Config.CoordinateDecimals())
 		if err := ctx.Err(); err != nil {
-			return nil, err // cancelled part-way: the grid is incomplete
+			return nil, err // canceled part-way: the grid is incomplete
 		}
 		return d, nil
 	})

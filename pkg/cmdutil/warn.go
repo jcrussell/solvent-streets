@@ -1,9 +1,9 @@
 package cmdutil
 
 import (
-	"fmt"
 	"io"
 
+	"github.com/jcrussell/solvent-streets/internal/warn"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 )
 
@@ -19,7 +19,16 @@ func Warnf(ios *iostreams.IOStreams, format string, args ...any) {
 }
 
 // FprintWarnf is Warnf for a caller that holds only the stderr writer (a
-// producer handed errOut, or the TUI's log sink).
+// producer handed errOut, or the TUI's log sink). Packages below the CLI
+// layer use internal/warn, which writes the same line.
 func FprintWarnf(w io.Writer, format string, args ...any) {
-	fmt.Fprintf(w, "warning: "+format+"\n", args...)
+	warn.Fprintf(w, format, args...)
+}
+
+// SkipNeedsFirst warns that err leaves the command nothing to do until
+// command has run (NeedsFirst), and returns ErrNoResults: a quiet skip in a
+// fan-out over cities or steps, exit 3 on its own.
+func SkipNeedsFirst(w io.Writer, err error, command string) error {
+	warn.Fprint(w, NeedsFirst(err, command))
+	return ErrNoResults
 }

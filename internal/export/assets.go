@@ -120,9 +120,9 @@ func loadEmbeddedAssets(wasm fs.FS) (*Assets, error) {
 	execJS, jerr := fs.ReadFile(wasm, "wasm/wasm_exec.js")
 	if werr != nil || jerr != nil || len(wasmBin) == 0 || len(execJS) == 0 {
 		return nil, hint.With(ErrNoWasm,
-			"`go install` builds from the published module, which cannot include the\n"+
-				"generated WASM. Install a release (.deb or tarball), or build from a\n"+
-				"checkout with `make build`. Every other pvmt command works with this binary.")
+			"install a release (.deb or tarball), or build from a checkout with `make build`:\n"+
+				"`go install` builds from the published module, which cannot include the\n"+
+				"generated WASM; every other pvmt command works with this binary")
 	}
 	return NewAssets(map[string][]byte{
 		"pvmt.wasm":    wasmBin,

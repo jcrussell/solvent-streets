@@ -49,6 +49,12 @@ func TestExitCode(t *testing.T) {
 		{"requires at least args",
 			errors.New("requires at least 1 arg(s), only received 0"), 2},
 		{"no results", cmdutil.ErrNoResults, 3},
+		{"needs first", cmdutil.NeedsFirst(errors.New("no boundary stored"), "pvmt all ingest"), 3},
+		{"needs first in every city", errors.Join(
+			fmt.Errorf("a: %w", cmdutil.NeedsFirst(errors.New("x"), "pvmt all ingest")),
+			cmdutil.NeedsFirst(errors.New("y"), "pvmt all ingest")), 3},
+		{"needs first beside a failure", errors.Join(
+			cmdutil.NeedsFirst(errors.New("x"), "pvmt all ingest"), errors.New("connection refused")), 1},
 		{"silent sentinel", cmdutil.ErrSilent, 1},
 		{"silent wrapped", fmt.Errorf("after streaming: %w", cmdutil.ErrSilent), 1},
 		{"generic runtime error", errors.New("connection refused"), 1},
@@ -61,6 +67,18 @@ func TestExitCode(t *testing.T) {
 				t.Fatalf("exitCode(%v) = %d, want %d", tt.err, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestExitCode_NeedsFirstPrintsItsHint: a missing prerequisite exits 3 like
+// an empty result, but says what to run.
+func TestExitCode_NeedsFirstPrintsItsHint(t *testing.T) {
+	var buf bytes.Buffer
+	if got := exitCode(cmdutil.NeedsFirst(errors.New("no boundary stored for Oakland"), "pvmt all ingest"), &buf); got != 3 {
+		t.Fatalf("exit code = %d, want 3", got)
+	}
+	if want := "Error: no boundary stored for Oakland\nhint: run 'pvmt all ingest' first\n"; buf.String() != want {
+		t.Errorf("printed %q, want %q", buf.String(), want)
 	}
 }
 
@@ -87,7 +105,7 @@ func TestExitCode_SilentSuppressesPrint(t *testing.T) {
 	}
 }
 
-// TestExitCode_CancelledJoinDoesNotSwallowFailures pins why cancellation has
+// TestExitCode_CanceledJoinDoesNotSwallowFailures pins why cancellation has
 // no dedicated arm in exitCode.
 //
 // cmdutil.ForEachCity appends ctx.Err() to its error slice and returns
@@ -96,7 +114,7 @@ func TestExitCode_SilentSuppressesPrint(t *testing.T) {
 // together. A quiet `errors.Is(err, context.Canceled) -> print "interrupted"`
 // arm — the tidier-looking option — would match that error and hide every
 // failure in it. Cancellation therefore falls through to the generic arm.
-func TestExitCode_CancelledJoinDoesNotSwallowFailures(t *testing.T) {
+func TestExitCode_CanceledJoinDoesNotSwallowFailures(t *testing.T) {
 	err := errors.Join(errors.New("oakland-ca: locked database"), context.Canceled)
 
 	var buf bytes.Buffer

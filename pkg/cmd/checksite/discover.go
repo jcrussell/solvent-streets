@@ -1,12 +1,15 @@
 package checksite
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 
 	"github.com/jcrussell/solvent-streets/internal/export"
+	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 )
 
 // site is the discovered shape of a built static-site tree. Discovery is
@@ -43,12 +46,18 @@ type cityDir struct {
 }
 
 // discoverSite walks the immediate children of dir, classifying each as a
-// single-city or multi-city example. It returns a clear error if dir is
-// missing so the user is pointed at `make site`.
+// single-city or multi-city example. A missing dir points the user at
+// `pvmt export`; one that is not a directory, or cannot be read, is a
+// failure of its own.
 func discoverSite(dir string) (*site, error) {
 	info, err := os.Stat(dir)
-	if err != nil || !info.IsDir() {
-		return nil, fmt.Errorf("site directory %q not found — run 'make site' first", dir)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return nil, cmdutil.NeedsFirst(fmt.Errorf("site directory %q not found", dir), "pvmt export -o "+dir)
+	case err != nil:
+		return nil, fmt.Errorf("site directory: %w", err)
+	case !info.IsDir():
+		return nil, fmt.Errorf("site directory %q is not a directory", dir)
 	}
 
 	// A single `pvmt export` writes one site rooted at dir itself: data/ for a

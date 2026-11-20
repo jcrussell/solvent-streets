@@ -506,13 +506,13 @@ func TestRunCompute_InvalidBoundaryWarns(t *testing.T) {
 	}
 }
 
-// TestRunCompute_CancelledDoesNotSave: a cancelled
+// TestRunCompute_CanceledDoesNotSave: a canceled
 // context must make the compute path return context.Canceled and must NOT
 // persist truncated hex stats / compute results under a complete-looking
 // snapshot. geo.ParallelMap returns partial results with no error on cancel,
 // so the ctx.Err() guard between compute and persistence is the load-bearing
 // fix under test.
-func TestRunCompute_CancelledDoesNotSave(t *testing.T) {
+func TestRunCompute_CanceledDoesNotSave(t *testing.T) {
 	store := &dbtest.MockStore{
 		GetBoundaryFunc:  func(_ context.Context) (string, error) { return testBoundary, nil },
 		ListFeaturesFunc: roadsFeaturesFunc,
@@ -527,7 +527,7 @@ func TestRunCompute_CancelledDoesNotSave(t *testing.T) {
 		ResourceType: &resource.Pavement{},
 	}
 
-	// Pre-cancelled context: ParallelMap dispatches nothing and returns partial
+	// Pre-canceled context: ParallelMap dispatches nothing and returns partial
 	// (empty) results, then the ctx.Err() guard must fire before any save.
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -537,19 +537,19 @@ func TestRunCompute_CancelledDoesNotSave(t *testing.T) {
 		t.Fatalf("expected context.Canceled, got: %v", err)
 	}
 	if len(store.HexMetrics) > 0 {
-		t.Error("hex rows were saved on a cancelled run; truncated stats must not be persisted")
+		t.Error("hex rows were saved on a canceled run; truncated stats must not be persisted")
 	}
 	if len(store.CityMetrics) > 0 {
-		t.Error("city totals were saved on a cancelled run; partial results must not be persisted")
+		t.Error("city totals were saved on a canceled run; partial results must not be persisted")
 	}
 }
 
-// TestRunCompute_CancelledDiscardsRun pins the cancellation cleanup: when a
-// run has already been created and the compute is then cancelled, doCompute
+// TestRunCompute_CanceledDiscardsRun pins the cancellation cleanup: when a
+// run has already been created and the compute is then canceled, doCompute
 // discards that run and commits no snapshot, while still returning
-// context.Canceled. The discard must use a fresh (non-cancelled) context so it
-// isn't itself cancelled.
-func TestRunCompute_CancelledDiscardsRun(t *testing.T) {
+// context.Canceled. The discard must use a fresh (non-canceled) context so it
+// isn't itself canceled.
+func TestRunCompute_CanceledDiscardsRun(t *testing.T) {
 	const runID = int64(42)
 	var discardedID int64
 	var discardCtxErr error
@@ -580,7 +580,7 @@ func TestRunCompute_CancelledDiscardsRun(t *testing.T) {
 		ResourceType: &resource.Pavement{},
 	}
 
-	// Pre-cancelled context: CreateRun (mock ignores ctx) still returns a run,
+	// Pre-canceled context: CreateRun (mock ignores ctx) still returns a run,
 	// then the ctx.Err() guard fires before any save, and the draft must
 	// discard the run.
 	ctx, cancel := context.WithCancel(context.Background())
@@ -594,10 +594,10 @@ func TestRunCompute_CancelledDiscardsRun(t *testing.T) {
 		t.Errorf("expected DiscardRun(%d) on cancellation, got id %d", runID, discardedID)
 	}
 	if discardCtxErr != nil {
-		t.Errorf("DiscardRun must run on a fresh (non-cancelled) context, got ctx.Err() = %v", discardCtxErr)
+		t.Errorf("DiscardRun must run on a fresh (non-canceled) context, got ctx.Err() = %v", discardCtxErr)
 	}
 	if committed {
-		t.Error("a cancelled compute committed a snapshot")
+		t.Error("a canceled compute committed a snapshot")
 	}
 }
 

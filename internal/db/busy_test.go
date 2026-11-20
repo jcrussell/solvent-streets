@@ -140,7 +140,7 @@ func TestOpen_LockedPastTheBudgetNamesTheOtherProcess(t *testing.T) {
 		t.Errorf("err = %v, want a busy database", err)
 	}
 	var h *hint.ErrHint
-	if !errors.As(err, &h) || !strings.Contains(h.Hint, "Another pvmt process is initializing or writing") || !strings.Contains(h.Hint, path) {
+	if !errors.As(err, &h) || !strings.Contains(h.Hint, "another pvmt process is initializing or writing") || !strings.Contains(h.Hint, path) {
 		t.Errorf("hint = %v, want one naming another pvmt process and %s", h, path)
 	}
 	if err := <-released; err != nil {

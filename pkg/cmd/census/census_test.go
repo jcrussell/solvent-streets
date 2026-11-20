@@ -159,9 +159,9 @@ func TestCensus_OptOutSkips(t *testing.T) {
 	}
 }
 
-// A cancelled run stops before the census compute opens the store, like the
+// A canceled run stops before the census compute opens the store, like the
 // other per-city computes `pvmt all compute` chains.
-func TestRunComputeForCity_CancelledBeforeStart(t *testing.T) {
+func TestRunComputeForCity_CanceledBeforeStart(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
 	opened := false
 	cf := &cmdutil.Factory{
@@ -174,7 +174,7 @@ func TestRunComputeForCity_CancelledBeforeStart(t *testing.T) {
 		t.Fatalf("err = %v, want context.Canceled", err)
 	}
 	if opened {
-		t.Error("the store was opened for a cancelled run")
+		t.Error("the store was opened for a canceled run")
 	}
 }
 

@@ -62,11 +62,11 @@ func TestPinNewest_PinsNewestAnyHash(t *testing.T) {
 		t.Errorf("pinned read = (%+v, %v), want the newest snapshot's 999 whatever its hash", r, err)
 	}
 	got := warn.String()
-	if want := fmt.Sprintf("snapshot %s was created under other settings", newest.Name); !strings.Contains(got, want) ||
+	if want := fmt.Sprintf("snapshot %q was created under other settings", newest.Name); !strings.Contains(got, want) ||
 		!strings.Contains(got, "exporting it as created") {
 		t.Errorf("warnings = %q; want the other-settings warning for snapshot %d", got, newest.ID)
 	}
-	if !strings.Contains(got, "note: Test City: the latest compute has roads not yet snapshotted") {
+	if !strings.Contains(got, "warning: Test City: the latest compute has roads not yet snapshotted") {
 		t.Errorf("warnings = %q; want a note that roads is not yet snapshotted", got)
 	}
 }

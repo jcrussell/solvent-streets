@@ -111,7 +111,7 @@ func runServe(ctx context.Context, opts *Options) error {
 
 	cfg, err := opts.Config()
 	if err != nil {
-		return fmt.Errorf("config: %w", err)
+		return err
 	}
 
 	rootDB, err := opts.RootDB()
@@ -181,23 +181,23 @@ func pinEntries(ctx context.Context, entries []exportpkg.CityEntry, errOut io.Wr
 			}
 			if len(latest) == 0 {
 				cmdutil.FprintWarnf(errOut, "%s has nothing computed under the current settings, so its "+
-					"Latest compute view is empty. Run `pvmt --city %s all compute` to fill it", entry.City.Name, entry.Slug)
+					"Latest compute view is empty; run 'pvmt --city %s all compute' to fill it", entry.City.Name, entry.Slug)
 			}
 			continue
 		}
 		entries[i] = entry
 		if len(latest) > 0 {
 			entries[i] = exportpkg.LatestComputeEntry(entry, latest)
-			cmdutil.FprintWarnf(errOut, "%s has no snapshot; serving its latest compute (not snapshotted). "+
-				"Run `pvmt snapshots create <name>` to publish it", entry.City.Name)
+			cmdutil.FprintWarnf(errOut, "%s has no snapshot; serving its latest compute (not snapshotted); "+
+				"run 'pvmt snapshots create <name>' to publish it", entry.City.Name)
 			continue
 		}
 		err = fmt.Errorf("%w for %s", exportpkg.ErrNoSnapshot, entry.City.Name)
 		if len(entry.Config.SourceDivergence(&entry.City)) > 0 {
 			err = hint.With(err, entry.Config.StaleHint(&entry.City))
 		} else {
-			err = hint.Withf(err, "%s has never been computed. Run `pvmt --city %s all compute` (after "+
-				"`pvmt --city %s all ingest` if its data is not ingested yet), then `pvmt snapshots create <name>`.",
+			err = hint.Withf(err, "%s has never been computed: run 'pvmt --city %s all compute' (after "+
+				"'pvmt --city %s all ingest' if its data is not ingested yet), then 'pvmt snapshots create <name>'",
 				entry.City.Name, entry.Slug, entry.Slug)
 		}
 		cmdutil.FprintWarnf(errOut, "%v; serving it without data", err)
@@ -229,7 +229,7 @@ func pinNamed(ctx context.Context, entries []exportpkg.CityEntry, name string, e
 	for _, entry := range entries {
 		snap, err := entry.Store.ViewSnapshot(ctx)
 		if err != nil {
-			return fmt.Errorf("snapshot %s for %s: %w", name, entry.City.Name, err)
+			return fmt.Errorf("snapshot %q for %s: %w", name, entry.City.Name, err)
 		}
 		if w := entry.SnapshotSettingsWarning(snap); w != "" {
 			cmdutil.FprintWarnf(errOut, "%s; serving it as created", w)
@@ -263,7 +263,7 @@ func warnStaleLatest(ctx context.Context, entry exportpkg.CityEntry, errOut io.W
 		return nil
 	}
 	cmdutil.FprintWarnf(errOut, "%s's latest compute is stale: %s. Its Latest compute view is drawn on the "+
-		"current boundary and will not match its totals; run `pvmt --city %s all compute`",
+		"current boundary and will not match its totals; run 'pvmt --city %s all compute'",
 		entry.City.Name, strings.Join(stale, "; "), entry.Slug)
 	return nil
 }

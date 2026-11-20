@@ -228,12 +228,12 @@ state, stale_inputs) to emit one row per resource.`
 func resolveCityFirst(opts *Options) error {
 	if opts.Config != nil {
 		if _, err := opts.Config(); err != nil {
-			return fmt.Errorf("config: %w", err)
+			return err
 		}
 	}
 	if opts.CurrentCity != nil {
 		if _, err := opts.CurrentCity(); err != nil {
-			return fmt.Errorf("city: %w", err)
+			return err
 		}
 	}
 	return nil
@@ -476,7 +476,7 @@ func (v latestView) printUnsnapshotted(ios *iostreams.IOStreams) {
 	if len(parts) > 1 {
 		noun = "parts"
 	}
-	fmt.Fprintf(ios.ErrOut, "\n%d %s not yet snapshotted (%s); run `pvmt snapshots create <name>` to publish\n",
+	fmt.Fprintf(ios.ErrOut, "\n%d %s not yet snapshotted (%s); run 'pvmt snapshots create <name>' to publish\n",
 		len(parts), noun, strings.Join(parts, ", "))
 }
 

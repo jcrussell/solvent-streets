@@ -119,15 +119,15 @@ func TestPrune_AgeRemovesStaleEntriesOnly(t *testing.T) {
 	}
 }
 
-// TestPrune_CancelledSweepStopsAndReportsIt:
+// TestPrune_CanceledSweepStopsAndReportsIt:
 // Prune took no context, so `pvmt cache prune --yes` observed cancellation
 // nowhere. Worse than a slow Ctrl-C: signal.NotifyContext keeps the default
 // SIGINT disposition disabled for the whole run, so NO interrupt terminated
 // the sweep — it always ran to completion.
 //
-// A cancelled sweep must stop early, surface context.Canceled, and still
+// A canceled sweep must stop early, surface context.Canceled, and still
 // account for every entry it never reached.
-func TestPrune_CancelledSweepStopsAndReportsIt(t *testing.T) {
+func TestPrune_CanceledSweepStopsAndReportsIt(t *testing.T) {
 	dir := t.TempDir()
 	const entries = 40
 	for i := range entries {
@@ -135,7 +135,7 @@ func TestPrune_CancelledSweepStopsAndReportsIt(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // cancelled before the first probe
+	cancel() // canceled before the first probe
 
 	report, err := Prune(ctx, dir, PruneOptions{MaxAge: 24 * time.Hour})
 	if !errors.Is(err, context.Canceled) {
@@ -145,7 +145,7 @@ func TestPrune_CancelledSweepStopsAndReportsIt(t *testing.T) {
 		t.Fatal("Prune returned a nil report; the partial result must survive for the caller to print")
 	}
 	if report.EntriesRemoved != 0 {
-		t.Errorf("EntriesRemoved = %d, want 0: an already-cancelled sweep must delete nothing", report.EntriesRemoved)
+		t.Errorf("EntriesRemoved = %d, want 0: an already-canceled sweep must delete nothing", report.EntriesRemoved)
 	}
 
 	surviving := 0
@@ -155,7 +155,7 @@ func TestPrune_CancelledSweepStopsAndReportsIt(t *testing.T) {
 		}
 	}
 	if surviving != entries {
-		t.Errorf("%d of %d entries survived; a cancelled sweep must not evict", surviving, entries)
+		t.Errorf("%d of %d entries survived; a canceled sweep must not evict", surviving, entries)
 	}
 }
 
@@ -177,10 +177,10 @@ func (c *cancelAfterNProbes) Err() error {
 	return nil
 }
 
-// TestPrune_CancelledMidSweepStopsEarly is the same guard for the realistic
+// TestPrune_CanceledMidSweepStopsEarly is the same guard for the realistic
 // case — cancellation arriving after the sweep has already evicted some
 // entries. The rest must be left alone rather than swept anyway.
-func TestPrune_CancelledMidSweepStopsEarly(t *testing.T) {
+func TestPrune_CanceledMidSweepStopsEarly(t *testing.T) {
 	dir := t.TempDir()
 	const entries = 10
 	for i := range entries {
@@ -222,13 +222,13 @@ func TestPrune_CancelledMidSweepStopsEarly(t *testing.T) {
 	}
 }
 
-// TestPrune_CancelledSweepAccountsForUnsweptTemps pins the accounting half of
+// TestPrune_CanceledSweepAccountsForUnsweptTemps pins the accounting half of
 // the cancellation contract. Prune's doc promises the partial report stays
 // usable, and the entry loop honors that by handing unexamined entries to
 // `live`. The temps loop just broke, so an interrupted sweep silently
 // under-reported BytesRemaining by the size of every temp it never reached —
 // and `pvmt cache prune` prints that number.
-func TestPrune_CancelledSweepAccountsForUnsweptTemps(t *testing.T) {
+func TestPrune_CanceledSweepAccountsForUnsweptTemps(t *testing.T) {
 	dir := t.TempDir()
 	const temps = 6
 	const tempSize = 50 // leftoverTempFile writes 50 bytes
@@ -249,16 +249,16 @@ func TestPrune_CancelledSweepAccountsForUnsweptTemps(t *testing.T) {
 			report.OrphansRemoved)
 	}
 	if want := int64(temps * tempSize); report.BytesRemaining != want {
-		t.Errorf("BytesRemaining = %d, want %d — bytes the cancelled sweep never reached must still be counted",
+		t.Errorf("BytesRemaining = %d, want %d — bytes the canceled sweep never reached must still be counted",
 			report.BytesRemaining, want)
 	}
 }
 
-// TestPrune_CancelledScanCreditsScannedEntries: a
+// TestPrune_CanceledScanCreditsScannedEntries: a
 // cancel that lands in the SCAN (stat-ing a large cache dir) used to discard
 // every entry grouped so far, so runPrune printed "0 B remaining" for a cache
 // still entirely on disk. The files already scanned must be credited.
-func TestPrune_CancelledScanCreditsScannedEntries(t *testing.T) {
+func TestPrune_CanceledScanCreditsScannedEntries(t *testing.T) {
 	dir := t.TempDir()
 	const entries = 5
 	for i := range entries {
@@ -275,7 +275,7 @@ func TestPrune_CancelledScanCreditsScannedEntries(t *testing.T) {
 		t.Fatalf("Prune err = %v, want it to wrap context.Canceled", err)
 	}
 	if report.EntriesRemoved != 0 || report.BytesReclaimed != 0 {
-		t.Errorf("removed %d entries / %d B; a scan-cancelled prune must remove nothing",
+		t.Errorf("removed %d entries / %d B; a scan-canceled prune must remove nothing",
 			report.EntriesRemoved, report.BytesReclaimed)
 	}
 	if report.EntriesScanned != 2 {

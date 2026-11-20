@@ -470,13 +470,14 @@ func TestRunStatus_ConfigErrorsAreNotDatabaseErrors(t *testing.T) {
 		CityDB: func() (db.Store, error) { dbOpened = true; return &dbtest.MockStore{}, nil },
 		Config: func() (*config.Config, error) { return &config.Config{}, nil },
 		CurrentCity: func() (*config.CityConfig, error) {
-			return nil, errors.New(`city "nowhere" not found in config`)
+			return nil, cmdutil.FlagErrorf(`--city "nowhere" matches no [[cities]] entry by name or slug`)
 		},
 		UnitSystem: func() units.System { return units.Metric },
 	}
 	err := runStatus(context.Background(), opts)
-	if err == nil || !strings.HasPrefix(err.Error(), "city: ") {
-		t.Errorf("err = %v, want a city: error", err)
+	var fe *cmdutil.FlagError
+	if !errors.As(err, &fe) || err.Error() != `--city "nowhere" matches no [[cities]] entry by name or slug` {
+		t.Errorf("err = %v, want the unwrapped --city usage error", err)
 	}
 	if dbOpened {
 		t.Error("the database was opened before the city resolved")
@@ -545,7 +546,7 @@ func TestRunStatus_PartStates(t *testing.T) {
 		"=== Other parts ===",
 		"combined       stale: roads re-ingested 2026-11-14 10:02 UTC",
 		"census         not computed",
-		"1 part not yet snapshotted (roads); run `pvmt snapshots create <name>` to publish",
+		"1 part not yet snapshotted (roads); run 'pvmt snapshots create <name>' to publish",
 		"Paved Area*:",
 		"* the combined total is stale (roads re-ingested 2026-11-14 10:02 UTC since it was computed)",
 		"  v4  ",

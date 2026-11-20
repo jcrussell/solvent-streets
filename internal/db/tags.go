@@ -113,9 +113,9 @@ func createSnapshot(ctx context.Context, tx *sql.Tx, name string, computeEpoch i
 	var taken int64
 	switch err := tx.QueryRowContext(ctx, sqlSnapshotByName, name).Scan(&taken); {
 	case err == nil:
-		return nil, fmt.Errorf("snapshot %s: %w", name, ErrSnapshotExists)
+		return nil, fmt.Errorf("snapshot %q: %w", name, ErrSnapshotExists)
 	case !errors.Is(err, sql.ErrNoRows):
-		return nil, fmt.Errorf("look up snapshot %s: %w", name, err)
+		return nil, fmt.Errorf("look up snapshot %q: %w", name, err)
 	}
 	res, err := tx.ExecContext(ctx, `INSERT INTO snapshots (name, created_at, compute_epoch) VALUES (?, ?, ?)`,
 		name, nowUnix(), computeEpoch)
@@ -165,13 +165,13 @@ func (r *RootStore) Snapshot(ctx context.Context, name string) (*Snapshot, error
 	var id int64
 	switch err := r.db.QueryRowContext(ctx, sqlSnapshotByName, name).Scan(&id); {
 	case errors.Is(err, sql.ErrNoRows):
-		return nil, fmt.Errorf("snapshot %s: %w", name, ErrSnapshotNotFound)
+		return nil, fmt.Errorf("snapshot %q: %w", name, ErrSnapshotNotFound)
 	case err != nil:
-		return nil, fmt.Errorf("look up snapshot %s: %w", name, err)
+		return nil, fmt.Errorf("look up snapshot %q: %w", name, err)
 	}
 	snap, err := snapshotByID(ctx, r.db, id)
 	if errors.Is(err, sql.ErrNoRows) { // deleted between the two reads
-		return nil, fmt.Errorf("snapshot %s: %w", name, ErrSnapshotNotFound)
+		return nil, fmt.Errorf("snapshot %q: %w", name, ErrSnapshotNotFound)
 	}
 	return snap, err
 }
@@ -201,7 +201,7 @@ func (r *RootStore) DeleteSnapshot(ctx context.Context, name string) (bool, erro
 		case errors.Is(err, sql.ErrNoRows):
 			return nil
 		case err != nil:
-			return fmt.Errorf("look up snapshot %s: %w", name, err)
+			return fmt.Errorf("look up snapshot %q: %w", name, err)
 		}
 		runs, err := snapshotRuns(ctx, tx, id)
 		if err != nil {

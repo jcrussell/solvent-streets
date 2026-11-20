@@ -103,10 +103,10 @@ func TestComputeHexWeightedShares_Degenerate(t *testing.T) {
 	}
 }
 
-// TestComputeHexWeightedShares_CancelledIsPartial: a cancelled context yields
+// TestComputeHexWeightedShares_CanceledIsPartial: a canceled context yields
 // a partial (possibly empty) result with no error — the same contract as
 // ComputeHexStats — so callers must check ctx.Err() before persisting.
-func TestComputeHexWeightedShares_CancelledIsPartial(t *testing.T) {
+func TestComputeHexWeightedShares_CanceledIsPartial(t *testing.T) {
 	const edge = 100.0
 	hexes := HexGrid(0, 0, 2000, 2000, edge)
 	sq := squareAt(1000, 1000, 1500)
@@ -115,7 +115,7 @@ func TestComputeHexWeightedShares_CancelledIsPartial(t *testing.T) {
 	full := ComputeHexWeightedShares(context.Background(), hexes, []geom.Geometry{sq}, []float64{100}, nil)
 	partial := ComputeHexWeightedShares(ctx, hexes, []geom.Geometry{sq}, []float64{100}, nil)
 	if len(partial) > len(full) {
-		t.Errorf("cancelled run produced %d shares, more than the full run's %d", len(partial), len(full))
+		t.Errorf("canceled run produced %d shares, more than the full run's %d", len(partial), len(full))
 	}
 }
 

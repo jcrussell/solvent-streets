@@ -71,13 +71,13 @@ func TestClipHexesToBoundaryLocal_MatchesClipHexesToBoundary(t *testing.T) {
 	}
 }
 
-// TestClipHexesToBoundaryLocal_Cancelled returns nothing rather than a
-// partial grid when the context is already cancelled.
-func TestClipHexesToBoundaryLocal_Cancelled(t *testing.T) {
+// TestClipHexesToBoundaryLocal_Canceled returns nothing rather than a
+// partial grid when the context is already canceled.
+func TestClipHexesToBoundaryLocal_Canceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if got := ClipHexesToBoundaryLocal(ctx, HexGrid(-2500, -2500, 3400, 2500, 60), wigglyBoundary()); len(got) != 0 {
-		t.Errorf("cancelled clip returned %d hexes, want none", len(got))
+		t.Errorf("canceled clip returned %d hexes, want none", len(got))
 	}
 }
 

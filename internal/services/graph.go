@@ -157,7 +157,7 @@ func WithRoutingRoads(roads []resource.Feature, source string, routing []resourc
 // motorways and roundabouts) keeps only the forward edge, oneway=-1 only the
 // reverse. Motorway and motorway_link segments are marked so snapping can
 // pass over them (SnapWhere). Ways closed to the public (closedToTraffic) and
-// geometries that are not lines are skipped. Cancelling ctx stops the build
+// geometries that are not lines are skipped. Canceling ctx stops the build
 // and returns what was built so far.
 func BuildGraph(ctx context.Context, roads []resource.Feature, speeds SpeedTable, proj geo.Projector) *Graph {
 	b := &graphBuilder{g: &Graph{proj: proj}, nodeAt: make(map[[2]float64]int)}

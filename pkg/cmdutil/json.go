@@ -103,7 +103,7 @@ func buildExporter(jsonFields, jqExpr, tmplStr string, validFields []string, out
 	for i := range fields {
 		fields[i] = strings.TrimSpace(fields[i])
 		if !slices.Contains(validFields, fields[i]) {
-			return FlagErrorf("unknown JSON field %q; available: %s", fields[i], strings.Join(validFields, ", "))
+			return UnknownValueErrorf("JSON field", fields[i], validFields)
 		}
 	}
 	base := baseExporter{fields: fields}

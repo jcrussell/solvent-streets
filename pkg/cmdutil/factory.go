@@ -11,6 +11,7 @@ import (
 
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
+	"github.com/jcrussell/solvent-streets/internal/hint"
 	"github.com/jcrussell/solvent-streets/internal/paths"
 	"github.com/jcrussell/solvent-streets/internal/units"
 	"github.com/jcrussell/solvent-streets/pkg/cmd/prompt"
@@ -160,7 +161,8 @@ func cityOverrideFunc(cmd *cobra.Command, f *Factory, fallback func() (*config.C
 		}
 		switch len(matches) {
 		case 0:
-			return nil, fmt.Errorf("city %q not found in config", val)
+			return nil, hint.Withf(FlagErrorf("--city %q matches no [[cities]] entry by name or slug", val),
+				"run 'pvmt cities' for the stored slugs, or check [[cities]] in pvmt.toml")
 		case 1:
 			return &cfg.Cities[matches[0]], nil
 		default:
@@ -171,7 +173,7 @@ func cityOverrideFunc(cmd *cobra.Command, f *Factory, fallback func() (*config.C
 			for _, i := range matches {
 				names = append(names, cfg.Cities[i].Name)
 			}
-			return nil, fmt.Errorf("city %q is ambiguous: matches %d configured cities (%s); disambiguate in pvmt.toml",
+			return nil, FlagErrorf("--city %q is ambiguous: it matches %d configured cities (%s); disambiguate them in pvmt.toml",
 				val, len(matches), strings.Join(names, ", "))
 		}
 	}
@@ -186,7 +188,7 @@ func cityOverrideFunc(cmd *cobra.Command, f *Factory, fallback func() (*config.C
 // the error is returned after them, so the run exits non-zero without hiding
 // the cities that did commit. A failed city's own
 // rows are dropped: a command may record a row before the city's commit
-// fails or is cancelled, and that row would name a discarded run.
+// fails or is canceled, and that row would name a discarded run.
 // A run with no rows at all writes nothing.
 func ForEachCityRows[R RowExporter](ctx context.Context, f *Factory, ios *iostreams.IOStreams, exporter Exporter, run func(cf *Factory, rows *[]R) error) error {
 	var acc []R
@@ -253,7 +255,7 @@ func ForEachCity(ctx context.Context, f *Factory, fn func(cf *Factory, city *con
 		fmt.Fprintf(f.IOStreams.ErrOut, "\n=== %s ===\n", city.Name)
 		err := fn(withCity(ctx, f, &city), &city)
 		out.Add(city.Name, err)
-		// A city that was cancelled stops the run even when ctx is still live:
+		// A city that was canceled stops the run even when ctx is still live:
 		// a ctrl+c inside a TUI step never reaches ctx (raw mode swallows the
 		// signal) and surfaces only as the step's tui.ErrInterrupted.
 		if errors.Is(err, context.Canceled) {
@@ -300,7 +302,13 @@ func (o *Outcomes) Err() error {
 	if len(o.errs) == 0 && !o.sawResult && o.skippedEmpty {
 		return ErrNoResults
 	}
-	return errors.Join(o.errs...)
+	err := errors.Join(o.errs...)
+	if err != nil && o.sawResult {
+		// Some items did their work: a missing prerequisite elsewhere still
+		// fails the run, but with exit 1, not the "nothing to do" 3.
+		return &partialError{err: err}
+	}
+	return err
 }
 
 // ResolveConfigID returns the ConfigID that owns city's row in the cities

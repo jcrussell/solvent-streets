@@ -14,6 +14,7 @@ import (
 
 	"github.com/jcrussell/solvent-streets/internal/export"
 	"github.com/jcrussell/solvent-streets/internal/export/exporttest"
+	"github.com/jcrussell/solvent-streets/internal/hint"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 )
@@ -41,8 +42,9 @@ func TestCheckSite_MissingDir(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
 	opts := &Options{IO: ios, Dir: filepath.Join(t.TempDir(), "nope"), Assets: testAssetsLoader(t)}
 	err := runCheckSite(context.Background(), opts)
-	if err == nil || !strings.Contains(err.Error(), "make site") {
-		t.Fatalf("want 'make site' error, got %v", err)
+	var h *hint.ErrHint
+	if err == nil || !strings.Contains(err.Error(), "not found") || !errors.As(err, &h) || !strings.Contains(h.Hint, "pvmt export") {
+		t.Fatalf("want a not-found error naming pvmt export, got %v", err)
 	}
 }
 
@@ -69,10 +71,10 @@ func TestCheckSite_ValidSite(t *testing.T) {
 	}
 }
 
-// TestCheckSite_CancelledContext pins finding 881e: a cancelled context must
+// TestCheckSite_CanceledContext pins finding 881e: a canceled context must
 // abort the check run promptly (before finish) and return the cancellation
 // error, instead of grinding through every check with ctx ignored.
-func TestCheckSite_CancelledContext(t *testing.T) {
+func TestCheckSite_CanceledContext(t *testing.T) {
 	dir := buildValidSite(t)
 	ios, _, out, _ := iostreams.Test()
 	opts := &Options{IO: ios, Dir: dir, Assets: testAssetsLoader(t)}
@@ -88,7 +90,7 @@ func TestCheckSite_CancelledContext(t *testing.T) {
 	// ("N passed, ...") should have been printed. The bare ctx error is the
 	// interrupt signal itself; exitCode maps it to 1.
 	if strings.Contains(out.String(), "passed,") {
-		t.Errorf("cancelled run should abort before finish(); got output:\n%s", out.String())
+		t.Errorf("canceled run should abort before finish(); got output:\n%s", out.String())
 	}
 }
 

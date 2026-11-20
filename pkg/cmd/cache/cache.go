@@ -27,7 +27,7 @@ Entries are written by every ingest that hits Overpass, ArcGIS,
 Nominatim, or TIGERweb and are served for the config's [cache] ttl (a week
 by default) before revalidation; --force on an ingest bypasses them. Nothing
 removes them automatically, so the directory grows for as long as the
-install lives; ` + "`pvmt cache prune`" + ` is the reclaim step.
+install lives; 'pvmt cache prune' is the reclaim step.
 
 Pruning is always safe: a removed entry is re-fetched on next use.`,
 		Example: `  # Report what would be reclaimed, without deleting

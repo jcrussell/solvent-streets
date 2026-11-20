@@ -53,7 +53,7 @@ func ValidatePolygon(g geom.Geometry) (geom.Geometry, error) {
 	// dropped-and-counted part — so this is neutral there; it only turns a
 	// silent surprise into a signal for callers that expect a polygon.
 	if g.Dimension() < 2 {
-		return geom.Geometry{}, fmt.Errorf("ValidatePolygon: non-areal input (dimension %d)", g.Dimension())
+		return geom.Geometry{}, fmt.Errorf("validate polygon: non-areal input (dimension %d)", g.Dimension())
 	}
 	return geom.Buffer(g, 0)
 }

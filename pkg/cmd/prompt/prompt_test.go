@@ -189,7 +189,7 @@ func TestLiveConfirmHonorsCtxCancel(t *testing.T) {
 }
 
 // hangReader blocks forever. tea's input goroutine does enter Read before
-// noticing the cancelled ctx; the ctx-kill shutdown path abandons the
+// noticing the canceled ctx; the ctx-kill shutdown path abandons the
 // read without waiting, so each use parks one goroutine for the life of
 // the test binary — the caller still sees ctx.Err() immediately via the
 // live impl's ctx check.

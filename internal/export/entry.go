@@ -12,6 +12,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/geo"
 	"github.com/jcrussell/solvent-streets/internal/hint"
 	"github.com/jcrussell/solvent-streets/internal/resource"
+	warnpkg "github.com/jcrussell/solvent-streets/internal/warn"
 )
 
 // ErrNoBoundary signals that a city has no boundary stored. Callers that
@@ -149,8 +150,8 @@ func PinNewest(ctx context.Context, entries []CityEntry, skipNoBoundary bool, wa
 		if len(missing) > 1 {
 			noun = "cities have"
 		}
-		return hint.Withf(fmt.Errorf("%w to export: %d %s none", ErrNoSnapshot, len(missing), noun),
-			"Export publishes each city's newest snapshot. Create one for each first:\n  %s",
+		return hint.Withf(&hint.PrereqError{Err: fmt.Errorf("%w to export: %d %s none", ErrNoSnapshot, len(missing), noun)},
+			"export publishes each city's newest snapshot; create one for each first:\n  %s",
 			strings.Join(missing, "\n  "))
 	}
 	for i, entry := range entries {
@@ -201,7 +202,7 @@ func PinSnapshot(ctx context.Context, entries []CityEntry, name string, skipNoBo
 			continue
 		}
 		if w := entry.SnapshotSettingsWarning(snaps[i]); w != "" {
-			fmt.Fprintf(warn, "warning: %s; exporting it as created\n", w)
+			warnpkg.Fprintf(warn, "%s; exporting it as created", w)
 		}
 		entries[i] = entry.WithSnapshot(snaps[i].ID)
 	}
@@ -229,16 +230,15 @@ func notCovered(name string, missing []string, total int) error {
 	case len(missing) == 0:
 		return nil
 	case len(missing) == total:
-		return hint.Withf(fmt.Errorf("%w named %s covers any configured city", ErrNoSnapshot, name),
+		return hint.Withf(fmt.Errorf("%w named %q covers any configured city", ErrNoSnapshot, name),
 			"check 'pvmt snapshots list' for available names")
 	}
 	noun := "city"
 	if len(missing) > 1 {
 		noun = "cities"
 	}
-	return hint.Withf(fmt.Errorf("snapshot %s does not cover %d %s (%s): %w", name, len(missing), noun, strings.Join(missing, ", "), ErrNoSnapshot),
-		"Snapshot %s does not cover every configured city. Export the cities it covers with --city, "+
-			"or create a snapshot covering them all with `pvmt snapshots create <name>`.", name)
+	return hint.Withf(fmt.Errorf("snapshot %q does not cover %d %s (%s): %w", name, len(missing), noun, strings.Join(missing, ", "), ErrNoSnapshot),
+		"export the cities it covers with --city, or create a snapshot covering them all with 'pvmt snapshots create <name>'")
 }
 
 // namedSnapshot returns the city in the snapshot named name, nil when the
@@ -249,11 +249,11 @@ func (entry CityEntry) namedSnapshot(ctx context.Context, name string) (*db.Snap
 		return nil, nil //nolint:nilnil // nil snapshot = not covered
 	}
 	if err != nil {
-		return nil, fmt.Errorf("resolve snapshot %s for %s: %w", name, entry.City.Name, err)
+		return nil, fmt.Errorf("resolve snapshot %q for %s: %w", name, entry.City.Name, err)
 	}
 	snap, err := entry.Store.WithSnapshot(id).ViewSnapshot(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("snapshot %s for %s: %w", name, entry.City.Name, err)
+		return nil, fmt.Errorf("snapshot %q for %s: %w", name, entry.City.Name, err)
 	}
 	return snap, nil
 }
@@ -285,14 +285,14 @@ func (entry CityEntry) exportableSnapshot(ctx context.Context, skipNoBoundary bo
 // note for snap, the snapshot the city is published from.
 func (entry CityEntry) warnPublished(ctx context.Context, snap *db.SnapshotCity, warn io.Writer) error {
 	if w := entry.SnapshotSettingsWarning(snap); w != "" {
-		fmt.Fprintf(warn, "warning: %s; exporting it as created\n", w)
+		warnpkg.Fprintf(warn, "%s; exporting it as created", w)
 	}
 	note, err := entry.UnsnapshottedNote(ctx, snap)
 	if err != nil {
 		return err
 	}
 	if note != "" {
-		fmt.Fprintf(warn, "note: %s\n", note)
+		warnpkg.Fprintf(warn, "%s", note)
 	}
 	return nil
 }
@@ -332,8 +332,8 @@ func (entry CityEntry) SnapshotSettingsWarning(snap *db.SnapshotCity) string {
 	if d := entry.Config.SourceDivergence(&entry.City); len(d) > 0 {
 		why = "this config resolves " + strings.Join(d, "; ") + " differently from the city's own config"
 	}
-	return fmt.Sprintf("%s: snapshot %s was created under other settings (hash %s, now %s): %s; "+
-		"run `pvmt --city %s all compute` and `pvmt snapshots create <name>` to publish the current ones",
+	return fmt.Sprintf("%s: snapshot %q was created under other settings (hash %s, now %s): %s; "+
+		"run 'pvmt --city %s all compute' and 'pvmt snapshots create <name>' to publish the current ones",
 		entry.City.Name, snap.Name, snap.ConfigHash, hash, why, entry.Slug)
 }
 
@@ -352,7 +352,7 @@ func (entry CityEntry) UnsnapshottedNote(ctx context.Context, snap *db.SnapshotC
 	if len(parts) == 0 {
 		return "", nil
 	}
-	return fmt.Sprintf("%s: the latest compute has %s not yet snapshotted; run `pvmt snapshots create <name>` to publish it",
+	return fmt.Sprintf("%s: the latest compute has %s not yet snapshotted; run 'pvmt snapshots create <name>' to publish it",
 		entry.City.Name, strings.Join(parts, ", ")), nil
 }
 
@@ -363,7 +363,7 @@ func RequirePavement(entry CityEntry, snap *db.SnapshotCity) error {
 	if snap == nil || hasPavement(*snap) {
 		return nil
 	}
-	return fmt.Errorf("%s: snapshot %s has no pavement compute (it holds %s)", entry.City.Name, snap.Name, partNames(*snap))
+	return fmt.Errorf("%s: snapshot %q has no pavement compute (it holds %s)", entry.City.Name, snap.Name, partNames(*snap))
 }
 
 // StaleSettings reports whether city has results that its current settings
@@ -449,7 +449,8 @@ func (entry CityEntry) BBoxAndCenter(ctx context.Context) ([4]float64, float64, 
 		return [4]float64{}, 0, 0, fmt.Errorf("boundary for %s: %w", entry.City.Name, err)
 	}
 	if boundaryGJSON == "" {
-		return [4]float64{}, 0, 0, fmt.Errorf("%w for %s — run 'pvmt all ingest' first", ErrNoBoundary, entry.City.Name)
+		return [4]float64{}, 0, 0, hint.NeedsFirst(fmt.Errorf("%w for %s", ErrNoBoundary, entry.City.Name),
+			"pvmt --city "+entry.City.Slug()+" all ingest")
 	}
 	bbox, err := geo.BBoxFromGeoJSON(boundaryGJSON)
 	if err != nil {

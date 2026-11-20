@@ -333,7 +333,7 @@ func TestRunDelete_NotFoundReturnsHint(t *testing.T) {
 	opts := &DeleteOptions{IO: ios, RootDB: rootDBFunc(tagRoot(nil)), Name: "v9", Yes: true}
 	err := runDelete(context.Background(), opts)
 	var h *hint.ErrHint
-	if err == nil || !strings.Contains(err.Error(), "snapshot v9 not found") || !errors.As(err, &h) {
+	if err == nil || !strings.Contains(err.Error(), `snapshot "v9" not found`) || !errors.As(err, &h) {
 		t.Errorf("err = %v, want not found with a hint", err)
 	}
 }

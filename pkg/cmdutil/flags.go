@@ -40,7 +40,7 @@ type SourceFlag struct {
 // Set implements pflag.Value.
 func (f *SourceFlag) Set(v string) error {
 	if !slices.Contains(f.Valid, v) {
-		return FlagErrorf("unsupported source %q, valid sources: %s", v, strings.Join(f.Valid, ", "))
+		return UnknownValueErrorf("source", v, f.Valid)
 	}
 	*f.Value = Source(v)
 	return nil
@@ -81,7 +81,7 @@ func (u *UnitSystem) Set(v string) error {
 		*u = UnitSystem(v)
 		return nil
 	}
-	return FlagErrorf("unknown unit system %q, valid: %s", v, strings.Join(units.Names(), ", "))
+	return UnknownValueErrorf("unit system", v, units.Names())
 }
 
 func (u *UnitSystem) String() string { return string(*u) }
@@ -127,7 +127,7 @@ var logLevelValues = []string{"debug", "info", "warn", "error"}
 func (l *LogLevel) Set(v string) error {
 	level, ok := ParseLogLevel(v)
 	if !ok {
-		return FlagErrorf("unknown log level %q, valid: %s", v, strings.Join(logLevelValues, ", "))
+		return UnknownValueErrorf("log level", v, logLevelValues)
 	}
 	l.set = true
 	l.level = level

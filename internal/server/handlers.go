@@ -15,6 +15,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/export"
 	"github.com/jcrussell/solvent-streets/internal/geo"
+	"github.com/jcrussell/solvent-streets/internal/warn"
 )
 
 // handleIndex serves the rendered index page from the lifetime cache. The
@@ -335,7 +336,7 @@ func (s *Server) httpErr(w http.ResponseWriter, err error, code int) {
 
 // snapshotGoneMessage is the 410 body for a read of a deleted snapshot.
 const snapshotGoneMessage = "the snapshot this page was serving has been deleted or pruned; " +
-	"restart `pvmt serve` to serve the current snapshot"
+	"restart 'pvmt serve' to serve the current snapshot"
 
 // handleAsset serves one site-root browser asset. They are immutable for the
 // server's lifetime, so they get the same Cache-Control as the JSON endpoints
@@ -394,7 +395,7 @@ func (s *Server) handleCitiesList(w http.ResponseWriter, _ *http.Request) {
 // of a lifetime-cached list for want of a boundary, so the drop is not silent.
 func (s *Server) logUnlisted(where string) func(export.CityEntry) {
 	return func(e export.CityEntry) {
-		fmt.Fprintf(s.ios.ErrOut, "server: skipping city %s in %s: no boundary stored\n", e.Slug, where)
+		warn.Fprintf(s.ios.ErrOut, "skipping %s in %s: no boundary stored", e.Slug, where)
 	}
 }
 

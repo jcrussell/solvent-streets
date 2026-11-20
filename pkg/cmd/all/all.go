@@ -174,7 +174,7 @@ a setting that affects results.`,
 func computeCity(ctx context.Context, ios *iostreams.IOStreams, cf *cmdutil.Factory, city *config.CityConfig) error {
 	cfg, err := cf.Config()
 	if err != nil {
-		return fmt.Errorf("config: %w", err)
+		return err
 	}
 	store, err := cf.CityDB()
 	if err != nil {
@@ -367,7 +367,7 @@ func forEachResource(ios *iostreams.IOStreams, fn func(resource.Source) error) e
 	for _, rt := range resource.All {
 		fmt.Fprintf(ios.ErrOut, "\n--- %s ---\n", rt.Type())
 		err := fn(rt)
-		// A cancelled compute (SIGINT / TUI ctrl+c) must abort the fan-out
+		// A canceled compute (SIGINT / TUI ctrl+c) must abort the fan-out
 		// immediately: warn-and-continue would launch the next resource's TUI
 		// while the interrupted one just refused to save, and would mask the
 		// cancellation as exit 0.

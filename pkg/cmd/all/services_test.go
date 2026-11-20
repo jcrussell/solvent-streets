@@ -32,7 +32,7 @@ func TestRunOptionalStep(t *testing.T) {
 }
 
 // TestRunOptionalSteps: every step runs and the pavement result stands,
-// unless a step is cancelled — then the remaining steps are skipped and the
+// unless a step is canceled — then the remaining steps are skipped and the
 // cancellation wins.
 func TestRunOptionalSteps(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()

@@ -102,7 +102,7 @@ func (d *Draft) Commit(ctx context.Context) error {
 }
 
 // Discard deletes every run the draft created; nothing is committed. Callers
-// on a cancelled context should pass context.WithoutCancel(ctx).
+// on a canceled context should pass context.WithoutCancel(ctx).
 func (d *Draft) Discard(ctx context.Context) error {
 	err := d.discard(ctx, d.created)
 	d.created, d.parts = nil, map[string]int64{}

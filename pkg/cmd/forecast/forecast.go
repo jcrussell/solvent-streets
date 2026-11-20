@@ -270,12 +270,12 @@ func runForecast(ctx context.Context, opts *Options) error {
 
 	cfg, err := opts.Config()
 	if err != nil {
-		return fmt.Errorf("config: %w", err)
+		return err
 	}
 
 	city, err := opts.CurrentCity()
 	if err != nil {
-		return fmt.Errorf("city: %w", err)
+		return err
 	}
 
 	store, err := opts.CityDB()

@@ -139,7 +139,7 @@ func (r *runner) checkForecast(label, slug, path string) {
 			if fc.AllBaseline != nil {
 				what = "resource has zero city-maintained paved area"
 			}
-			r.warnf("reasonableness: %s [%s]: %s — every feature may lie outside the city boundary, or its geometry was dropped (compare the ingested count and area with `pvmt --city %s %s status`)",
+			r.warnf("reasonableness: %s [%s]: %s — every feature may lie outside the city boundary, or its geometry was dropped (compare the ingested count and area with 'pvmt --city %s %s status')",
 				label, fc.ResourceType, what, slug, fc.ResourceType)
 		}
 		if msg := baselineViolation(fc); msg != "" {

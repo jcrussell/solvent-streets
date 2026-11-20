@@ -430,7 +430,7 @@ func TestRetryTransport_DoesNotMutateCallerRequest(t *testing.T) {
 
 // TestRetryTransport_RespectsContextCancellation locks in the
 // ctx-propagation contract. A long Retry-After or backoff
-// must not strand the caller — cancelling the request context returns
+// must not strand the caller — canceling the request context returns
 // promptly with ctx.Err() instead of waiting out the full sleep.
 func TestRetryTransport_RespectsContextCancellation(t *testing.T) {
 	// Server always returns 503 so the retry loop always backs off.

@@ -264,7 +264,7 @@ func ResolveBoundaryForCity(ctx context.Context, f *cmdutil.Factory, rebuild boo
 	opts := &Options{IO: f.IOStreams, OverpassURL: f.OverpassURL, Source: cmdutil.SourceAll, RebuildBoundary: rebuild}
 	city, err := f.CurrentCity()
 	if err != nil {
-		return nil, fmt.Errorf("city: %w", err)
+		return nil, err
 	}
 	if err := opts.resolveOverpassURL(); err != nil {
 		return nil, err
@@ -314,6 +314,9 @@ func RunResourceWithBoundary(ctx context.Context, f *cmdutil.Factory, rt resourc
 }
 
 func runIngestAllCities(ctx context.Context, f *cmdutil.Factory, opts *Options) error {
+	if err := checkSourceForCities(f, opts); err != nil {
+		return err
+	}
 	return cmdutil.ForEachCity(ctx, f, func(cf *cmdutil.Factory, _ *config.CityConfig) error {
 		cityOpts := *opts
 		cityOpts.CurrentCity = cf.CurrentCity
@@ -325,7 +328,7 @@ func runIngestAllCities(ctx context.Context, f *cmdutil.Factory, opts *Options) 
 func runIngest(ctx context.Context, opts *Options) error {
 	city, err := opts.CurrentCity()
 	if err != nil {
-		return fmt.Errorf("city: %w", err)
+		return err
 	}
 	if err := censusOptOut(opts, city); err != nil {
 		return err
@@ -585,7 +588,7 @@ func printDryRunPlan(ctx context.Context, opts *Options, store db.Store, city *c
 	} else {
 		fmt.Fprintf(out, "[dry-run]   would fetch from source: %s\n", opts.Source)
 		if reason := disabledSourceReason(opts.Source, city.Overpass, city.ArcGISURL); reason != "" {
-			fmt.Fprintf(out, "[dry-run]   WARNING: source %q is not available for this city: %s\n", opts.Source, reason)
+			cmdutil.Warnf(opts.IO, "--source %s is not available for %s: %s", opts.Source, city.Name, reason)
 		}
 	}
 	return nil
@@ -618,7 +621,7 @@ type relationFetcher func(ctx context.Context, client *http.Client, relationID i
 // roadsFetcher fetches the city's roads over bbox from every configured road
 // source, as fetchFromSources does. A failed source is in the result, not
 // the error; err is non-nil only when every source failed (or the fetch was
-// cancelled).
+// canceled).
 type roadsFetcher func(ctx context.Context, client *http.Client, bbox [4]float64) (roadsFetch, error)
 
 // roadsFetch is one roadsFetcher answer.
@@ -799,7 +802,7 @@ func fetchBoundary(
 	fmt.Fprintf(opts.IO.ErrOut, "Fetching boundary for %s from %s...\n", city.Name, src.from)
 	unstripped, err := src.fetch(ctx, client, city.Name, fetch)
 	if err != nil {
-		// A cancelled fetch needs no remediation, as for the water strip below.
+		// A canceled fetch needs no remediation, as for the water strip below.
 		if errors.Is(err, context.Canceled) {
 			return "", nil, fmt.Errorf("fetch boundary: %w", err)
 		}
@@ -834,21 +837,20 @@ func fetchBoundary(
 	if err != nil {
 		recordAttempts(ctx, opts, store, roads.attempts)
 		if cerr := ctx.Err(); cerr != nil {
-			// A cancelled source counts as failed in fetchFromSources; the
+			// A canceled source counts as failed in fetchFromSources; the
 			// user stopped the run, so no retry advice.
 			return "", nil, fmt.Errorf("water strip for %s: roads: %w", city.Name, cerr)
 		}
 		err = fmt.Errorf("water strip for %s: %w: %w", city.Name, ErrRoadsFetch, err)
 		return "", nil, hint.Withf(err,
-			"The boundary was not saved, so the next ingest retries the roads fetch. "+
-				"The warnings above name the road source that failed; if it is Overpass, "+
-				"it is usually just overloaded: wait a few minutes and re-run.")
+			"re-run in a few minutes: the boundary was not saved, so the next ingest retries the roads fetch; "+
+				"the warnings above name the road source that failed, and Overpass is usually just overloaded")
 	}
 
 	// From here on a failure saves neither the boundary nor the roads, so
 	// the sources that answered are recorded as failed, as a roads ingest
 	// whose save failed records them (failAnswered).
-	// A cancelled run records nothing, as a cancelled request leaves no row.
+	// A canceled run records nothing, as a canceled request leaves no row.
 	unsaved := func(err error) (string, *Boundary, error) {
 		if !errors.Is(err, context.Canceled) && ctx.Err() == nil {
 			recordAttempts(ctx, opts, store, failAnswered(roads.attempts, fmt.Errorf("not saved: the boundary failed: %w", err)))
@@ -911,16 +913,15 @@ func stripWithLandEvidence(
 	}
 	if errors.Is(stripErr, ErrWaterFetch) {
 		return "", hint.Withf(fmt.Errorf("water strip for %s: %w", city.Name, stripErr),
-			"The boundary was not saved, so the next ingest retries the water fetch. "+
-				"Overpass is usually just overloaded: wait a few minutes and re-run.")
+			"re-run in a few minutes: the boundary was not saved, so the next ingest retries the water fetch, "+
+				"and Overpass is usually just overloaded")
 	}
 	if stripErr != nil {
 		return "", hint.Withf(fmt.Errorf("water strip for %s: %w", city.Name, stripErr),
-			"This usually means the OSM water-stitching pipeline produced a polygon "+
-				"covering more than the city boundary. The 'water way:', 'water relation:' or "+
-				"'water coastline:' rejection warnings above it on stderr name the "+
-				"offending OSM way or relation id; "+
-				"open an issue with the city name, bbox, and the warning text.")
+			"open an issue with the city name, bbox and the warning text: the OSM water-stitching "+
+				"pipeline usually produced a polygon covering more than the city boundary, and the "+
+				"'water way:', 'water relation:' or 'water coastline:' rejection warnings above it on "+
+				"stderr name the offending OSM way or relation id")
 	}
 	if warn != "" {
 		fmt.Fprintf(opts.IO.ErrOut, "  %s\n", warn)
@@ -1177,8 +1178,27 @@ func censusOptOut(opts *Options, city *config.CityConfig) error {
 	if opts.ResourceType.Type() != resource.TypeCensusBlocks || city.CensusEnabled() {
 		return nil
 	}
-	fmt.Fprintf(opts.IO.ErrOut, "Census disabled for %s (census = false); skipping.\n", city.Name)
+	fmt.Fprintf(opts.IO.ErrOut, "Skipping %s: census = false.\n", city.Name)
 	return cmdutil.ErrNoResults
+}
+
+// checkSourceForCities refuses, as a usage error and before any work, a
+// named --source that the config switches off for any selected city. Cities
+// that do not resolve are left for the run to report.
+func checkSourceForCities(f *cmdutil.Factory, opts *Options) error {
+	if _, ok := opts.ResourceType.(resource.OwnSourced); ok || opts.Source == cmdutil.SourceAll {
+		return nil
+	}
+	cities, err := cmdutil.ResolveCities(f)
+	if err != nil {
+		return nil //nolint:nilerr // the run reports an unresolved city itself
+	}
+	for i := range cities {
+		if disabled := disabledSourceReason(opts.Source, cities[i].Overpass, cities[i].ArcGISURL); disabled != "" {
+			return hint.Withf(cmdutil.FlagErrorf("--source %s is not available for %s", opts.Source, cities[i].Name), "%s", disabled)
+		}
+	}
+	return nil
 }
 
 // checkSourceEnabled refuses a named --source the city's config switched off.
@@ -1189,7 +1209,7 @@ func checkSourceEnabled(opts *Options, city *config.CityConfig) error {
 		return nil
 	}
 	if disabled := disabledSourceReason(opts.Source, city.Overpass, city.ArcGISURL); disabled != "" {
-		return hint.Withf(fmt.Errorf("source %q is not available for this city", opts.Source), "%s", disabled)
+		return hint.Withf(fmt.Errorf("--source %s is not available for %s", opts.Source, city.Name), "%s", disabled)
 	}
 	return nil
 }
@@ -1213,7 +1233,7 @@ func disabledSourceReason(source cmdutil.Source, overpass bool, arcgisURL string
 // sources that succeeded (which equal the source_api written on their rows), so
 // the caller can scope persistence to the sources that actually returned, and
 // how each source answered, for recordAttempts. A source whose request the
-// user cancelled has no attempt.
+// user canceled has no attempt.
 func fetchFromSources(ctx context.Context, sources []ingestpkg.Source, client *http.Client, opts *Options, cityName string) ([]db.Feature, []string, []db.IngestAttempt, error) {
 	var allFeatures []db.Feature
 	var succeeded []string
@@ -1263,7 +1283,7 @@ func failAnswered(attempts []db.IngestAttempt, err error) []db.IngestAttempt {
 
 // recordAttempts stores attempts (ingest_attempts), best-effort: a failure to
 // record is warned about and never fails the ingest. It records even when ctx
-// is cancelled, so the sources that answered before a Ctrl-C keep their trace.
+// is canceled, so the sources that answered before a Ctrl-C keep their trace.
 func recordAttempts(ctx context.Context, opts *Options, store db.Store, attempts []db.IngestAttempt) {
 	if err := store.RecordIngestAttempts(context.WithoutCancel(ctx), attempts); err != nil {
 		cmdutil.Warnf(opts.IO, "could not record the ingest attempt: %v", err)

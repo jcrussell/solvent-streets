@@ -9,7 +9,7 @@ import (
 )
 
 // WorkFunc is the signature for the background work function.
-// It receives a context that is cancelled when the TUI quits or the user
+// It receives a context that is canceled when the TUI quits or the user
 // hits ctrl+c, an io.Writer for normal output, an io.Writer for
 // warnings/stderr, and a PhaseNotifier for step transitions. Implementations
 // must thread ctx into cancellable operations so a ctrl+c actually stops work.

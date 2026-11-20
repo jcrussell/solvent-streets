@@ -108,7 +108,7 @@ func runPrune(ctx context.Context, opts *PruneOptions) error {
 	for _, s := range victims {
 		ok, err := root.DeleteSnapshot(ctx, s.Name)
 		if err != nil {
-			return fmt.Errorf("delete snapshot %s: %w", s.Name, err)
+			return fmt.Errorf("delete snapshot %q: %w", s.Name, err)
 		}
 		if ok {
 			deleted++

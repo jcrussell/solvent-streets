@@ -57,7 +57,7 @@ func TestParallelMap_Counter(t *testing.T) {
 }
 
 // TestParallelMap_CancelStopsDispatch covers the errgroup.WithContext
-// adoption: when ctx is cancelled before/during dispatch, in-flight workers
+// adoption: when ctx is canceled before/during dispatch, in-flight workers
 // return early via gctx.Err() check; remaining items are not processed.
 func TestParallelMap_CancelStopsDispatch(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -67,12 +67,12 @@ func TestParallelMap_CancelStopsDispatch(t *testing.T) {
 	ParallelMap(ctx, input, func(_ int, _ int) []int {
 		return nil
 	}, &counter)
-	// With ctx pre-cancelled, the gctx.Err() guard inside each goroutine
+	// With ctx pre-canceled, the gctx.Err() guard inside each goroutine
 	// trips immediately. Some goroutines may have raced past the guard
 	// (errgroup's SetLimit dispatches before our check), so we don't
 	// assert counter == 0; we assert "not all 1000 ran" as a smoke test
 	// that the cancellation path is wired.
 	if counter.Load() == 1000 {
-		t.Errorf("expected at least some workers to short-circuit on pre-cancelled ctx, got %d", counter.Load())
+		t.Errorf("expected at least some workers to short-circuit on pre-canceled ctx, got %d", counter.Load())
 	}
 }

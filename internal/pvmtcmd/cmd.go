@@ -78,6 +78,10 @@ func exitCode(err error, errOut io.Writer) int {
 		printError(errOut, err)
 		return 2
 	}
+	if cmdutil.OnlyPrereqs(err) {
+		printError(errOut, err)
+		return 3
+	}
 	if errors.Is(err, cmdutil.ErrNoResults) {
 		return 3
 	}

@@ -95,7 +95,7 @@ func snapshotNameArgs(n int) cobra.PositionalArgs {
 func lookupSnapshot(ctx context.Context, root db.RootStorer, name string) (*db.Snapshot, error) {
 	snap, err := root.Snapshot(ctx, name)
 	if errors.Is(err, db.ErrSnapshotNotFound) {
-		return nil, hint.Withf(fmt.Errorf("snapshot %s not found", name), "check 'pvmt snapshots list' for available names")
+		return nil, hint.Withf(fmt.Errorf("snapshot %q not found", name), "check 'pvmt snapshots list' for available names")
 	}
 	return snap, err
 }

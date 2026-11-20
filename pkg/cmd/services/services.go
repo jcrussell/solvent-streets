@@ -85,7 +85,7 @@ hand-placed stations where OpenStreetMap coverage is poor.`,
 func lookupService(name string) (services.Spec, error) {
 	spec, ok := services.Lookup(name)
 	if !ok {
-		return services.Spec{}, cmdutil.FlagErrorf("unknown service %q (registered: %s)", name, strings.Join(services.Names(), ", "))
+		return services.Spec{}, cmdutil.UnknownValueErrorf("service", name, services.Names())
 	}
 	return spec, nil
 }

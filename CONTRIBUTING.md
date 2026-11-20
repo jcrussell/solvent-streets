@@ -150,6 +150,16 @@ Every command follows the same rules, so the CLI reads as one tool:
   responses offers `--dry-run` and `-y/--yes`, goes through
   `cmdutil.ConfirmDestructive` (prompt on a TTY, refuse without `--yes`
   off one) and ends its `Long` with `cmdutil.ConfirmHelp`.
+- **Messages.** Errors, warnings and hints are Go-style: no leading capital,
+  no trailing period, values quoted with `%q`, commands quoted
+  `'pvmt like this'`. The fix goes in a hint (`hint.Withf`), not after a
+  dash, and an unknown value lists the valid ones
+  (`cmdutil.UnknownValueErrorf`). `internal/msgvoice` checks these rules.
+- **Exit codes.** A usage error (a bad flag, argument or `--city`) is a
+  `cmdutil.FlagError` and exits 2. A command that cannot run until another
+  has, or that has nothing to do, exits 3: return
+  `cmdutil.NeedsFirst(err, "pvmt ...")`, or `cmdutil.SkipNeedsFirst` to warn
+  and skip one city of many. Every other failure exits 1.
 
 ## Writing documentation
 

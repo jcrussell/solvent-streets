@@ -14,7 +14,7 @@ import (
 // If counter is non-nil it is incremented after each input item is processed,
 // enabling external progress tracking.
 //
-// Cancellation: when ctx is cancelled, in-flight workers complete the item
+// Cancellation: when ctx is canceled, in-flight workers complete the item
 // they have already started but no further items dispatch. The function then
 // returns the partial result. fn itself is not passed ctx and is not
 // expected to fail; the cancellation seam exists so a long compute run can
@@ -31,7 +31,7 @@ func ParallelMap[T any, R any](ctx context.Context, input []T, fn func(int, T) [
 	results := make([][]R, n)
 	for i, v := range input {
 		g.Go(func() error {
-			// Return the ctx error (not nil) when cancelled so errgroup
+			// Return the ctx error (not nil) when canceled so errgroup
 			// propagates the signal to peers via gctx; g.Wait below
 			// discards it because cancellation is not an "error" in the
 			// errorless ParallelMap contract.

@@ -281,7 +281,7 @@ func closeBody(resp *http.Response) {
 	}
 }
 
-// sleepCtx waits for d to elapse or ctx to be cancelled, whichever happens
+// sleepCtx waits for d to elapse or ctx to be canceled, whichever happens
 // first. Returns ctx.Err() on cancellation, nil otherwise. This is how
 // the middlewares honour the "propagate ctx.Err() from the
 // inner transport" contract during their own waits.

@@ -298,8 +298,8 @@ func sliverThresholdWarning(entry CityEntry, edge float64) string {
 	}
 	minArea := entry.Config.ResolvedMinHexArea(&entry.City)
 	if full := fullHexArea(edge); minArea >= full {
-		return fmt.Sprintf("warning: %s: min_hex_area %.0f m² is at least the area of a whole hex (%.0f m²) at "+
-			"the %g m hex edge its snapshot was computed at, so its map shows no hexes; lower min_hex_area\n",
+		return fmt.Sprintf("%s: min_hex_area %.0f m² is at least the area of a whole hex (%.0f m²) at "+
+			"the %g m hex edge its snapshot was computed at, so its map shows no hexes; lower min_hex_area",
 			entry.City.Name, minArea, full, edge)
 	}
 	return ""
@@ -358,7 +358,7 @@ func cityHexGrid(ctx context.Context, entry CityEntry, proj *geo.UTMProjector) (
 		return nil, clipErr
 	}
 	if err := ctx.Err(); err != nil {
-		return nil, err // cancelled part-way: the clip is incomplete
+		return nil, err // canceled part-way: the clip is incomplete
 	}
 	// The sliver filter is display-only: compute keeps slivers so paved
 	// totals stay whole; the map leaves them out.

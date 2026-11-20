@@ -260,7 +260,7 @@ type Store interface {
 	CreateRun(ctx context.Context, producer, configHash string, inputs map[string]string) (*Run, error)
 	// DiscardRun deletes a run and every row it wrote, provided no snapshot
 	// references it (a committed run is only ever removed with its last
-	// snapshot). Used to clean up after a failed or cancelled command.
+	// snapshot). Used to clean up after a failed or canceled command.
 	DiscardRun(ctx context.Context, runID int64) error
 	// CommitLatest applies parts (part -> run; a run id of 0 removes the
 	// part) to this city's latest compute for configHash (working_parts):
@@ -444,9 +444,9 @@ func Open(path string) (retStore *RootStore, retErr error) {
 
 	incompatible := func(err error) error {
 		return hint.Withf(fmt.Errorf("open %s: %w", path, err),
-			"Move %s (and any -wal/-shm files beside it) aside; pvmt creates a fresh database on the "+
-				"next run. Then re-ingest with `pvmt all ingest` and `pvmt all compute`. pvmt never "+
-				"deletes it for you. See docs/troubleshooting.md#incompatible-database.", path)
+			"move %s (and any -wal/-shm files beside it) aside, and pvmt creates a fresh database on "+
+				"the next run (it never deletes the old one for you); then re-ingest with 'pvmt all ingest' "+
+				"and 'pvmt all compute'; see docs/troubleshooting.md#incompatible-database", path)
 	}
 	// Refuse an incompatible file before a read-write connection touches it
 	// (probeGeneration): closing one would checkpoint its WAL.
@@ -478,8 +478,8 @@ func Open(path string) (retStore *RootStore, retErr error) {
 		err = fmt.Errorf("migrate: %w", err)
 		if isBusy(err) {
 			return nil, hint.Withf(err,
-				"Another pvmt process is initializing or writing %s; run the command again once it finishes. "+
-					"See docs/troubleshooting.md#database-is-locked.", path)
+				"another pvmt process is initializing or writing %s; run the command again once it finishes "+
+					"(see docs/troubleshooting.md#database-is-locked)", path)
 		}
 		return nil, err
 	}

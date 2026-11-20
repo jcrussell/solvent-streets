@@ -237,7 +237,7 @@ func runCompute(ctx context.Context, opts *Options) error {
 func runComputeTUI(ctx context.Context, opts *Options) error {
 	city, err := opts.CurrentCity()
 	if err != nil {
-		return fmt.Errorf("city: %w", err)
+		return err
 	}
 	label := fmt.Sprintf("Computing %s · %s", opts.ResourceType.Type(), city.Name)
 	steps := []tui.Step{
@@ -281,11 +281,11 @@ type computer struct {
 func doCompute(ctx context.Context, out, progress, errOut io.Writer, notify tui.PhaseNotifier, opts *Options) error {
 	cfg, err := opts.Config()
 	if err != nil {
-		return fmt.Errorf("config: %w", err)
+		return err
 	}
 	city, err := opts.CurrentCity()
 	if err != nil {
-		return fmt.Errorf("city: %w", err)
+		return err
 	}
 	store, err := opts.CityDB()
 	if err != nil {
@@ -366,12 +366,12 @@ func (c *computer) computeAndSave(ctx context.Context, resFeatures []resource.Fe
 	allBuffered := opts.ResourceType.BufferFeaturesPaired(ctx, resFeatures, proj)
 	// BufferFeaturesPaired is ParallelMap-backed and returns an empty (partial)
 	// slice with no error on cancellation. Distinguish a real "no valid
-	// geometries" from a SIGINT so a cancelled run reports context.Canceled
+	// geometries" from a SIGINT so a canceled run reports context.Canceled
 	// rather than a misleading buffer error — and so callers up the chain
 	// (forEachResource, all compute) can special-case cancellation.
 	if err := ctx.Err(); err != nil {
 		notify.PhaseDone(phaseProcess, err)
-		return fmt.Errorf("compute cancelled: %w", err)
+		return fmt.Errorf("compute canceled: %w", err)
 	}
 	if len(allBuffered) == 0 {
 		err := errors.New("buffer features: no valid geometries to process")
@@ -390,7 +390,7 @@ func (c *computer) computeAndSave(ctx context.Context, resFeatures []resource.Fe
 	// compute and persistence: bail on cancellation without saving anything
 	// (the run is then discarded, never committed).
 	if err := ctx.Err(); err != nil {
-		return fmt.Errorf("compute cancelled: %w", err)
+		return fmt.Errorf("compute canceled: %w", err)
 	}
 	if err := c.saveAllJurisdictionsResult(ctx, allBuffered, len(resFeatures), hexStats, clippedHexes); err != nil {
 		return err
@@ -473,7 +473,8 @@ func LoadBoundary(ctx context.Context, store db.Store, city *config.CityConfig) 
 		return "", [4]float64{}, nil, fmt.Errorf("get boundary: %w", err)
 	}
 	if boundaryGJSON == "" {
-		return "", [4]float64{}, nil, fmt.Errorf("no boundary stored for city %s — run 'pvmt all ingest' first", city.Name)
+		return "", [4]float64{}, nil, cmdutil.NeedsFirst(fmt.Errorf("no boundary stored for %s", city.Name),
+			"pvmt --city "+city.Slug()+" all ingest")
 	}
 	bbox, proj, err := geo.ProjectorForBoundary(boundaryGJSON)
 	if err != nil {
@@ -510,9 +511,9 @@ func (c *computer) loadResourceFeatures(ctx context.Context) ([]resource.Feature
 		return nil, fmt.Errorf("list features: %w", err)
 	}
 	if len(dbFeatures) == 0 {
-		fmt.Fprintf(c.errOut, "No %s features in database. Run 'pvmt %s ingest' first.\n", t, t)
 		c.notify.PhaseDone(phaseProcess, errors.New("no features"))
-		return nil, cmdutil.ErrNoResults
+		return nil, cmdutil.SkipNeedsFirst(c.errOut, fmt.Errorf("no %s features stored for %s", t, c.city.Name),
+			fmt.Sprintf("pvmt --city %s %s ingest", c.city.Slug(), t))
 	}
 	fmt.Fprintf(c.progress, "Processing %d features (UTM zone %d)...\n", len(dbFeatures), c.proj.Zone)
 	return db.ResourceFeatures(dbFeatures), nil
@@ -604,7 +605,7 @@ func (c *computer) processCityResults(ctx context.Context, cityBuffered []resour
 	// ComputeHexStats (ParallelMap-backed) yields partial results on cancel;
 	// bail before persisting truncated city stats.
 	if err := ctx.Err(); err != nil {
-		return fmt.Errorf("compute cancelled: %w", err)
+		return fmt.Errorf("compute canceled: %w", err)
 	}
 
 	var cityArea float64
@@ -614,7 +615,7 @@ func (c *computer) processCityResults(ctx context.Context, cityBuffered []resour
 	citySpaces := sumSpaces(cityStats)
 	cityCohorts, perHexClasses := c.buildCohorts(ctx, cityBuffered, cityArea, clippedHexes)
 	if err := ctx.Err(); err != nil {
-		return fmt.Errorf("compute cancelled: %w", err)
+		return fmt.Errorf("compute canceled: %w", err)
 	}
 	// The Play board's per-hex decay rate rides on the cohort pass's per-hex
 	// class areas, so it costs no second clip (decayRows).
@@ -749,7 +750,7 @@ func (c *computer) hexGrid(ctx context.Context, boundaryGJSON string) []geo.Hex 
 
 // startProgressTicker launches a goroutine that sends PhaseProgress updates
 // every 200ms based on counter / total. Returns a stop function that must be
-// called when the phase is done. The goroutine also exits when ctx is cancelled,
+// called when the phase is done. The goroutine also exits when ctx is canceled,
 // so a parent context teardown won't leak the goroutine even if the caller's
 // stop is skipped (panic, early return).
 func startProgressTicker(ctx context.Context, notify tui.PhaseNotifier, phase, total int, counter *atomic.Int64) func() {

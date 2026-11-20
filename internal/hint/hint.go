@@ -56,3 +56,22 @@ func Fprint(w io.Writer, err error) {
 		fmt.Fprintf(w, "      %s\n", l)
 	}
 }
+
+// PrereqError is a command that cannot run until another one has: nothing
+// is ingested, computed or exported yet. The CLI exits 3 for it, as for an
+// empty result, and prints it with its hint.
+type PrereqError struct {
+	Err error
+}
+
+func (e *PrereqError) Error() string { return e.Err.Error() }
+func (e *PrereqError) Unwrap() error { return e.Err }
+
+// NeedsFirst marks err as a missing prerequisite that command provides, with
+// the hint "run '<command>' first".
+func NeedsFirst(err error, command string) error {
+	if err == nil {
+		return nil
+	}
+	return Withf(&PrereqError{Err: err}, "run '%s' first", command)
+}

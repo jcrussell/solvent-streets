@@ -101,12 +101,12 @@ func runDelete(ctx context.Context, opts *DeleteOptions) error {
 
 	ok, err := root.DeleteSnapshot(ctx, opts.Name)
 	if err != nil {
-		return fmt.Errorf("delete snapshot %s: %w", opts.Name, err)
+		return fmt.Errorf("delete snapshot %q: %w", opts.Name, err)
 	}
 	if !ok {
 		// Lost a race with another deleter between the lookup and the
 		// delete: not found rather than a silent success.
-		return hint.Withf(fmt.Errorf("snapshot %s not found", opts.Name), "check 'pvmt snapshots list' for available names")
+		return hint.Withf(fmt.Errorf("snapshot %q not found", opts.Name), "check 'pvmt snapshots list' for available names")
 	}
 	fmt.Fprintf(opts.IO.Out, "Deleted snapshot %q.\n", opts.Name)
 	return nil

@@ -214,11 +214,11 @@ func TestServicesCompute_ConfigFacilityAndOverrides(t *testing.T) {
 	}
 }
 
-// TestServicesCompute_CancelledSavesNothing pins the guard between routing
-// and persistence: the context is cancelled from inside a store callback, so
-// the pre-check passes and routing runs under a cancelled ctx; the
+// TestServicesCompute_CanceledSavesNothing pins the guard between routing
+// and persistence: the context is canceled from inside a store callback, so
+// the pre-check passes and routing runs under a canceled ctx; the
 // post-routing ctx.Err() check is what must stop the save.
-func TestServicesCompute_CancelledSavesNothing(t *testing.T) {
+func TestServicesCompute_CanceledSavesNothing(t *testing.T) {
 	var saved []db.HexMetric
 	var commits []map[string]int64
 	store := fixtureStore(&saved, &commits)
@@ -234,10 +234,10 @@ func TestServicesCompute_CancelledSavesNothing(t *testing.T) {
 		t.Fatalf("expected a cancellation error, got %v", err)
 	}
 	if len(saved) != 0 {
-		t.Errorf("cancelled run persisted %d rows", len(saved))
+		t.Errorf("canceled run persisted %d rows", len(saved))
 	}
 	if len(commits) != 0 {
-		t.Errorf("cancelled run committed %v", commits)
+		t.Errorf("canceled run committed %v", commits)
 	}
 }
 

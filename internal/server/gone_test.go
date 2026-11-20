@@ -105,7 +105,7 @@ func TestDataFile_PinnedSnapshotDeletedIs410(t *testing.T) {
 			t.Errorf("%s after delete: %d, want 410", file, w.Code)
 			continue
 		}
-		if !strings.Contains(w.Body.String(), "restart `pvmt serve`") {
+		if !strings.Contains(w.Body.String(), "restart 'pvmt serve'") {
 			t.Errorf("%s 410 body = %q, want the restart advice", file, w.Body)
 		}
 	}

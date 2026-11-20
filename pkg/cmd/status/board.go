@@ -342,7 +342,7 @@ func runBoard(ctx context.Context, opts *Options) error {
 	if opts.Config != nil {
 		c, err := opts.Config()
 		if err != nil {
-			return fmt.Errorf("config: %w", err)
+			return err
 		}
 		cfg = c
 	}

@@ -942,32 +942,32 @@ func TestResolveBoundary_WaterFetchErrorSavesNothing(t *testing.T) {
 	}
 }
 
-// TestResolveBoundary_CancelledWaterFetchHasNoOverloadHint: a Ctrl-C during
+// TestResolveBoundary_CanceledWaterFetchHasNoOverloadHint: a Ctrl-C during
 // the water fetch is the user stopping the run, not an overloaded Overpass, so
 // it must stay a plain cancellation without the "wait a few minutes and
 // re-run" hint.
-func TestResolveBoundary_CancelledWaterFetchHasNoOverloadHint(t *testing.T) {
+func TestResolveBoundary_CanceledWaterFetchHasNoOverloadHint(t *testing.T) {
 	boundary := `{"type":"Polygon","coordinates":[[[-122.5,37.5],[-122.4,37.5],[-122.4,37.6],[-122.5,37.6],[-122.5,37.5]]]}`
 	store := &dbtest.MockStore{
 		GetBoundaryFunc: func(_ context.Context) (string, error) { return "", nil },
 		SaveBoundaryFunc: func(_ context.Context, _, _ string) error {
-			t.Error("SaveBoundary called; a cancelled water fetch must save nothing")
+			t.Error("SaveBoundary called; a canceled water fetch must save nothing")
 			return nil
 		},
 	}
-	cancelled := func(context.Context, *http.Client, [4]float64, ingestpkg.LandProbes) (string, error) {
+	canceled := func(context.Context, *http.Client, [4]float64, ingestpkg.LandProbes) (string, error) {
 		return "", context.Canceled
 	}
 
 	_, _, err := resolveBoundary(
 		context.Background(), resolveBoundaryHarness(t), store, &http.Client{}, &config.CityConfig{Name: "Oakland, CA"},
-		boundaryFetchers{byName: recordingNominatim(boundary, nil), byRelation: recordingRelation("", nil), water: cancelled, roads: noRoads},
+		boundaryFetchers{byName: recordingNominatim(boundary, nil), byRelation: recordingRelation("", nil), water: canceled, roads: noRoads},
 	)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want context.Canceled", err)
 	}
 	if he, ok := errors.AsType[*hint.ErrHint](err); ok {
-		t.Errorf("a cancelled water fetch carries hint %q, want none", he.Hint)
+		t.Errorf("a canceled water fetch carries hint %q, want none", he.Hint)
 	}
 }
 
@@ -1436,7 +1436,14 @@ func TestRunIngest_PartialFailureWithEmptySurvivor(t *testing.T) {
 // boundary is cachedBoundary.
 func dryRunOutput(t *testing.T, city *config.CityConfig, source cmdutil.Source, cachedBoundary string) string {
 	t.Helper()
-	ios, _, out, _ := iostreams.Test()
+	out, _ := dryRunStreams(t, city, source, cachedBoundary)
+	return out
+}
+
+// dryRunStreams is dryRunOutput's stdout (the plan) and stderr (warnings).
+func dryRunStreams(t *testing.T, city *config.CityConfig, source cmdutil.Source, cachedBoundary string) (string, string) {
+	t.Helper()
+	ios, _, out, errOut := iostreams.Test()
 	store := &dbtest.MockStore{
 		GetBoundaryFunc: func(_ context.Context) (string, error) { return cachedBoundary, nil },
 	}
@@ -1444,7 +1451,7 @@ func dryRunOutput(t *testing.T, city *config.CityConfig, source cmdutil.Source, 
 	if err := printDryRunPlan(context.Background(), opts, store, city); err != nil {
 		t.Fatalf("printDryRunPlan: %v", err)
 	}
-	return out.String()
+	return out.String(), errOut.String()
 }
 
 // TestPrintDryRunPlan_BoundarySourceMatchesTheRealRun: the dry run names the
@@ -1518,15 +1525,15 @@ func TestPrintDryRunPlan_DisabledSourceGivesTheRealRunsReason(t *testing.T) {
 			if !errors.As(err, &he) {
 				t.Fatalf("resolveSources error = %v; want an ErrHint", err)
 			}
-			got := dryRunOutput(t, tc.city, tc.source, "cached")
-			if !strings.Contains(got, "WARNING") || !strings.Contains(got, he.Hint) {
-				t.Errorf("dry run = %q; want a WARNING carrying %q", got, he.Hint)
+			_, got := dryRunStreams(t, tc.city, tc.source, "cached")
+			if !strings.HasPrefix(got, "warning: ") || !strings.Contains(got, he.Hint) {
+				t.Errorf("dry run stderr = %q; want a warning carrying %q", got, he.Hint)
 			}
 		})
 	}
-	enabled := dryRunOutput(t, &config.CityConfig{Name: "X", Overpass: true}, cmdutil.SourceOverpass, "cached")
-	if strings.Contains(enabled, "WARNING") {
-		t.Errorf("dry run = %q; an enabled source needs no warning", enabled)
+	_, enabled := dryRunStreams(t, &config.CityConfig{Name: "X", Overpass: true}, cmdutil.SourceOverpass, "cached")
+	if enabled != "" {
+		t.Errorf("dry run stderr = %q; an enabled source needs no warning", enabled)
 	}
 }
 
@@ -1577,7 +1584,7 @@ func TestRunIngest_DisabledSourceFailsBeforeBoundary(t *testing.T) {
 		Source:       cmdutil.SourceOverpass,
 	})
 	var h *hint.ErrHint
-	if err == nil || !strings.Contains(err.Error(), "not available for this city") || !errors.As(err, &h) {
+	if err == nil || !strings.Contains(err.Error(), "not available for Test City") || !errors.As(err, &h) {
 		t.Fatalf("err = %v, want the disabled-source error with a hint", err)
 	}
 }
@@ -1960,25 +1967,25 @@ func TestResolveBoundary_RoadsFetchErrorSavesNothing(t *testing.T) {
 	}
 }
 
-// TestResolveBoundary_CancelledRoadsFetchHasNoHint: a Ctrl-C during the roads
+// TestResolveBoundary_CanceledRoadsFetchHasNoHint: a Ctrl-C during the roads
 // fetch is a plain cancellation, recorded as no boundary attempt.
-func TestResolveBoundary_CancelledRoadsFetchHasNoHint(t *testing.T) {
+func TestResolveBoundary_CanceledRoadsFetchHasNoHint(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	cancelling := func(context.Context, *http.Client, [4]float64) (roadsFetch, error) {
+	canceling := func(context.Context, *http.Client, [4]float64) (roadsFetch, error) {
 		cancel()
 		return roadsFetch{sources: []string{"overpass"}}, fmt.Errorf("roads: %w", cmdutil.ErrAllSourcesFailed)
 	}
 	store := &dbtest.MockStore{}
 	_, _, err := resolveBoundary(ctx, resolveBoundaryHarness(t), store, &http.Client{}, &config.CityConfig{Name: "Oakland, CA"},
-		boundaryFetchers{byName: recordingNominatim(bigSquareBoundary, nil), water: fakeWaterFetcher(""), roads: cancelling})
+		boundaryFetchers{byName: recordingNominatim(bigSquareBoundary, nil), water: fakeWaterFetcher(""), roads: canceling})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want context.Canceled", err)
 	}
 	if he, ok := errors.AsType[*hint.ErrHint](err); ok {
-		t.Errorf("a cancelled roads fetch carries hint %q, want none", he.Hint)
+		t.Errorf("a canceled roads fetch carries hint %q, want none", he.Hint)
 	}
 	if len(store.Attempts) != 0 {
-		t.Errorf("attempts = %+v, want none for a cancelled run", store.Attempts)
+		t.Errorf("attempts = %+v, want none for a canceled run", store.Attempts)
 	}
 }
 
@@ -2354,22 +2361,22 @@ func TestResolveBoundary_OverpassRoadsFailureIsHardEvenIfArcGISAnswered(t *testi
 	}
 }
 
-// TestResolveBoundary_CancelledWaterStripRecordsNoRoads: a Ctrl-C during the
+// TestResolveBoundary_CanceledWaterStripRecordsNoRoads: a Ctrl-C during the
 // water fetch records nothing for the roads that already answered.
-func TestResolveBoundary_CancelledWaterStripRecordsNoRoads(t *testing.T) {
-	cancelled := func(context.Context, *http.Client, [4]float64, ingestpkg.LandProbes) (string, error) {
+func TestResolveBoundary_CanceledWaterStripRecordsNoRoads(t *testing.T) {
+	canceled := func(context.Context, *http.Client, [4]float64, ingestpkg.LandProbes) (string, error) {
 		return "", context.Canceled
 	}
 	store := &dbtest.MockStore{}
 	_, _, err := resolveBoundary(context.Background(), resolveBoundaryHarness(t), store, &http.Client{},
 		&config.CityConfig{Name: "Oakland, CA"},
-		boundaryFetchers{byName: recordingNominatim(bigSquareBoundary, nil), water: cancelled,
+		boundaryFetchers{byName: recordingNominatim(bigSquareBoundary, nil), water: canceled,
 			roads: recordingRoads([]db.Feature{roadLine("a", 0.2, 0.2, 0.3, 0.3)}, nil)})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want context.Canceled", err)
 	}
 	if len(store.Attempts) != 0 {
-		t.Errorf("attempts = %+v, want none for a cancelled run", store.Attempts)
+		t.Errorf("attempts = %+v, want none for a canceled run", store.Attempts)
 	}
 }
 
@@ -2415,5 +2422,32 @@ func TestRunIngest_FacilityRunsCompanionDespiteBoundaryRoadsSaveFailure(t *testi
 	}
 	if err == nil || errors.Is(err, cmdutil.ErrNoResults) || !strings.Contains(err.Error(), "disk full") {
 		t.Errorf("services ingest = %v, want the roads save failure", err)
+	}
+}
+
+// TestIngest_DisabledSourceIsAUsageErrorUpFront: a --source the config
+// switches off for any selected city is refused as a usage error (exit 2)
+// before any city runs, so it cannot hide another city's network failure.
+func TestIngest_DisabledSourceIsAUsageErrorUpFront(t *testing.T) {
+	ios, _, _, _ := iostreams.Test()
+	cfg := &config.Config{Cities: []config.CityConfig{
+		{Name: "Alpha, CA", Overpass: true, ArcGISURL: "https://example.test/query"},
+		{Name: "Beta, CA", Overpass: true},
+	}}
+	f := &cmdutil.Factory{
+		IOStreams:   ios,
+		Config:      func() (*config.Config, error) { return cfg, nil },
+		CurrentCity: func() (*config.CityConfig, error) { return &cfg.Cities[0], nil },
+		CityFlagSet: func() bool { return false },
+		CityDB:      func() (db.Store, error) { t.Fatal("a city ran"); return nil, errors.New("unreachable") },
+		HttpClient:  func() (*http.Client, error) { t.Fatal("a city ran"); return nil, errors.New("unreachable") },
+	}
+	cmd := NewCmdIngest(f, &resource.Pavement{}, nil)
+	cmd.SetArgs([]string{"--source", "arcgis"})
+	cmd.SilenceErrors, cmd.SilenceUsage = true, true
+	err := cmd.Execute()
+	var fe *cmdutil.FlagError
+	if !errors.As(err, &fe) || !strings.Contains(err.Error(), "not available for Beta, CA") {
+		t.Errorf("err = %v, want a usage error naming Beta, CA", err)
 	}
 }

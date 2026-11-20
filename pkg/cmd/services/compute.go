@@ -195,7 +195,7 @@ func runCompute(ctx context.Context, opts *Options) error {
 	if opts.IO.IsTTY() {
 		city, err := opts.CurrentCity()
 		if err != nil {
-			return fmt.Errorf("city: %w", err)
+			return err
 		}
 		label := fmt.Sprintf("Routing %s · %s", opts.Service, city.Name)
 		steps := []tui.Step{{Name: "Loading roads and facilities"}, {Name: "Building road graph"}, {Name: "Routing to hexes"}, {Name: "Saving metric"}}
@@ -239,11 +239,11 @@ type inputs struct {
 func loadInputs(ctx context.Context, errOut io.Writer, opts *Options) (*inputs, error) {
 	cfg, err := opts.Config()
 	if err != nil {
-		return nil, fmt.Errorf("config: %w", err)
+		return nil, err
 	}
 	city, err := opts.CurrentCity()
 	if err != nil {
-		return nil, fmt.Errorf("city: %w", err)
+		return nil, err
 	}
 	store, err := opts.CityDB()
 	if err != nil {
@@ -268,16 +268,16 @@ func loadInputs(ctx context.Context, errOut io.Writer, opts *Options) (*inputs, 
 		return nil, fmt.Errorf("list roads: %w", err)
 	}
 	if len(roadRows) == 0 {
-		fmt.Fprintf(errOut, "No roads features in database for %s. Run 'pvmt roads ingest' first.\n", city.Name)
-		return in, cmdutil.ErrNoResults
+		return in, cmdutil.SkipNeedsFirst(errOut, fmt.Errorf("no roads stored for %s", city.Name),
+			"pvmt --city "+city.Slug()+" roads ingest")
 	}
 	in.facilities, err = loadFacilities(ctx, store, city, in.spec)
 	if err != nil {
 		return nil, err
 	}
 	if len(in.facilities) == 0 {
-		fmt.Fprintf(errOut, "No %s facilities for %s (run 'pvmt services ingest' or add [[cities.facilities]]).\n", in.spec.Name, city.Name)
-		return in, cmdutil.ErrNoResults
+		return in, cmdutil.SkipNeedsFirst(errOut, fmt.Errorf("no %s facilities stored for %s (or add [[cities.facilities]])", in.spec.Name, city.Name),
+			"pvmt --city "+city.Slug()+" services ingest")
 	}
 	target, err := compute.LoadMetricTarget(ctx, store, cfg, city, opts.PrebuiltGrid, errOut)
 	if err != nil {
@@ -332,7 +332,7 @@ func route(ctx context.Context, out, progress, errOut io.Writer, notify tui.Phas
 	graph := services.BuildGraph(ctx, in.roads, spec.Speeds, proj)
 	if err := ctx.Err(); err != nil {
 		notify.PhaseDone(phaseGraph, err)
-		return fmt.Errorf("compute cancelled: %w", err)
+		return fmt.Errorf("compute canceled: %w", err)
 	}
 	fmt.Fprintf(progress, "Road graph: %d vertices\n", graph.NodeCount())
 	notify.PhaseDone(phaseGraph, nil)
@@ -343,7 +343,7 @@ func route(ctx context.Context, out, progress, errOut io.Writer, notify tui.Phas
 	// persist a truncated coverage set.
 	if err := ctx.Err(); err != nil {
 		notify.PhaseDone(phaseRoute, err)
-		return fmt.Errorf("compute cancelled: %w", err)
+		return fmt.Errorf("compute canceled: %w", err)
 	}
 	// Warnings go through errOut, the TUI's warn writer, not straight to
 	// ErrOut under the alt-screen program.

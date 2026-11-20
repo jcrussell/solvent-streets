@@ -110,6 +110,14 @@ linters:
         - compositelit
     gocognit:
       min-complexity: 20
+    misspell:
+      # One spelling across messages and comments: "canceled", as the
+      # standard library's context.Canceled prints it.
+      extra-words:
+        - typo: cancelled
+          correction: canceled
+        - typo: cancelling
+          correction: canceling
     nestif:
       min-complexity: 7
     nolintlint:

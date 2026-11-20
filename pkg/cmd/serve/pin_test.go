@@ -77,11 +77,11 @@ func TestPinEntries(t *testing.T) {
 		t.Errorf("want two warnings for Stale City and one each for Draft and Empty City, none for Fresh City; got:\n%s", got)
 	}
 	for _, want := range []string{
-		"Stale City: snapshot v3 was created under other settings",
+		`Stale City: snapshot "v3" was created under other settings`,
 		// The picker's Latest compute is empty.
 		"Stale City has nothing computed under the current settings",
 		"Draft City has no snapshot; serving its latest compute (not snapshotted)",
-		"Run `pvmt snapshots create <name>` to publish it",
+		"run 'pvmt snapshots create <name>' to publish it",
 		"no snapshot for Empty City; serving it without data",
 		"Empty City has never been computed",
 	} {

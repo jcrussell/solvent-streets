@@ -144,7 +144,7 @@ func runExport(ctx context.Context, opts *Options) error {
 
 	cfg, err := opts.Config()
 	if err != nil {
-		return fmt.Errorf("config: %w", err)
+		return err
 	}
 
 	rootDB, err := opts.RootDB()
@@ -168,7 +168,7 @@ func runExport(ctx context.Context, opts *Options) error {
 	// Pin each city to its newest snapshot (or --snapshot's), refusing the
 	// export when any city has none, before --clean deletes the previous site.
 	if err := exporter.Pin(ctx); err != nil {
-		return fmt.Errorf("export: %w", err)
+		return err
 	}
 
 	// SafeCleanDir refuses to delete a non-empty directory that does not look
@@ -181,7 +181,7 @@ func runExport(ctx context.Context, opts *Options) error {
 	logs.From(ctx).Info("exporting static site", "output_dir", opts.OutputDir)
 
 	if err := exporter.Run(ctx); err != nil {
-		return fmt.Errorf("export: %w", err)
+		return err
 	}
 
 	logs.From(ctx).Info("export complete", "output_dir", opts.OutputDir)

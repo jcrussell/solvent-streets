@@ -40,11 +40,11 @@ import (
 func RunCombined(ctx context.Context, f *cmdutil.Factory, grid []geo.Hex, draft *db.Draft) error {
 	cfg, err := f.Config()
 	if err != nil {
-		return fmt.Errorf("config: %w", err)
+		return err
 	}
 	city, err := f.CurrentCity()
 	if err != nil {
-		return fmt.Errorf("city: %w", err)
+		return err
 	}
 	store, err := f.CityDB()
 	if err != nil {
@@ -181,11 +181,11 @@ func loadFeaturesForCombined(ctx context.Context, store db.Store, rt resource.So
 func BuildCityGrid(ctx context.Context, f *cmdutil.Factory) ([]geo.Hex, error) {
 	cfg, err := f.Config()
 	if err != nil {
-		return nil, fmt.Errorf("config: %w", err)
+		return nil, err
 	}
 	city, err := f.CurrentCity()
 	if err != nil {
-		return nil, fmt.Errorf("city: %w", err)
+		return nil, err
 	}
 	store, err := f.CityDB()
 	if err != nil {
@@ -245,7 +245,7 @@ func (cr *combinedRunner) save(ctx context.Context, p combinedPass) error {
 	// error on cancellation; bail before persisting a truncated combined
 	// result (the run is then discarded, never committed).
 	if err := ctx.Err(); err != nil {
-		return fmt.Errorf("compute %s cancelled: %w", p.label, err)
+		return fmt.Errorf("compute %s canceled: %w", p.label, err)
 	}
 	// Only the city totals are persisted — deliberately no per-hex rows,
 	// unlike doCompute. Per-hex coverage is only ever read for the

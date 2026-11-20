@@ -156,7 +156,7 @@ func (e *cacheEntry) complete() bool { return (e.hasBody && e.hasMeta) || e.hasM
 // completion.
 // Main unregisters after the first signal, so a
 // second Ctrl-C kills the process outright — possibly between a temp write
-// and its rename; the next prune sweeps that residue. A cancelled sweep returns a context.Canceled in
+// and its rename; the next prune sweeps that residue. A canceled sweep returns a context.Canceled in
 // the joined error alongside the partial report — entries it never reached are
 // credited to BytesRemaining, so the printed numbers stay honest. A cancel
 // that lands in the directory scan credits the entries scanned so far; files
@@ -166,7 +166,7 @@ func Prune(ctx context.Context, dir string, opts PruneOptions) (*PruneReport, er
 	p := &pruneRun{ctx: ctx, opts: opts, report: &PruneReport{}, now: time.Now()}
 	entries, temps, err := scanCacheDir(ctx, dir, p.report)
 	if err != nil {
-		// A cancelled scan hands back what it grouped so far. Nothing was
+		// A canceled scan hands back what it grouped so far. Nothing was
 		// removed, so all of it survives: credit it rather than reporting
 		// an empty cache that is still on disk.
 		p.report.EntriesScanned += len(entries)
@@ -201,10 +201,10 @@ type pruneRun struct {
 	errs   []error
 }
 
-// cancelled reports whether the run should stop, recording the cancellation
+// canceled reports whether the run should stop, recording the cancellation
 // once so errors.Join surfaces it exactly once no matter how many sweeps
 // observe it.
-func (p *pruneRun) cancelled() bool {
+func (p *pruneRun) canceled() bool {
 	err := p.ctx.Err()
 	if err == nil {
 		return false
@@ -237,7 +237,7 @@ func (p *pruneRun) evict(e *cacheEntry) bool {
 func (p *pruneRun) sweepIncomplete(entries map[string]*cacheEntry, temps []*cacheEntry) []*cacheEntry {
 	live := make([]*cacheEntry, 0, len(entries))
 	for _, e := range entries {
-		if p.cancelled() {
+		if p.canceled() {
 			// Stop removing, but keep the accounting honest: an entry we
 			// never examined survived the sweep, which is exactly what
 			// `live` means to the passes downstream.
@@ -261,7 +261,7 @@ func (p *pruneRun) sweepIncomplete(entries map[string]*cacheEntry, temps []*cach
 		p.sweepResidue(e)
 	}
 	for i, tmp := range temps {
-		if p.cancelled() {
+		if p.canceled() {
 			// Credit what we never reached, the same way the entry loop
 			// above hands its unexamined entries to `live`. Breaking without
 			// this made an interrupted sweep under-report BytesRemaining by
@@ -315,7 +315,7 @@ func (p *pruneRun) sweepByAge(live []*cacheEntry) []*cacheEntry {
 	}
 	kept := live[:0:0]
 	for i, e := range live {
-		if p.cancelled() {
+		if p.canceled() {
 			// Everything not yet examined survives, so hand it on: the size
 			// pass credits its bytes to BytesRemaining.
 			kept = append(kept, live[i:]...)
@@ -346,7 +346,7 @@ func (p *pruneRun) sweepBySize(kept []*cacheEntry) {
 		}
 		// Breaking here leaves every unprocessed entry's size in `remaining`,
 		// which is credited to BytesRemaining below — no accounting fixup needed.
-		if p.cancelled() {
+		if p.canceled() {
 			break
 		}
 		// Decrement unconditionally: the entry has been processed either

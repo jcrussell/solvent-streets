@@ -265,13 +265,13 @@ func (c *Config) StaleHint(city *CityConfig) string {
 		return fmt.Sprintf("%s is pulled in via [[include]], so it reads the results its own config "+
 			"computed — but this config resolves %s, which changes the stored results, so those "+
 			"results do not apply here. Make the including config agree with the city's own, or run "+
-			"`pvmt --city %s all compute` and `pvmt snapshots create <name>` under this config.", city.Name, strings.Join(d, "; "), slug)
+			"'pvmt --city %s all compute' and 'pvmt snapshots create <name>' under this config.", city.Name, strings.Join(d, "; "), slug)
 	}
 	return fmt.Sprintf("%s was computed, but not under the current settings (hash %s): a setting that "+
 		"affects results changed since its last compute (hex_edge_m, [[services]] turnout_s, "+
 		"facilities, census, or a PVMT_HEX_EDGE_M override), or this pvmt computes "+
-		"differently from the one that did. Run `pvmt --city %s all compute`, then "+
-		"`pvmt snapshots create <name>` to publish it; `pvmt --city %s snapshots list` lists the "+
+		"differently from the one that did. Run 'pvmt --city %s all compute', then "+
+		"'pvmt snapshots create <name>' to publish it; 'pvmt --city %s snapshots list' lists the "+
 		"older snapshots.", slug, hash, slug, slug)
 }
 

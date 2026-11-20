@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"strings"
 
 	"github.com/jcrussell/solvent-streets/internal/coherence"
@@ -185,13 +184,13 @@ func runCreate(ctx context.Context, opts *CreateOptions) error {
 	var refusedErr *db.SnapshotRefusedError
 	switch {
 	case errors.Is(err, db.ErrSnapshotExists):
-		return hint.Withf(fmt.Errorf("snapshot %s already exists", opts.Name),
-			"snapshots never change: replace it with `pvmt snapshots delete %s`, then create it again, or choose another name",
+		return hint.Withf(fmt.Errorf("snapshot %q already exists", opts.Name),
+			"snapshots never change: replace it with 'pvmt snapshots delete %s', then create it again, or choose another name",
 			opts.Name)
 	case errors.As(err, &refusedErr):
 		return reportRefused(ctx, opts, cfg, cities, refusedErr)
 	case err != nil:
-		return fmt.Errorf("create snapshot %s: %w", opts.Name, err)
+		return fmt.Errorf("create snapshot %q: %w", opts.Name, err)
 	}
 
 	rows := make([]createRow, len(cities))
@@ -203,7 +202,7 @@ func runCreate(ctx context.Context, opts *CreateOptions) error {
 		return cmdutil.WriteRows(opts.IO, opts.Exporter, rows)
 	}
 	for _, r := range rows {
-		printCreateRow(opts.IO.Out, r)
+		printCreateRow(opts.IO, r)
 	}
 	fmt.Fprintf(opts.IO.Out, "created %s: %d %s\n", snap.Name, snap.CityCount, cityNoun(snap.CityCount))
 	return nil
@@ -247,9 +246,9 @@ func reportRefused(ctx context.Context, opts *CreateOptions, cfg *config.Config,
 		return cmdutil.ErrSilent
 	}
 	for _, r := range rows {
-		printCreateRow(opts.IO.Out, r)
+		printCreateRow(opts.IO, r)
 	}
-	fmt.Fprintf(opts.IO.Out, "refused %s: %d of %d %s refused; nothing was created\n",
+	fmt.Fprintf(opts.IO.Out, "refused %q: %d of %d %s refused; nothing was created\n",
 		refused.Name, len(rows), len(cities), cityNoun(len(cities)))
 	return cmdutil.ErrSilent
 }
@@ -261,17 +260,17 @@ func cityNoun(n int) string {
 	return "cities"
 }
 
-// printCreateRow writes a city's refusal ("oakland-ca: refused: <reasons>",
-// then its hint) and its warnings. A created city with no warnings prints
-// nothing: the summary line names the snapshot.
-func printCreateRow(w io.Writer, r createRow) {
+// printCreateRow writes a city's refusal ("oakland-ca: refused: <reasons>")
+// to out, and its hint and warnings to errOut. A created city with no
+// warnings prints nothing: the summary line names the snapshot.
+func printCreateRow(ios *iostreams.IOStreams, r createRow) {
 	if r.Status == statusRefused {
-		fmt.Fprintf(w, "%s: refused: %s\n", r.City, strings.Join(r.Reasons, "; "))
+		fmt.Fprintf(ios.Out, "%s: refused: %s\n", r.City, strings.Join(r.Reasons, "; "))
 		if r.Hint != "" {
-			fmt.Fprintf(w, "  hint: %s\n", r.Hint)
+			fmt.Fprintf(ios.ErrOut, "hint: %s\n", r.Hint)
 		}
 	}
-	for _, warn := range r.Warnings {
-		fmt.Fprintf(w, "%s: warning: %s\n", r.City, warn)
+	for _, w := range r.Warnings {
+		cmdutil.Warnf(ios, "%s: %s", r.City, w)
 	}
 }

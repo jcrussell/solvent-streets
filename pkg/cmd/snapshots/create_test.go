@@ -65,7 +65,7 @@ func createOpts(ios *iostreams.IOStreams, stores map[string]db.Store) *CreateOpt
 // each refusal with its reason and hint, creates nothing and exits non-zero
 // (ErrSilent).
 func TestRunCreate_OneRefusalRefusesTheSnapshot(t *testing.T) {
-	ios, _, stdout, _ := iostreams.Test()
+	ios, _, stdout, stderr := iostreams.Test()
 	opts := createOpts(ios, map[string]db.Store{
 		"alpha": coherentCity("r2"), // roads re-ingested since
 		"beta":  coherentCity("r1"),
@@ -75,11 +75,13 @@ func TestRunCreate_OneRefusalRefusesTheSnapshot(t *testing.T) {
 		t.Fatalf("err = %v, want ErrSilent", err)
 	}
 	want := `alpha: refused: roads re-ingested 2026-11-14 10:02 UTC after the combined and roads computes
-  hint: pvmt --city alpha all compute
-refused v1: 1 of 2 cities refused; nothing was created
+refused "v1": 1 of 2 cities refused; nothing was created
 `
 	if got := stdout.String(); got != want {
 		t.Errorf("output:\n%s\nwant:\n%s", got, want)
+	}
+	if got := stderr.String(); got != "hint: pvmt --city alpha all compute\n" {
+		t.Errorf("stderr = %q, want the refusal's hint", got)
 	}
 }
 
@@ -234,14 +236,15 @@ func TestRunCreate_RealStore(t *testing.T) {
 	}
 
 	run := func(name string) (string, error) {
-		ios, _, stdout, _ := iostreams.Test()
+		ios, _, stdout, stderr := iostreams.Test()
 		err := runCreate(ctx, &CreateOptions{
 			IO:     ios,
 			RootDB: func() (db.RootStorer, error) { return root, nil },
 			Config: func() (*config.Config, error) { return cfg, nil },
 			Name:   name,
 		})
-		return stdout.String(), err
+		// The refusal rows are on stdout and their hints on stderr.
+		return stdout.String() + stderr.String(), err
 	}
 	out, err := run("v1")
 	snaps, _ := store.ListSnapshots(ctx)
@@ -255,7 +258,7 @@ func TestRunCreate_RealStore(t *testing.T) {
 	roads(`{"type":"LineString","coordinates":[[0,0],[2,2]]}`)
 	out, err = run("v2")
 	if !errors.Is(err, cmdutil.ErrSilent) || !strings.HasPrefix(out, "alpha: refused: roads re-ingested ") ||
-		!strings.Contains(out, "after the combined and roads computes\n  hint: pvmt --city alpha all compute\n") {
+		!strings.Contains(out, "after the combined and roads computes\n") || !strings.Contains(out, "hint: pvmt --city alpha all compute\n") {
 		t.Errorf("after a roads re-ingest: (%q, %v), want refused with the all compute hint", out, err)
 	}
 	snaps, err = store.ListSnapshots(ctx)

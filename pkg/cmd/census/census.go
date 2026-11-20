@@ -69,7 +69,7 @@ func RunIngestForCity(ctx context.Context, cf *cmdutil.Factory) error {
 // `pvmt all compute` calls it in-process after the pavement passes, with the
 // city's draft (nil commits this run's own update).
 func RunComputeForCity(ctx context.Context, cf *cmdutil.Factory, grid []geo.Hex, draft *db.Draft) error {
-	// Fail fast on a cancelled run, as the pavement and services computes do,
+	// Fail fast on a canceled run, as the pavement and services computes do,
 	// rather than open the store and start a pass that cannot finish.
 	if err := ctx.Err(); err != nil {
 		return err
@@ -87,7 +87,7 @@ const Producer = db.ProducerCensus
 func optedOut(cf *cmdutil.Factory) (bool, error) {
 	city, err := cf.CurrentCity()
 	if err != nil {
-		return true, fmt.Errorf("city: %w", err)
+		return true, err
 	}
 	if !city.CensusEnabled() {
 		noteDisabled(cf.IOStreams.ErrOut, city)
@@ -196,11 +196,11 @@ func runCompute(ctx context.Context, opts *Options) error {
 	}
 	cfg, err := opts.Config()
 	if err != nil {
-		return fmt.Errorf("config: %w", err)
+		return err
 	}
 	city, err := opts.CurrentCity()
 	if err != nil {
-		return fmt.Errorf("city: %w", err)
+		return err
 	}
 	store, err := opts.CityDB()
 	if err != nil {
@@ -227,9 +227,9 @@ func runCompute(ctx context.Context, opts *Options) error {
 			return fmt.Errorf("list census blocks: %w", err)
 		}
 		if len(rows) == 0 {
-			fmt.Fprintf(errOut, "No Census blocks in database for %s. Run 'pvmt census ingest' first.\n", city.Name)
 			draft.Drop(Producer)
-			return cmdutil.ErrNoResults
+			return cmdutil.SkipNeedsFirst(errOut, fmt.Errorf("no Census blocks stored for %s", city.Name),
+				"pvmt --city "+city.Slug()+" census ingest")
 		}
 		target, err := compute.LoadMetricTarget(ctx, store, cfg, city, opts.PrebuiltGrid, errOut)
 		if err != nil {
@@ -250,7 +250,7 @@ func apportion(ctx context.Context, out, errOut io.Writer, opts *Options, city *
 	// Partial results come back without an error on cancellation; never save
 	// a truncated set.
 	if err := ctx.Err(); err != nil {
-		return fmt.Errorf("compute cancelled: %w", err)
+		return fmt.Errorf("compute canceled: %w", err)
 	}
 	// All three keys in one transaction under one run. The run is committed
 	// even when it apportioned nothing, so an empty rerun hides the metrics

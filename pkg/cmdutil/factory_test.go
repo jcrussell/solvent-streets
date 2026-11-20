@@ -147,7 +147,7 @@ func TestForEachCity(t *testing.T) {
 		}
 	})
 
-	t.Run("cancelled_context_stops_before_any_city", func(t *testing.T) {
+	t.Run("canceled_context_stops_before_any_city", func(t *testing.T) {
 		f, _ := newFactory([]config.CityConfig{cityA, cityB, cityC}, false, nil)
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
@@ -161,11 +161,11 @@ func TestForEachCity(t *testing.T) {
 			t.Errorf("want context.Canceled, got %v", err)
 		}
 		if len(calls) != 0 {
-			t.Errorf("cancelled context must run no cities; calls = %v", calls)
+			t.Errorf("canceled context must run no cities; calls = %v", calls)
 		}
 	})
 
-	t.Run("cancelled_context_honored_single_city", func(t *testing.T) {
+	t.Run("canceled_context_honored_single_city", func(t *testing.T) {
 		f, _ := newFactory([]config.CityConfig{cityA}, false, nil)
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
@@ -179,7 +179,7 @@ func TestForEachCity(t *testing.T) {
 			t.Errorf("want context.Canceled, got %v", err)
 		}
 		if called {
-			t.Error("cancelled context must not invoke fn in single-city path")
+			t.Error("canceled context must not invoke fn in single-city path")
 		}
 	})
 
@@ -250,8 +250,9 @@ func TestCityOverride_AmbiguousMatch(t *testing.T) {
 			t.Fatal(err)
 		}
 		_, err := f.CurrentCity()
-		if err == nil || !strings.Contains(err.Error(), "not found") {
-			t.Errorf("expected not-found error, got %v", err)
+		var fe *cmdutil.FlagError
+		if err == nil || !strings.Contains(err.Error(), "matches no [[cities]] entry") || !errors.As(err, &fe) {
+			t.Errorf("expected a not-found usage error, got %v", err)
 		}
 	})
 }
@@ -357,7 +358,7 @@ func TestForEachCity_StopsEarly(t *testing.T) {
 			t.Errorf("ForEachCity = %v, want context.Canceled", err)
 		}
 		if len(calls) != 1 {
-			t.Errorf("cities run = %v, want only [Alpha]: a cancelled city must stop the run", calls)
+			t.Errorf("cities run = %v, want only [Alpha]: a canceled city must stop the run", calls)
 		}
 	})
 

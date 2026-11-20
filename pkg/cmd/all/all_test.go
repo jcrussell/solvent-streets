@@ -277,9 +277,9 @@ func TestAllIngest_BoundaryFailureSkipsCity(t *testing.T) {
 	}
 }
 
-// TestAllIngest_CancelledContextAborts: a cancelled request context must stop
+// TestAllIngest_CanceledContextAborts: a canceled request context must stop
 // the fan-out before any per-resource ingest work happens.
-func TestAllIngest_CancelledContextAborts(t *testing.T) {
+func TestAllIngest_CanceledContextAborts(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
 	boundaryCalls := 0
 	store := &dbtest.MockStore{
@@ -304,9 +304,9 @@ func TestAllIngest_CancelledContextAborts(t *testing.T) {
 }
 
 // TestAllIngest_MidFanOutCancelAborts covers the gap
-// TestAllIngest_CancelledContextAborts does not: there the context is already
+// TestAllIngest_CanceledContextAborts does not: there the context is already
 // dead at Execute, so cmdutil.ForEachCity's pre-check stops everything before
-// the first resource. Here the fan-out has already started and is cancelled
+// the first resource. Here the fan-out has already started and is canceled
 // between resources.
 //
 // dbtest.MockStore ignores ctx entirely, which is the whole point — real sqlite
@@ -335,7 +335,7 @@ func TestAllIngest_MidFanOutCancelAborts(t *testing.T) {
 		t.Fatalf("all ingest = %v, want context.Canceled", err)
 	}
 	if boundaryCalls != 1 {
-		t.Errorf("ingest ran for %d resources, want 1 — the fan-out must stop at the first cancelled resource", boundaryCalls)
+		t.Errorf("ingest ran for %d resources, want 1 — the fan-out must stop at the first canceled resource", boundaryCalls)
 	}
 }
 

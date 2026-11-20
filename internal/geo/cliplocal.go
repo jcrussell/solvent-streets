@@ -80,7 +80,7 @@ func ClipHexesToBoundaryLocal(ctx context.Context, hexes []Hex, boundary geom.Ge
 		return []int8{drop}
 	}, nil)
 	if len(classes) != len(hexes) {
-		// Cancelled part-way: ParallelMap leaves the rest unprocessed.
+		// Canceled part-way: ParallelMap leaves the rest unprocessed.
 		return nil
 	}
 

@@ -23,6 +23,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/fsutil"
 	"github.com/jcrussell/solvent-streets/internal/geo"
 	"github.com/jcrussell/solvent-streets/internal/services"
+	"github.com/jcrussell/solvent-streets/internal/warn"
 )
 
 // --- Exporter (static site generation) ---
@@ -148,7 +149,7 @@ func (e *Exporter) exportOneCity(ctx context.Context, entry CityEntry) (CityInfo
 		return CityInfo{}, false, err
 	}
 	if !listed {
-		fmt.Fprintf(e.warnOut(), "  skipping %s: no boundary stored (ingest failed earlier)\n", entry.Slug)
+		warn.Fprintf(e.warnOut(), "skipping %s: no boundary stored (its ingest failed)", entry.City.Name)
 		return CityInfo{}, false, nil
 	}
 
@@ -442,15 +443,17 @@ func exportScenariosForCity(ctx context.Context, entry CityEntry, dataDir string
 // checked against the edge the snapshot is drawn at (sliverThresholdWarning).
 func (e *Exporter) warnGrid(ctx context.Context, entry CityEntry, bbox [4]float64, proj *geo.UTMProjector) error {
 	if geo.BBoxExceedsUTMZone(bbox) {
-		fmt.Fprintf(e.warnOut(),
-			"warning: city %q bbox spans %.1f° of longitude; a single UTM zone (%d) is used, so exported areas near the edges may be distorted\n",
+		warn.Fprintf(e.warnOut(),
+			"city %q bbox spans %.1f° of longitude; a single UTM zone (%d) is used, so exported areas near the edges may be distorted",
 			entry.City.Name, bbox[3]-bbox[1], proj.Zone)
 	}
 	edge, err := entry.HexEdge(ctx)
 	if err != nil {
 		return err
 	}
-	fmt.Fprint(e.warnOut(), sliverThresholdWarning(entry, edge))
+	if w := sliverThresholdWarning(entry, edge); w != "" {
+		warn.Fprintf(e.warnOut(), "%s", w)
+	}
 	return nil
 }
 
@@ -671,8 +674,8 @@ func (e *Exporter) writeBoundary(ctx context.Context, entry CityEntry, proj *geo
 		return nil
 	}
 	if simplifyErr != nil {
-		fmt.Fprintf(e.warnOut(),
-			"warning: city %q boundary could not be simplified, writing it in full: %v\n",
+		warn.Fprintf(e.warnOut(),
+			"city %q boundary could not be simplified, writing it in full: %v",
 			entry.City.Name, simplifyErr)
 	}
 	if err := writeJSON(filepath.Join(dataDir, BoundaryFileName), fc); err != nil {
