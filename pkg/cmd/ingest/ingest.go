@@ -91,7 +91,7 @@ func NewCmdIngest(f *cmdutil.Factory, rt resource.Source, runF func(context.Cont
 	_ = cmd.RegisterFlagCompletionFunc("source", source.Completion())
 	cmd.Flags().BoolVar(&opts.Force, "force", false, "Bypass the HTTP cache and re-fetch the city boundary")
 	cmd.Flags().BoolVar(&opts.RebuildBoundary, "rebuild-boundary", false, "Re-resolve the stored city boundary and its water strip, through the HTTP cache")
-	cmd.Flags().BoolVar(&opts.DryRun, "dry-run", false, "Resolve sources and print plan without fetching or writing")
+	cmd.Flags().BoolVar(&opts.DryRun, "dry-run", false, "Resolve sources and print the plan without fetching anything or storing features")
 
 	// --dry-run never fetches, so --force (bypass cache) is meaningless
 	// in that combination. Reject the typo with cobra's flag-group helper
@@ -308,9 +308,53 @@ func RunResourceWithBoundary(ctx context.Context, f *cmdutil.Factory, rt resourc
 		OverpassURL:  f.OverpassURL,
 		ResourceType: rt,
 		Source:       cmdutil.SourceAll,
+		DryRun:       IsDryRun(ctx),
 		boundary:     b,
 	}
 	return runIngest(ctx, opts)
+}
+
+type dryRunKey struct{}
+
+// dryRunState is what a dry run shared by several steps remembers: the
+// cities whose boundary plan it has printed, so each prints once.
+type dryRunState struct {
+	boundaryShown map[string]bool
+}
+
+// WithDryRun marks ctx so every ingest step run through it
+// (RunResourceForCity, RunResourceWithBoundary) prints its plan instead of
+// fetching, as --dry-run does for one resource: `pvmt all ingest --dry-run`.
+func WithDryRun(ctx context.Context) context.Context {
+	return context.WithValue(ctx, dryRunKey{}, &dryRunState{boundaryShown: map[string]bool{}})
+}
+
+// withDryRunState is ctx marked by WithDryRun, unless it already is.
+func withDryRunState(ctx context.Context) context.Context {
+	if IsDryRun(ctx) {
+		return ctx
+	}
+	return WithDryRun(ctx)
+}
+
+// IsDryRun reports whether ctx is marked by WithDryRun.
+func IsDryRun(ctx context.Context) bool {
+	_, ok := ctx.Value(dryRunKey{}).(*dryRunState)
+	return ok
+}
+
+// firstBoundaryPlan reports whether the dry run on ctx has not yet printed
+// city's boundary plan, and records that it now has.
+func firstBoundaryPlan(ctx context.Context, city *config.CityConfig) bool {
+	st, ok := ctx.Value(dryRunKey{}).(*dryRunState)
+	if !ok {
+		return true
+	}
+	if st.boundaryShown[city.Slug()] {
+		return false
+	}
+	st.boundaryShown[city.Slug()] = true
+	return true
 }
 
 func runIngestAllCities(ctx context.Context, f *cmdutil.Factory, opts *Options) error {
@@ -334,20 +378,21 @@ func runIngest(ctx context.Context, opts *Options) error {
 		return err
 	}
 
-	client, err := opts.HttpClient()
-	if err != nil {
-		return fmt.Errorf("http client: %w", err)
-	}
-
 	store, err := opts.CityDB()
 	if err != nil {
 		return fmt.Errorf("database: %w", err)
 	}
 
 	if opts.DryRun {
+		ctx = withDryRunState(ctx)
 		return ingestCompanions(opts, printDryRunPlan(ctx, opts, store, city), func(o *Options) error {
 			return printDryRunPlan(ctx, o, store, city)
 		})
+	}
+
+	client, err := opts.HttpClient()
+	if err != nil {
+		return fmt.Errorf("http client: %w", err)
 	}
 
 	// --force is documented as "bypass HTTP cache". Mark the context so
@@ -565,7 +610,9 @@ func printDryRunPlan(ctx context.Context, opts *Options, store db.Store, city *c
 	if err != nil {
 		return fmt.Errorf("reading cached boundary: %w", err)
 	}
+	showBoundary := firstBoundaryPlan(ctx, city)
 	switch src := boundarySourceFor(city); {
+	case !showBoundary:
 	case boundary == "" || opts.Force:
 		fmt.Fprintf(out, "[dry-run]   would fetch boundary for %q from %s\n", city.Name, src.from)
 	case opts.RebuildBoundary:
@@ -573,7 +620,7 @@ func printDryRunPlan(ctx context.Context, opts *Options, store db.Store, city *c
 	default:
 		fmt.Fprintf(out, "[dry-run]   boundary cached, would skip %s\n", src.from)
 	}
-	if boundary == "" || opts.rebuildsBoundary() {
+	if showBoundary && (boundary == "" || opts.rebuildsBoundary()) {
 		fmt.Fprintln(out, "[dry-run]   would fetch roads over the unstripped boundary bbox as land evidence for the water strip, and save them")
 	}
 	if p, ok := opts.ResourceType.(resource.FetchPadder); ok {

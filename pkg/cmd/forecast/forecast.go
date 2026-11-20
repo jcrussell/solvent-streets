@@ -2,6 +2,7 @@ package forecast
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/export"
 	fcpkg "github.com/jcrussell/solvent-streets/internal/forecast"
+	"github.com/jcrussell/solvent-streets/internal/hint"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/internal/units"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
@@ -28,8 +30,14 @@ type Options struct {
 	// has any, as the dashboard's headline) or "all" (every jurisdiction).
 	Scope    string
 	Exporter cmdutil.Exporter
+	// Snapshot names the snapshot to forecast from; "" forecasts from the
+	// latest compute under the current settings.
+	Snapshot string
 	rows     *[]forecastRow // multi-city accumulator; nil for single-pass JSON
 }
+
+// forecastScopes are the --scope values.
+var forecastScopes = []string{export.ForecastScopeCity, export.ForecastScopeAll}
 
 var forecastFields = []string{"city", "scope", "resource_type", "year", "pci", "area", "annual_need", "cost_tier"}
 
@@ -91,7 +99,9 @@ func NewCmdForecast(f *cmdutil.Factory, runF func(context.Context, *Options) err
 		Long: `Project PCI decay and maintenance costs over the [forecast] horizon.
 
 The forecast is simulated each time from the city's latest compute (its
-compute results and cohort stats) under the current [forecast] settings.
+compute results and cohort stats), or from the snapshot --snapshot names,
+the one export and serve would publish, under the current [forecast]
+settings.
 By default it covers the pavement the city maintains, as the dashboard's
 headline does, when the city has any city-maintained pavement computed, and
 every jurisdiction's otherwise. --scope all forecasts every jurisdiction's
@@ -108,11 +118,19 @@ computed under its current settings exits 3.`,
   # Every jurisdiction's pavement, not only what the city maintains
   pvmt forecast --scope all
 
+  # Forecast from a published snapshot rather than the latest compute
+  pvmt forecast --snapshot 2026-11
+
   # Emit machine-readable JSON instead of the formatted table
   pvmt forecast --json city,year,pci,annual_need`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if opts.Scope != export.ForecastScopeCity && opts.Scope != export.ForecastScopeAll {
-				return cmdutil.FlagErrorf("--scope must be city or all, got %q", opts.Scope)
+				return cmdutil.UnknownValueErrorf("scope", opts.Scope, forecastScopes)
+			}
+			if opts.Snapshot != "" {
+				if err := db.CheckSnapshotName(opts.Snapshot); err != nil {
+					return cmdutil.FlagErrorf("--snapshot: %v", err)
+				}
 			}
 			if runF != nil {
 				return runF(cmd.Context(), opts)
@@ -123,6 +141,9 @@ computed under its current settings exits 3.`,
 
 	cmd.Flags().BoolVar(&opts.Scenarios, "scenarios", true, "Run scenario comparisons")
 	cmd.Flags().StringVar(&opts.Scope, "scope", export.ForecastScopeCity, "Pavement to forecast: city (city-maintained, when the city has any) or all (every jurisdiction)")
+	_ = cmd.RegisterFlagCompletionFunc("scope", cobra.FixedCompletions(forecastScopes, cobra.ShellCompDirectiveNoFileComp))
+	cmd.Flags().StringVar(&opts.Snapshot, "snapshot", "", "Forecast from the snapshot with this name instead of each city's latest compute (pvmt snapshots list)")
+	_ = cmd.RegisterFlagCompletionFunc("snapshot", cmdutil.SnapshotNameCompletion(f, -1))
 	cmdutil.AddJSONFlags(cmd, &opts.Exporter, forecastFields)
 
 	return cmd
@@ -255,11 +276,32 @@ func renderScenarioComparisons(ios *iostreams.IOStreams, baseline fcpkg.Scenario
 // (or the single --city target); ForEachCityRows writes all cities' JSON rows
 // as one document.
 func runForecastAllCities(ctx context.Context, f *cmdutil.Factory, opts *Options) error {
+	if err := checkSnapshotExists(ctx, f, opts.Snapshot); err != nil {
+		return err
+	}
 	return cmdutil.ForEachCityRows(ctx, f, opts.IO, opts.Exporter, func(cf *cmdutil.Factory, rows *[]forecastRow) error {
 		cityOpts := *opts
 		cityOpts.CurrentCity, cityOpts.CityDB, cityOpts.rows = cf.CurrentCity, cf.CityDB, rows
 		return runForecast(ctx, &cityOpts)
 	})
+}
+
+// checkSnapshotExists refuses a --snapshot name no snapshot has, once,
+// before any city runs; "" (no --snapshot) passes.
+func checkSnapshotExists(ctx context.Context, f *cmdutil.Factory, name string) error {
+	if name == "" || f.RootDB == nil {
+		return nil
+	}
+	root, err := f.RootDB()
+	if err != nil {
+		return fmt.Errorf("database: %w", err)
+	}
+	if _, err := root.Snapshot(ctx, name); errors.Is(err, db.ErrSnapshotNotFound) {
+		return hint.Withf(fmt.Errorf("no snapshot named %q", name), "check 'pvmt snapshots list' for available names")
+	} else if err != nil {
+		return err
+	}
+	return nil
 }
 
 // runForecast simulates and prints one city's forecast. It only reads: the
@@ -286,6 +328,18 @@ func runForecast(ctx context.Context, opts *Options) error {
 	fc := cfg.ResolvedForecast(city)
 	sys := opts.UnitSystem()
 
+	if opts.Snapshot != "" {
+		id, err := store.ResolveSnapshot(ctx, opts.Snapshot)
+		if errors.Is(err, db.ErrSnapshotNotFound) {
+			return hint.Withf(fmt.Errorf("snapshot %q does not cover %s", opts.Snapshot, city.Name),
+				"check 'pvmt snapshots show %s' for the cities it covers, or pick one with --city", opts.Snapshot)
+		}
+		if err != nil {
+			return fmt.Errorf("resolve snapshot %q for %s: %w", opts.Snapshot, city.Name, err)
+		}
+		return forecastStore(ctx, opts, store.WithSnapshot(id), city, &fc, sys)
+	}
+
 	// Computed, but not under the current settings: the latest compute it
 	// forecasts from is empty, and "no compute results" for every resource
 	// would hide why. Say it once.
@@ -302,9 +356,17 @@ func runForecast(ctx context.Context, opts *Options) error {
 		return cmdutil.ErrNoResults
 	}
 
-	fmt.Fprintf(ios.ErrOut, "Running %d-year forecast for %s...\n\n", fc.Years, city.Name)
+	return forecastStore(ctx, opts, store, city, &fc, sys)
+}
 
-	rows, err := forecastAllResources(ctx, opts, store, city.Slug(), &fc, sys)
+// forecastStore simulates city from the compute results store reads and
+// prints or collects the rows.
+func forecastStore(ctx context.Context, opts *Options, store db.Store, city *config.CityConfig, fc *config.ForecastConfig, sys units.System) error {
+	ios := opts.IO
+	if opts.Exporter == nil {
+		fmt.Fprintf(ios.ErrOut, "Running %d-year forecast for %s...\n\n", fc.Years, city.Name)
+	}
+	rows, err := forecastAllResources(ctx, opts, store, city.Slug(), fc, sys)
 	if err != nil {
 		return err
 	}

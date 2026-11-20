@@ -51,7 +51,7 @@ response coverage and per-hex population.`,
 }
 
 func newAllIngest(f *cmdutil.Factory) *cobra.Command {
-	var force, rebuild bool
+	var force, rebuild, dryRun bool
 	cmd := &cobra.Command{
 		Use:   "ingest",
 		Args:  cobra.NoArgs,
@@ -74,9 +74,11 @@ bypassing it, so a change to the water strip can be replayed; any request
 the cache does not hold (such as roads over an unstripped bbox no earlier
 ingest queried) goes upstream.
 
-Unlike the per-resource ingest commands this takes no --source or
---dry-run; use 'pvmt <resource> ingest' for those. Run 'pvmt all compute'
-next.`,
+--dry-run prints every step's plan, as the per-resource --dry-run does,
+without fetching anything or storing features; each city's boundary plan
+is printed once. Unlike the per-resource ingest
+commands this takes no --source; use 'pvmt <resource> ingest' for that.
+Run 'pvmt all compute' next.`,
 		Example: `  # Pull roads, parking, sidewalks, fire stations and Census blocks for every [[cities]] entry
   pvmt all ingest
 
@@ -84,11 +86,17 @@ next.`,
   pvmt --city livermore-ca all ingest --force
 
   # Re-resolve one city's stored boundary through the HTTP cache
-  pvmt --city livermore-ca all ingest --rebuild-boundary`,
+  pvmt --city livermore-ca all ingest --rebuild-boundary
+
+  # Show what every step would fetch, without making any requests
+  pvmt all ingest --dry-run`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 			if force {
 				ctx = cache.WithBypass(ctx)
+			}
+			if dryRun {
+				ctx = ingest.WithDryRun(ctx)
 			}
 			return cmdutil.ForEachCity(ctx, f, func(cf *cmdutil.Factory, city *config.CityConfig) error {
 				return ingestCity(ctx, f.IOStreams, cf, city, force || rebuild)
@@ -97,6 +105,9 @@ next.`,
 	}
 	cmd.Flags().BoolVar(&force, "force", false, "Bypass the HTTP cache for every step and re-fetch the city boundary")
 	cmd.Flags().BoolVar(&rebuild, "rebuild-boundary", false, "Re-resolve the stored city boundary and its water strip, through the HTTP cache")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Resolve sources and print every step's plan without fetching anything or storing features")
+	cmd.MarkFlagsMutuallyExclusive("force", "dry-run")
+	cmd.MarkFlagsMutuallyExclusive("rebuild-boundary", "dry-run")
 	return cmd
 }
 
@@ -108,7 +119,13 @@ next.`,
 // rebuild re-resolves a stored boundary (--rebuild-boundary, or --force,
 // whose cache bypass is already on ctx).
 func ingestCity(ctx context.Context, ios *iostreams.IOStreams, cf *cmdutil.Factory, city *config.CityConfig, rebuild bool) error {
-	boundary, err := ingest.ResolveBoundaryForCity(ctx, cf, rebuild)
+	// A dry run resolves nothing up front: each step's plan says how it would
+	// get the boundary.
+	var boundary *ingest.Boundary
+	var err error
+	if !ingest.IsDryRun(ctx) {
+		boundary, err = ingest.ResolveBoundaryForCity(ctx, cf, rebuild)
+	}
 	if err != nil {
 		if !isCancel(err) {
 			cmdutil.Warnf(ios, "skipping %s: no boundary: %v", city.Name, err)

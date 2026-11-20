@@ -2451,3 +2451,46 @@ func TestIngest_DisabledSourceIsAUsageErrorUpFront(t *testing.T) {
 		t.Errorf("err = %v, want a usage error naming Beta, CA", err)
 	}
 }
+
+// TestRunResourceForCity_DryRunContext: steps run under WithDryRun (as
+// `pvmt all ingest --dry-run` runs them) print their plans on stdout without
+// building an HTTP client, and the city's boundary plan appears once.
+func TestRunResourceForCity_DryRunContext(t *testing.T) {
+	ios, _, stdout, _ := iostreams.Test()
+	city := cmdtest.NewTestCity()
+	city.Overpass = true
+	store := &dbtest.MockStore{GetBoundaryFunc: func(context.Context) (string, error) { return "", nil }}
+	f := &cmdutil.Factory{
+		IOStreams:   ios,
+		CityDB:      func() (db.Store, error) { return store, nil },
+		CurrentCity: func() (*config.CityConfig, error) { return city, nil },
+		HttpClient: func() (*http.Client, error) {
+			t.Error("a dry run built an HTTP client")
+			return &http.Client{Transport: failTransport{t}}, nil
+		},
+	}
+	ctx := WithDryRun(context.Background())
+	if !IsDryRun(ctx) || IsDryRun(context.Background()) {
+		t.Fatal("WithDryRun does not mark the context")
+	}
+	for _, rt := range []resource.Source{&resource.Pavement{}, &resource.Parking{}} {
+		if err := RunResourceForCity(ctx, f, rt); err != nil {
+			t.Fatalf("dry run %s: %v", rt.Type(), err)
+		}
+	}
+	out := stdout.String()
+	if !strings.HasPrefix(out, "[dry-run] ingest roads for Test City") || !strings.Contains(out, "[dry-run] ingest parking for Test City") {
+		t.Errorf("stdout = %q, want the roads and parking plans", out)
+	}
+	if n := strings.Count(out, "would fetch boundary"); n != 1 {
+		t.Errorf("boundary plan printed %d times, want once:\n%s", n, out)
+	}
+}
+
+// failTransport fails the test on any request.
+type failTransport struct{ t *testing.T }
+
+func (f failTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	f.t.Errorf("dry run sent %s %s", r.Method, r.URL)
+	return nil, errors.New("no requests in a dry run")
+}

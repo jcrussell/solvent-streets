@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -273,5 +274,72 @@ func TestRunForecast_LatestComputeIsNotStale(t *testing.T) {
 	_ = runForecast(context.Background(), opts)
 	if out := stderr.String(); strings.Contains(out, cfg.StaleHint(city)) {
 		t.Errorf("stale hint printed for a city with a latest compute under the current settings:\n%s", out)
+	}
+}
+
+// TestRunForecast_Snapshot: --snapshot forecasts from the named snapshot's
+// view of the city, skipping the latest-compute staleness check, and a
+// snapshot that does not cover the city says so.
+func TestRunForecast_Snapshot(t *testing.T) {
+	cfg := &config.Config{}
+	city := &config.CityConfig{Name: "Test City"}
+	var pinned int64
+	view := &dbtest.MockStore{}
+	store := &dbtest.MockStore{
+		ResolveSnapshotFunc: func(_ context.Context, name string) (int64, error) {
+			if name == "2026-11" {
+				return 7, nil
+			}
+			return 0, db.ErrSnapshotNotFound
+		},
+		WithSnapshotFunc: func(id int64) db.Store { pinned = id; return view },
+		LatestComputeFunc: func(context.Context, string) ([]db.LatestPart, error) {
+			t.Error("--snapshot read the latest compute")
+			return nil, nil
+		},
+	}
+	run := func(name string) error {
+		ios, _, _, _ := iostreams.Test()
+		return runForecast(context.Background(), &Options{
+			IO:          ios,
+			Config:      func() (*config.Config, error) { return cfg, nil },
+			CurrentCity: func() (*config.CityConfig, error) { return city, nil },
+			CityDB:      func() (db.Store, error) { return store, nil },
+			UnitSystem:  func() units.System { return units.Metric },
+			Snapshot:    name,
+		})
+	}
+	if err := run("2026-11"); !errors.Is(err, cmdutil.ErrNoResults) || pinned != 7 {
+		t.Errorf("err = %v, pinned %d; want the empty snapshot view (ErrNoResults) of snapshot 7", err, pinned)
+	}
+	if err := run("2025-01"); err == nil || !strings.Contains(err.Error(), `snapshot "2025-01" does not cover Test City`) {
+		t.Errorf("err = %v, want a not-covered error", err)
+	}
+}
+
+// TestForecast_UnknownSnapshotRefusedOnce: a --snapshot no snapshot has is
+// refused before any city runs, not once per city.
+func TestForecast_UnknownSnapshotRefusedOnce(t *testing.T) {
+	root, err := db.Open(filepath.Join(t.TempDir(), db.FileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+	ios, _, _, _ := iostreams.Test()
+	cfg := &config.Config{Cities: []config.CityConfig{{Name: "Alpha, CA"}, {Name: "Beta, CA"}}}
+	f := &cmdutil.Factory{
+		IOStreams:   ios,
+		RootDB:      func() (*db.RootStore, error) { return root, nil },
+		Config:      func() (*config.Config, error) { return cfg, nil },
+		CurrentCity: func() (*config.CityConfig, error) { return &cfg.Cities[0], nil },
+		CityFlagSet: func() bool { return false },
+		CityDB:      func() (db.Store, error) { t.Fatal("a city ran"); return nil, errors.New("unreachable") },
+		UnitSystem:  func() units.System { return units.Metric },
+	}
+	cmd := NewCmdForecast(f, nil)
+	cmd.SetArgs([]string{"--snapshot", "2025-01"})
+	cmd.SilenceErrors, cmd.SilenceUsage = true, true
+	if err := cmd.Execute(); err == nil || err.Error() != `no snapshot named "2025-01"` {
+		t.Errorf("err = %v, want one no-snapshot error", err)
 	}
 }
