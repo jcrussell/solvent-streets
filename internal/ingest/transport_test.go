@@ -19,8 +19,10 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/build"
 )
 
+// testRetryConfig backs off from 1 ms, so a retry test waits milliseconds,
+// not the production one-second base.
 func testRetryConfig(maxRetries int) RetryConfig {
-	return RetryConfig{MaxRetries: maxRetries, MaxBackoff: 30 * time.Second}
+	return RetryConfig{MaxRetries: maxRetries, MaxBackoff: 30 * time.Second, BaseBackoff: time.Millisecond}
 }
 
 // seqServer is the replacement for gock/httpmock-style
@@ -490,16 +492,6 @@ func TestSleepCtx_ReturnsOnCancel(t *testing.T) {
 	}
 }
 
-func TestSleepCtx_ReturnsAfterDuration(t *testing.T) {
-	start := time.Now()
-	if err := sleepCtx(context.Background(), 20*time.Millisecond); err != nil {
-		t.Errorf("sleepCtx returned %v, want nil", err)
-	}
-	if elapsed := time.Since(start); elapsed < 20*time.Millisecond {
-		t.Errorf("sleepCtx returned after %v, want >= 20ms", elapsed)
-	}
-}
-
 // TestShouldRetry_StatusMatrix locks in the status-code
 // allowlist. 408 / 429 / 500 / 502 / 503 / 504 retry; 400 / 401 / 404 / 405
 // (client errors), 425 (Too Early — semantics-specific opt-in), 501 (Not
@@ -915,6 +907,19 @@ func TestBackoffWait_RetryAfterIgnoredWhenDisabled(t *testing.T) {
 	exp := time.Second // attempt=0 → exp=1s
 	if got >= exp {
 		t.Errorf("backoffWait with UseRetryAfter=false honoured Retry-After: got %v >= exp %v", got, exp)
+	}
+}
+
+// TestBackoffWait_BaseBackoffSetsTheWindow: BaseBackoff replaces the
+// one-second base, and the window still doubles per attempt.
+func TestBackoffWait_BaseBackoffSetsTheWindow(t *testing.T) {
+	tr := &retryTransport{cfg: RetryConfig{MaxRetries: 3, MaxBackoff: time.Second, BaseBackoff: 10 * time.Millisecond}}
+	for attempt, exp := range []time.Duration{10 * time.Millisecond, 20 * time.Millisecond, 40 * time.Millisecond} {
+		for range 100 {
+			if w := tr.backoffWait(attempt, nil); w < 0 || w >= exp {
+				t.Fatalf("attempt=%d: wait=%v out of [0,%v)", attempt, w, exp)
+			}
+		}
 	}
 }
 

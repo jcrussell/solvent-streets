@@ -106,6 +106,9 @@ type RetryConfig struct {
 	MaxRetries    int
 	MaxBackoff    time.Duration
 	UseRetryAfter bool
+	// BaseBackoff is the first retry's jitter ceiling, doubled per attempt;
+	// zero means one second.
+	BaseBackoff time.Duration
 }
 
 // DefaultRetryConfig returns retry settings tuned for Overpass API rate limits.
@@ -390,7 +393,11 @@ func isRetryableErr(err error) bool {
 // invocations do not share the deterministic sequence math/rand gives
 // without explicit seeding.
 func (t *retryTransport) backoffWait(attempt int, resp *http.Response) time.Duration {
-	exp := time.Second << attempt
+	base := t.cfg.BaseBackoff
+	if base <= 0 {
+		base = time.Second
+	}
+	exp := base << attempt
 	if exp <= 0 || exp > t.cfg.MaxBackoff {
 		exp = t.cfg.MaxBackoff
 	}
