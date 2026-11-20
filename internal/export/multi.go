@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/jcrussell/solvent-streets/internal/config"
-	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/forecast"
 	"github.com/jcrussell/solvent-streets/internal/geo"
 	"github.com/jcrussell/solvent-streets/internal/resource"
@@ -71,51 +70,39 @@ func BuildMultiCityMeta(ctx context.Context, entries []CityEntry, title string) 
 // Reads only rt.Name() (no ":city" variants): the per-resource cards on the
 // dashboard surface all-jurisdiction totals, matching single-city BuildMeta.
 //
-// An entry whose results cannot be read is skipped, except when its pinned
-// snapshot is gone (db.ErrSnapshotGone): that is returned, so a snapshot
-// deleted mid-export fails the export rather than dropping the city from the
-// totals. The same holds for summedBoundaryArea and regionBBox.
+// An entry whose results cannot be read fails the aggregate, as a single
+// city's meta does, rather than dropping the city from the totals; that
+// includes a pinned snapshot deleted mid-export (db.ErrSnapshotGone).
 func aggregatePerResourceStats(ctx context.Context, entries []CityEntry) ([]StatJSON, error) {
 	types := resource.AllTypes(resource.ScopeAll)
-	statByType := make(map[string]*StatJSON)
+	summed := map[resource.Type]results.Totals{}
 	for _, entry := range entries {
 		// One batched lookup per entry. A type missing from the returned map
 		// has not been computed and contributes nothing.
-		latestByType, err := results.LoadTotals(ctx, entry.Store, types)
-		if errors.Is(err, db.ErrSnapshotGone) {
+		totals, err := results.LoadTotals(ctx, entry.Store, types)
+		if err != nil {
 			return nil, fmt.Errorf("%s: %w", entry.City.Name, err)
 		}
-		if err != nil {
-			continue
-		}
-		for _, rt := range resource.All {
-			t := rt.Type()
-			result, ok := latestByType[t]
-			if !ok {
-				continue
-			}
-			kindName := string(t)
-			st, ok := statByType[kindName]
-			if !ok {
-				st = &StatJSON{ResourceType: kindName, Color: ResourceColors[kindName]}
-				statByType[kindName] = st
-			}
-			st.TotalArea += result.Area
-			st.EstimatedSpaces += result.Spaces
+		for t, result := range totals {
+			sum := summed[t]
+			sum.Area += result.Area
+			sum.Spaces += result.Spaces
+			summed[t] = sum
 		}
 	}
-	out := []StatJSON{}
-	for _, rt := range resource.All {
-		if st, ok := statByType[string(rt.Type())]; ok {
-			out = append(out, *st)
-		}
+	if stats := statsFromTotals(summed); stats != nil {
+		return stats, nil
 	}
-	return out, nil
+	return []StatJSON{}, nil
 }
 
 // summedBoundaryArea computes each sub-city's boundary area in its own UTM
 // zone (so far-apart sub-cities are not biased by a single shared projection)
-// and sums them. Returns 0 when no usable boundaries are available.
+// and sums them. Returns 0 when no usable boundaries are available. A city
+// with no stored boundary, or one whose geometry has no area, adds nothing; a
+// boundary that cannot be read fails the sum (db.ErrSnapshotGone included),
+// so the region's paved share is never taken over a smaller area than its
+// paved totals cover.
 //
 // Sub-city boundaries are assumed to be disjoint, which holds for the typical
 // multi-metro config (Bay Area, statewide rollups). Overlapping sub-city
@@ -126,10 +113,10 @@ func summedBoundaryArea(ctx context.Context, entries []CityEntry) (float64, erro
 	var total float64
 	for _, entry := range entries {
 		gjson, err := entry.Store.GetBoundary(ctx)
-		if errors.Is(err, db.ErrSnapshotGone) {
-			return 0, fmt.Errorf("%s: %w", entry.City.Name, err)
+		if err != nil {
+			return 0, fmt.Errorf("boundary for %s: %w", entry.City.Name, err)
 		}
-		if err != nil || gjson == "" {
+		if gjson == "" {
 			continue
 		}
 		a, err := geo.BoundaryArea(cityLogCtx(ctx, entry), gjson)
@@ -141,15 +128,21 @@ func summedBoundaryArea(ctx context.Context, entries []CityEntry) (float64, erro
 	return total, nil
 }
 
-// regionBBox returns the union of sub-city bboxes ([south, west, north, east]).
+// regionBBox returns the union of sub-city bboxes ([south, west, north,
+// east]). A city with no stored boundary, or one with no bbox, is left out; a
+// boundary that cannot be read fails it (db.ErrSnapshotGone included).
 func regionBBox(ctx context.Context, entries []CityEntry) ([4]float64, bool, error) {
 	var out [4]float64
 	first := true
 	for _, entry := range entries {
-		bb, _, _, err := entry.BBoxAndCenter(ctx)
-		if errors.Is(err, db.ErrSnapshotGone) {
-			return out, false, err
+		gjson, err := entry.Store.GetBoundary(ctx)
+		if err != nil {
+			return out, false, fmt.Errorf("boundary for %s: %w", entry.City.Name, err)
 		}
+		if gjson == "" {
+			continue
+		}
+		bb, err := geo.BBoxFromGeoJSON(gjson)
 		if err != nil {
 			continue
 		}

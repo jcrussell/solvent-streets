@@ -813,28 +813,38 @@ func ingestGaps(ctx context.Context, entry CityEntry, missing []string) (failure
 // addPavementStats fills meta's Stats and MissingResources from each pavement
 // resource's stored totals.
 func addPavementStats(ctx context.Context, entry CityEntry, meta *MetaJSON) error {
+	totals, err := results.LoadTotals(ctx, entry.Store, resource.AllTypes(resource.ScopeAll))
+	if err != nil {
+		// A real DB failure is propagated so serveMetaJSON's cache evicts
+		// and retries instead of memoizing a partial meta for the
+		// server's lifetime.
+		return fmt.Errorf("latest compute results: %w", err)
+	}
 	for _, rt := range resource.All {
-		result, ok, err := results.LoadTotal(ctx, entry.Store, rt.Type())
-		if err != nil {
-			// A real DB failure is propagated so serveMetaJSON's cache evicts
-			// and retries instead of memoizing a partial meta for the
-			// server's lifetime.
-			return fmt.Errorf("latest compute result for %s: %w", rt.Type(), err)
+		if result, ok := totals[rt.Type()]; !ok || result.Features == 0 {
+			meta.MissingResources = append(meta.MissingResources, string(rt.Type()))
 		}
-		typeName := string(rt.Type().Bare())
-		if !ok || result.Features == 0 {
-			meta.MissingResources = append(meta.MissingResources, typeName)
-		}
+	}
+	meta.Stats = statsFromTotals(totals)
+	return nil
+}
+
+// statsFromTotals is meta.json's per-resource cards from all-scope totals: one
+// per resource in totals, in resource.All order, nil when there is none.
+func statsFromTotals(totals map[resource.Type]results.Totals) []StatJSON {
+	var out []StatJSON
+	for _, rt := range resource.All {
+		result, ok := totals[rt.Type()]
 		if !ok {
-			// This resource hasn't been computed yet.
 			continue
 		}
-		meta.Stats = append(meta.Stats, StatJSON{
-			ResourceType:    typeName,
-			Color:           ResourceColors[typeName],
+		name := string(rt.Type())
+		out = append(out, StatJSON{
+			ResourceType:    name,
+			Color:           ResourceColors[name],
 			TotalArea:       result.Area,
 			EstimatedSpaces: result.Spaces,
 		})
 	}
-	return nil
+	return out
 }

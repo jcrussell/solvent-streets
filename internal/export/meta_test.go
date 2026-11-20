@@ -132,6 +132,54 @@ func TestBuildMultiCityMeta_AggregatesAcrossEntries(t *testing.T) {
 	}
 }
 
+// TestAggregatePerResourceStats_ReadErrorFails: a city whose totals cannot be
+// read fails the regional cards instead of silently dropping out of them.
+func TestAggregatePerResourceStats_ReadErrorFails(t *testing.T) {
+	ok := newMockEntryWithBoundary(map[resource.Type]results.Totals{mtRoads: {Area: 1000, Features: 10}}, "")
+	broken := newMockEntryWithBoundary(nil, "")
+	broken.City.Name = "Broken City"
+	locked := errors.New("database is locked")
+	broken.Store.(*dbtest.MockStore).ListCityMetricsFunc = func(context.Context, []string) ([]db.CityMetric, error) {
+		return nil, locked
+	}
+	if _, err := aggregatePerResourceStats(t.Context(), []CityEntry{ok, broken}); !errors.Is(err, locked) {
+		t.Errorf("err = %v, want the read error", err)
+	}
+	stats, err := aggregatePerResourceStats(t.Context(), []CityEntry{ok})
+	if err != nil || len(stats) != 1 || stats[0].TotalArea != 1000 {
+		t.Errorf("stats = %+v, %v; want one roads card of 1000", stats, err)
+	}
+}
+
+// TestRegionBoundary_ReadErrorFails: a city whose boundary cannot be read
+// fails the region's area and bbox rather than dropping out of them (which
+// would leave its paved totals over a smaller area); a city with no stored
+// boundary is still left out.
+func TestRegionBoundary_ReadErrorFails(t *testing.T) {
+	square := `{"type":"Polygon","coordinates":[[[-122.5,37.5],[-122.4,37.5],[-122.4,37.6],[-122.5,37.6],[-122.5,37.5]]]}`
+	ok := newMockEntryWithBoundary(nil, square)
+	none := newMockEntryWithBoundary(nil, "")
+	broken := newMockEntryWithBoundary(nil, square)
+	broken.City.Name = "Broken City"
+	locked := errors.New("database is locked")
+	broken.Store.(*dbtest.MockStore).GetBoundaryFunc = func(context.Context) (string, error) { return "", locked }
+
+	if _, err := summedBoundaryArea(t.Context(), []CityEntry{ok, broken}); !errors.Is(err, locked) {
+		t.Errorf("summedBoundaryArea err = %v, want the read error", err)
+	}
+	if _, _, err := regionBBox(t.Context(), []CityEntry{ok, broken}); !errors.Is(err, locked) {
+		t.Errorf("regionBBox err = %v, want the read error", err)
+	}
+
+	area, err := summedBoundaryArea(t.Context(), []CityEntry{ok, none})
+	if err != nil || area <= 0 {
+		t.Errorf("summedBoundaryArea without a boundary = (%v, %v), want the one city's area", area, err)
+	}
+	if _, has, err := regionBBox(t.Context(), []CityEntry{ok, none}); err != nil || !has {
+		t.Errorf("regionBBox without a boundary = (%v, %v), want the one city's bbox", has, err)
+	}
+}
+
 func newMockEntryWithBoundary(totals map[resource.Type]results.Totals, boundary string) CityEntry {
 	store := &dbtest.MockStore{
 		CityMetrics: totalsFixture(totals),
