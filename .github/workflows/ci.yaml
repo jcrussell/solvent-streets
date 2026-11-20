@@ -132,6 +132,19 @@ jobs:
       - name: Build
         run: go build -v ./...
 
+      # GoReleaser runs gendocs as a before-hook, so a broken gendocs would
+      # otherwise first fail at tag time. Its output (man pages, completions)
+      # is gitignored; the check is that it runs, and that it writes only
+      # ignored files.
+      - name: Generate CLI docs (gendocs)
+        run: |
+          make gendocs
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "::error::gendocs wrote files git does not ignore:"
+            git status --porcelain
+            exit 1
+          fi
+
   test:
     name: Test
     runs-on: ubuntu-latest

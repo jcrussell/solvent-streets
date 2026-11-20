@@ -5,9 +5,10 @@ on:
     tags:
       - "v*"
 
+# Read-only by default: the smoke job builds and runs untagged code and needs
+# no token scope. Only the release job publishes and signs.
 permissions:
-  contents: write
-  id-token: write       # OIDC for cosign keyless signing
+  contents: read
 
 jobs:
   smoke:
@@ -44,7 +45,7 @@ jobs:
           echo "$version_out"
           # pvmt's --version template is "pvmt {{.Version}}\n" (pkg/cmd/root/root.go).
           # .goreleaser.yaml injects internal/build.Version=v{{.Version}}, which
-          # for this snapshot build is v<incpatch>-SNAPSHOT-<shortcommit>. Assert
+          # for this snapshot build is v<latest tag>-SNAPSHOT-<shortcommit>. Assert
           # the -SNAPSHOT- suffix, not just a semver: if the ldflags symbol path
           # drifts, internal/build falls back to the module version Go stamps
           # from git (a tag or pseudo-version, never -SNAPSHOT-), so a bare
@@ -77,6 +78,9 @@ jobs:
     name: Release
     runs-on: ubuntu-latest
     needs: smoke
+    permissions:
+      contents: write   # publish the GitHub release and its assets
+      id-token: write   # OIDC for cosign keyless signing
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
