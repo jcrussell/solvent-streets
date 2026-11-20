@@ -209,7 +209,12 @@ make deploy        # force-push ./site/ to gh-pages
 `make site` never creates snapshots: publishing is the deliberate
 `snapshots create`, and rolling a city back is `pvmt --city <slug> snapshots
 delete` of its newest snapshot, which a create inside `make site` would undo.
-A city with no snapshot makes `make site` refuse, naming it. Run `make site`
+A city with no snapshot makes `make site` refuse, naming it. So does
+incomplete data: before exporting, `make site` runs
+`pvmt status --all --incomplete --exit-status` over `examples/all`, which
+lists each layer that was never ingested or whose newest attempt failed,
+with the command that retries it. Run those, or publish anyway with
+`SITE_ALLOW_INCOMPLETE=1 make site`. Run `make site`
 and `make site-report` before tagging a release that changes export output, so
 a city over its size budget is caught first. GitHub Pages
 serves the new commit on its next sync.

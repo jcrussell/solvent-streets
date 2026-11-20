@@ -129,7 +129,7 @@ help:
 	@echo "  pre-commit    fmt + vet + lint + lint-js (run by hand; not a git hook)"
 	@echo "  wasm          rebuild forecast WASM (embedded into binary)"
 	@echo "  gendocs       regenerate docs/reference/ from cobra"
-	@echo "  site          render the combined tagged static site to \$$SITE_DIR"
+	@echo "  site          render the combined tagged static site to \$$SITE_DIR (refuses incomplete data; SITE_ALLOW_INCOMPLETE=1 overrides)"
 	@echo "                from each city's newest snapshot; never creates one (needs each included"
 	@echo "                example ingested, computed and snapshotted: pvmt snapshots create <name>)"
 	@echo "  site-report   per-file size totals and per-city budgets over \$$SITE_DIR"
@@ -142,7 +142,24 @@ SITE_DIR := site
 # from the working directory, so `make site` runs the exporter from there.
 SITE_CONFIG_DIR := examples/all
 
+# The site refuses to build while a city's data is incomplete: a layer never
+# ingested, or one whose newest attempt failed (`pvmt status --all
+# --incomplete`, which prints each such layer with the command that retries
+# it). SITE_ALLOW_INCOMPLETE=1 builds it anyway.
 site: wasm
+	@if [ "$(SITE_ALLOW_INCOMPLETE)" = 1 ]; then \
+		echo "SITE_ALLOW_INCOMPLETE=1: building the site without the data-completeness check"; \
+	else \
+		out=$$(cd $(SITE_CONFIG_DIR) && go run -ldflags "$(LDFLAGS)" $(CURDIR)/cmd/pvmt status --all --incomplete --exit-status 2>&1); rc=$$?; \
+		printf '%s\n' "$$out"; \
+		if [ $$rc -eq 1 ] && printf '%s\n' "$$out" | grep -qE '^[1-9][0-9]* of [0-9]+ cities incomplete$$'; then \
+			echo "ERROR: the layers above are incomplete. Run their retry commands, or build anyway with SITE_ALLOW_INCOMPLETE=1 make site"; \
+			exit 1; \
+		elif [ $$rc -ne 0 ]; then \
+			echo "ERROR: the data-completeness check itself failed (pvmt status exited $$rc); fix that before building the site"; \
+			exit $$rc; \
+		fi; \
+	fi
 	cd $(SITE_CONFIG_DIR) && go run -ldflags "$(LDFLAGS)" $(CURDIR)/cmd/pvmt export -o "$(CURDIR)/$(SITE_DIR)" --clean
 
 site-clean:
