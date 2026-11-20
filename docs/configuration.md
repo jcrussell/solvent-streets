@@ -392,6 +392,22 @@ or a negative `turnout_s` or `travel_threshold_s` is a config error.
 
 ## Export and hosting
 
+**What `pvmt export` writes.** The site goes to `-o` (default `./site`),
+which must be missing or empty unless `--clean` is passed. Every export lists
+each file it writes in a `.pvmt-export` manifest at the site root, and
+`--clean` removes exactly the files that manifest lists, then the
+directories they leave empty, so anything else in the directory (a `.git`
+checkout, notes, another tool's files) stays. `--clean` refuses a non-empty
+directory without a manifest, a manifest entry that points outside the
+directory, and an export that would overwrite a file the manifest does not
+list, all before removing anything. The manifest is plain text: the line
+`pvmt export manifest v1`, then `state: complete` (or `state: in-progress`
+while an export runs or after one failed; its files are still listed, so
+`--clean` recovers it, along with the `<name>.tmp-<digits>` temp file an
+interrupted write of a listed file left beside it),
+then one path per line, relative to the site root. Run one export into a
+directory at a time.
+
 **`[export].title`** names a multi-city dashboard built by `pvmt export`. It
 defaults to the output directory's name. `pvmt serve` does not use it.
 

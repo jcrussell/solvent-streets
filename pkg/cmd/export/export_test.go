@@ -118,10 +118,45 @@ func TestOptions_Validate_ExistingWithoutClean(t *testing.T) {
 	if err := os.Mkdir(dir, 0o755); err != nil {
 		t.Fatalf("setup: %v", err)
 	}
+	if err := os.WriteFile(filepath.Join(dir, "index.html"), nil, 0o644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
 	opts := &Options{OutputDir: dir, Clean: false}
 	err := opts.Validate()
 	if err == nil {
 		t.Fatal("expected error for existing dir without --clean, got nil")
+	}
+	if _, ok := errors.AsType[*cmdutil.FlagError](err); !ok {
+		t.Errorf("error %v is not *FlagError", err)
+	}
+}
+
+// TestOptions_Validate_EmptyExistingWithoutClean: an empty directory holds
+// nothing to lose, so it needs no --clean.
+func TestOptions_Validate_EmptyExistingWithoutClean(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "site")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	opts := &Options{OutputDir: dir}
+	if err := opts.Validate(); err != nil {
+		t.Errorf("empty existing dir without --clean: %v", err)
+	}
+}
+
+// TestOptions_Validate_ConfigDir refuses the config file's directory, which
+// --clean would delete along with the config.
+func TestOptions_Validate_ConfigDir(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &config.Config{SourcePath: filepath.Join(dir, "pvmt.toml")}
+	opts := &Options{
+		OutputDir: dir,
+		Clean:     true,
+		Config:    func() (*config.Config, error) { return cfg, nil },
+	}
+	err := opts.Validate()
+	if err == nil {
+		t.Fatal("Validate accepted the config file's directory")
 	}
 	if _, ok := errors.AsType[*cmdutil.FlagError](err); !ok {
 		t.Errorf("error %v is not *FlagError", err)
@@ -207,19 +242,17 @@ func writeTree(t *testing.T, root string, paths ...string) {
 // WASM assets land in Shared.
 func TestBuildManifest_SingleCity(t *testing.T) {
 	dir := t.TempDir()
-	writeTree(t, dir,
+	files := []string{
 		"index.html",
 		"pvmt.wasm",
 		"wasm_exec.js",
 		"data/meta.json",
 		"data/forecast.json",
 		"data/hexgrid.geojson",
-	)
-
-	m, err := buildManifest(dir, []exportpkg.CityEntry{entry("portland-or", "Portland, OR")})
-	if err != nil {
-		t.Fatalf("buildManifest: %v", err)
 	}
+	writeTree(t, dir, files...)
+
+	m := buildManifest(dir, files, []exportpkg.CityEntry{entry("portland-or", "Portland, OR")})
 
 	if m.OutputDir != dir {
 		t.Errorf("OutputDir = %q, want %q", m.OutputDir, dir)
@@ -257,7 +290,7 @@ func TestBuildManifest_SingleCity(t *testing.T) {
 // (sorted) file list even when the walk order is interleaved.
 func TestBuildManifest_MultiCity(t *testing.T) {
 	dir := t.TempDir()
-	writeTree(t, dir,
+	files := []string{
 		"index.html",
 		"pvmt.wasm",
 		"wasm_exec.js",
@@ -266,16 +299,14 @@ func TestBuildManifest_MultiCity(t *testing.T) {
 		"cities/portland-or/data/forecast.json",
 		"cities/seattle-wa/data/meta.json",
 		"cities/seattle-wa/data/hexgrid.geojson",
-	)
+	}
+	writeTree(t, dir, files...)
 
 	entries := []exportpkg.CityEntry{
 		entry("portland-or", "Portland, OR"),
 		entry("seattle-wa", "Seattle, WA"),
 	}
-	m, err := buildManifest(dir, entries)
-	if err != nil {
-		t.Fatalf("buildManifest: %v", err)
-	}
+	m := buildManifest(dir, files, entries)
 
 	if m.FileCount != 8 {
 		t.Errorf("FileCount = %d, want 8", m.FileCount)
@@ -315,18 +346,16 @@ func TestBuildManifest_MultiCity(t *testing.T) {
 // rather than silently disappear from the manifest.
 func TestBuildManifest_UnknownCityDirFallsThrough(t *testing.T) {
 	dir := t.TempDir()
-	writeTree(t, dir,
+	files := []string{
 		"cities/portland-or/data/meta.json",
 		"cities/leftover/data/old.json",
-	)
+	}
+	writeTree(t, dir, files...)
 
-	m, err := buildManifest(dir, []exportpkg.CityEntry{
+	m := buildManifest(dir, files, []exportpkg.CityEntry{
 		entry("portland-or", "Portland, OR"),
 		entry("seattle-wa", "Seattle, WA"),
 	})
-	if err != nil {
-		t.Fatalf("buildManifest: %v", err)
-	}
 
 	if m.FileCount != 2 {
 		t.Errorf("FileCount = %d, want 2", m.FileCount)

@@ -152,12 +152,11 @@ func TestRunSingleCity_ReusesExportedMetaAndSeed(t *testing.T) {
 	}
 }
 
-// TestRunMultiCity_FailureLeavesRecoverableDir pins yvlv.19: when the export
-// fails partway (here, a second city whose snapshot holds no pavement, so
-// RequirePavement fails), the output dir is left non-empty and
-// WITHOUT index.html — but WITH the ExportMarkerName sentinel written up front,
-// so a retry with --clean can recover it instead of dead-ending on a manual
-// rm -rf.
+// TestRunMultiCity_FailureLeavesRecoverableDir: when the export fails partway
+// (here, a second city whose snapshot holds no pavement, so RequirePavement
+// fails), the output dir is left without index.html but with an in-progress
+// manifest listing every file written so far, so a retry with --clean removes
+// exactly those and the directory is usable again.
 func TestRunMultiCity_FailureLeavesRecoverableDir(t *testing.T) {
 	cfg := &config.Config{}
 	good := exportTestEntry(cfg, "Good", "good", exportBoundaryA, map[resource.Type]results.Totals{
@@ -183,13 +182,21 @@ func TestRunMultiCity_FailureLeavesRecoverableDir(t *testing.T) {
 	if _, statErr := os.Stat(filepath.Join(dir, "index.html")); !os.IsNotExist(statErr) {
 		t.Errorf("index.html should be absent after a mid-run failure (stat err=%v)", statErr)
 	}
-	// The early marker IS present, so the partial dir is recoverable.
-	if _, statErr := os.Stat(filepath.Join(dir, fsutil.ExportMarkerName)); statErr != nil {
-		t.Errorf("export marker should be present after a mid-run failure: %v", statErr)
+	m, err := readManifestIn(t, dir)
+	if err != nil {
+		t.Fatalf("manifest after a mid-run failure: %v", err)
 	}
-	// SafeCleanDir must now accept the partial dir (marker, no index.html).
-	if cleanErr := fsutil.SafeCleanDir(dir); cleanErr != nil {
-		t.Errorf("partial export dir should be recoverable with --clean: %v", cleanErr)
+	if m.complete || !slices.Contains(m.files, NojekyllFileName) || !slices.Contains(m.files, "cities/good/data/meta.json") {
+		t.Errorf("manifest = %+v, want in progress, listing the files written before the failure", m)
+	}
+	// --clean on the partial dir removes every file the failed run wrote.
+	retry := New([]CityEntry{good}, cfg, dir, "metric", testAssets(t))
+	if err := retry.PrepareOutput(true); err != nil {
+		t.Fatalf("partial export dir should be recoverable with --clean: %v", err)
+	}
+	if !fsutil.IsEmptyDir(dir) {
+		ents, _ := os.ReadDir(dir)
+		t.Errorf("cleaned partial dir still holds %v", ents)
 	}
 }
 
@@ -297,7 +304,7 @@ func assertBoardHexgrid(t *testing.T, dataDir string) {
 			Properties map[string]any `json:"properties"`
 		} `json:"features"`
 	}
-	if ok, err := readDataFile(dataDir, HexGridFileName, &fc); err != nil || !ok {
+	if ok, err := readDataFileIn(dataDir, HexGridFileName, &fc); err != nil || !ok {
 		t.Fatalf("%s: read hexgrid: ok=%v err=%v", dataDir, ok, err)
 	}
 	for _, f := range fc.Features {
@@ -675,7 +682,7 @@ func TestRunMultiCity_WritesCompareRollup(t *testing.T) {
 			continue
 		}
 		var meta MetaJSON
-		if ok, err := readDataFile(dataDir, "meta.json", &meta); err != nil || !ok {
+		if ok, err := readDataFileIn(dataDir, "meta.json", &meta); err != nil || !ok {
 			t.Fatal(err)
 		}
 		if c.Meta.TotalPaved != meta.TotalPaved || c.Meta.Stats[0].TotalArea != meta.Stats[0].TotalArea {
@@ -687,7 +694,7 @@ func TestRunMultiCity_WritesCompareRollup(t *testing.T) {
 		// The rollup's seed carries every setting the Aggregate divergence
 		// note compares, as forecast_seed.json has them.
 		var seed ForecastSeedJSON
-		if ok, err := readDataFile(dataDir, "forecast_seed.json", &seed); err != nil || !ok {
+		if ok, err := readDataFileIn(dataDir, "forecast_seed.json", &seed); err != nil || !ok {
 			t.Fatal(err)
 		}
 		if c.Seed.CostMultiplier != seed.CostMultiplier || c.Seed.TreatmentCycleYears != seed.TreatmentCycleYears ||
@@ -699,4 +706,14 @@ func TestRunMultiCity_WritesCompareRollup(t *testing.T) {
 	if len(raw)*4 > perCity {
 		t.Errorf("compare.json is %d bytes against %d for the per-city files; want well under a quarter", len(raw), perCity)
 	}
+}
+
+// readDataFileIn is readDataFile for a test's plain data directory.
+func readDataFileIn(dataDir, name string, v any) (bool, error) {
+	root, err := os.OpenRoot(dataDir)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = root.Close() }()
+	return readDataFile(root, ".", name, v)
 }

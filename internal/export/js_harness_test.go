@@ -232,8 +232,13 @@ func writeJSFixtureTree(t *testing.T, dir string) {
 	// the files just written (every fixture city shares them). The specs
 	// check the tabs render the same from it as from the per-city files.
 	compare := CompareJSON{V: CompareFileVersion}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = root.Close() }()
 	for _, slug := range []string{"alpha-ca", "beta-ca", "gamma-or"} {
-		c, err := compareCityFromDir(slug, dir)
+		c, err := compareCityFromDir(root, slug, ".")
 		if err != nil {
 			t.Fatalf("build compare.json: %v", err)
 		}

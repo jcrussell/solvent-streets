@@ -7,84 +7,39 @@ import (
 	"testing"
 )
 
-func TestSafeCleanDir_RefusesNonSiteDir(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "out")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+func TestResolveOutputDir_RefusesWorkingDirAndAncestors(t *testing.T) {
+	root := t.TempDir()
+	wd := filepath.Join(root, "project", "city")
+	if err := os.MkdirAll(wd, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// A non-empty dir without the index.html sentinel must be refused.
-	if err := os.WriteFile(filepath.Join(dir, "important.txt"), []byte("keep me"), 0o644); err != nil {
-		t.Fatal(err)
+	t.Chdir(wd)
+	for _, dir := range []string{".", "..", filepath.Join(root, "project"), root} {
+		if _, err := ResolveOutputDir(dir); err == nil {
+			t.Errorf("ResolveOutputDir(%q) accepted the working directory or an ancestor", dir)
+		}
 	}
-	if err := SafeCleanDir(dir); err == nil {
-		t.Fatal("expected refusal to delete non-site directory, got nil")
+	if _, err := ResolveOutputDir("site"); err != nil {
+		t.Errorf("ResolveOutputDir(site) under the working directory: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "important.txt")); err != nil {
-		t.Errorf("refused clean must leave existing files intact: %v", err)
+	if _, err := ResolveOutputDir(filepath.Join(root, "elsewhere")); err != nil {
+		t.Errorf("ResolveOutputDir of a sibling tree: %v", err)
 	}
 }
 
-func TestSafeCleanDir_AllowsSiteAndEmptyAndMissing(t *testing.T) {
-	// Previously-generated site (has index.html) is cleaned and recreated.
-	site := filepath.Join(t.TempDir(), "site")
-	if err := os.MkdirAll(site, 0o755); err != nil {
+func TestResolveOutputDir_RefusesProtectedDirAndAncestors(t *testing.T) {
+	root := t.TempDir()
+	cfgDir := filepath.Join(root, "configs", "city")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(site, "index.html"), []byte("<html>"), 0o644); err != nil {
-		t.Fatal(err)
+	for _, dir := range []string{cfgDir, filepath.Join(root, "configs")} {
+		if _, err := ResolveOutputDir(dir, cfgDir); err == nil {
+			t.Errorf("ResolveOutputDir(%q) accepted the protected directory or an ancestor", dir)
+		}
 	}
-	if err := os.WriteFile(filepath.Join(site, "stale.json"), []byte("{}"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := SafeCleanDir(site); err != nil {
-		t.Fatalf("site dir should be cleanable: %v", err)
-	}
-	entries, _ := os.ReadDir(site)
-	if len(entries) != 0 {
-		t.Errorf("cleaned site dir should be empty, has %d entries", len(entries))
-	}
-
-	// Empty dir and a not-yet-existing dir both succeed (and end up present).
-	empty := filepath.Join(t.TempDir(), "empty")
-	if err := os.MkdirAll(empty, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := SafeCleanDir(empty); err != nil {
-		t.Errorf("empty dir should be cleanable: %v", err)
-	}
-	missing := filepath.Join(t.TempDir(), "missing")
-	if err := SafeCleanDir(missing); err != nil {
-		t.Errorf("missing dir should be created: %v", err)
-	}
-	if info, err := os.Stat(missing); err != nil || !info.IsDir() {
-		t.Errorf("missing dir should exist after SafeCleanDir: %v", err)
-	}
-}
-
-// TestSafeCleanDir_AllowsPartialExportMarker pins yvlv.19: a partial export —
-// data files present but no index.html, because the run failed before the HTML
-// was written — is recoverable with --clean because the exporter drops the
-// ExportMarkerName sentinel first. Without the marker such a dir dead-ends
-// (SafeCleanDir refuses it, requiring a manual rm -rf).
-func TestSafeCleanDir_AllowsPartialExportMarker(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "partial")
-	if err := os.MkdirAll(filepath.Join(dir, "data"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	// Simulate a partial export: marker written first, some data files, but the
-	// run failed before index.html.
-	if err := os.WriteFile(filepath.Join(dir, ExportMarkerName), []byte("in progress\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "data", "meta.json"), []byte("{}"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := SafeCleanDir(dir); err != nil {
-		t.Fatalf("partial export dir with %s marker should be cleanable: %v", ExportMarkerName, err)
-	}
-	entries, _ := os.ReadDir(dir)
-	if len(entries) != 0 {
-		t.Errorf("cleaned partial dir should be empty, has %d entries", len(entries))
+	if _, err := ResolveOutputDir(filepath.Join(cfgDir, "site"), cfgDir); err != nil {
+		t.Errorf("a subdirectory of the config directory: %v", err)
 	}
 }
 
@@ -187,5 +142,28 @@ func TestWritableDir_NotADirectory(t *testing.T) {
 	}
 	if err := WritableDir(tmpFile); err == nil {
 		t.Errorf("expected error for non-directory, got nil")
+	}
+}
+
+// TestResolveOutputDir_ComparesByIdentity: the guards compare directories by
+// identity (os.SameFile), so a spelling that differs from the guard's, as
+// "Site" does from "site" on a case-insensitive filesystem, is still caught.
+// Linux test filesystems are case-sensitive, so this pins the identity
+// helpers and a spelling Rel alone would not normalize.
+func TestResolveOutputDir_ComparesByIdentity(t *testing.T) {
+	root := t.TempDir()
+	wd := filepath.Join(root, "project")
+	if err := os.Mkdir(wd, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(wd)
+	if !isAncestorOrSelf(root, wd) || !isAncestorOrSelf(wd, wd) || isAncestorOrSelf(filepath.Join(root, "x"), wd) {
+		t.Error("isAncestorOrSelf misjudged an ancestor")
+	}
+	if !sameDir(wd, filepath.Join(root, ".", "project")) || sameDir(wd, root) {
+		t.Error("sameDir misjudged a directory")
+	}
+	if _, err := ResolveOutputDir(wd + string(os.PathSeparator) + "."); err == nil {
+		t.Error("ResolveOutputDir accepted the working directory spelled with a trailing /.")
 	}
 }

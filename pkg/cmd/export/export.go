@@ -3,7 +3,6 @@ package export
 import (
 	"context"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -13,6 +12,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/db"
 	exportpkg "github.com/jcrussell/solvent-streets/internal/export"
 	"github.com/jcrussell/solvent-streets/internal/fsutil"
+	"github.com/jcrussell/solvent-streets/internal/hint"
 	"github.com/jcrussell/solvent-streets/internal/logs"
 	"github.com/jcrussell/solvent-streets/internal/units"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
@@ -62,7 +62,15 @@ summary stats from each city's newest snapshot (pvmt snapshots create <name>), a
 was created, or from the snapshot --snapshot names. A city with no snapshot,
 or one the named snapshot does not cover, refuses the whole export before
 anything is written (and before --clean); one created under other settings is
-exported with a warning. Deploy to GitHub Pages or any static host.`,
+exported with a warning. Deploy to GitHub Pages or any static host.
+
+--output must be missing or empty unless --clean is passed. Every export
+lists the files it wrote in the site's .pvmt-export manifest, and --clean
+removes exactly those, leaving any other file in the directory alone; it
+refuses a non-empty directory with no manifest, and an export that would
+overwrite a file the manifest does not list. --output is never the working
+directory, the config file's directory, the home directory or a directory
+containing one of them.`,
 		Example: `  # Export the static site to ./site
   pvmt export
 
@@ -87,7 +95,7 @@ exported with a warning. Deploy to GitHub Pages or any static host.`,
 
 	cmd.Flags().StringVarP(&opts.OutputDir, "output", "o", "site", "Output directory")
 	_ = cmd.MarkFlagDirname("output")
-	cmd.Flags().BoolVar(&opts.Clean, "clean", false, "Remove output directory before exporting")
+	cmd.Flags().BoolVar(&opts.Clean, "clean", false, "Remove the files a previous pvmt export wrote to the output directory (its .pvmt-export manifest) first")
 	cmd.Flags().StringVar(&opts.Snapshot, "snapshot", "", "Publish the snapshot with this name instead of each city's newest (pvmt snapshots list)")
 	_ = cmd.RegisterFlagCompletionFunc("snapshot", cmdutil.SnapshotNameCompletion(f, -1))
 	cmdutil.AddDocumentJSONFlags(cmd, &opts.JSON, "Emit a JSON manifest of written files to stdout instead of human chatter")
@@ -100,7 +108,7 @@ exported with a warning. Deploy to GitHub Pages or any static host.`,
 // writability — all before the multi-minute export work begins. Errors
 // are returned as FlagError so the runner maps them to exit code 2.
 func (opts *Options) Validate() error {
-	resolved, err := fsutil.ResolveOutputDir(opts.OutputDir)
+	resolved, err := fsutil.ResolveOutputDir(opts.OutputDir, opts.protectedDirs()...)
 	if err != nil {
 		return cmdutil.FlagErrorf("%s", err)
 	}
@@ -111,13 +119,28 @@ func (opts *Options) Validate() error {
 			return cmdutil.FlagErrorf("--snapshot: %v", err)
 		}
 	}
-	if info, err := os.Stat(opts.OutputDir); err == nil && info.IsDir() && !opts.Clean {
-		return cmdutil.FlagErrorf("output directory %q already exists; use --clean to remove it first", opts.OutputDir)
+	if info, err := os.Stat(opts.OutputDir); err == nil && info.IsDir() && !opts.Clean && !fsutil.IsEmptyDir(opts.OutputDir) {
+		return hint.Withf(cmdutil.FlagErrorf("output directory %q already exists and is not empty", opts.OutputDir),
+			"pass --clean to replace a site pvmt export wrote there, or name another --output")
 	}
 	if err := fsutil.WritableDir(opts.OutputDir); err != nil {
 		return cmdutil.FlagErrorf("%s", err)
 	}
 	return nil
+}
+
+// protectedDirs are the directories, beyond the root, home and working
+// directory fsutil.ResolveOutputDir always refuses, that the output directory
+// must not be or contain: the loaded config file's directory.
+func (opts *Options) protectedDirs() []string {
+	if opts.Config == nil {
+		return nil
+	}
+	cfg, err := opts.Config()
+	if err != nil || cfg == nil || cfg.SourcePath == "" {
+		return nil
+	}
+	return []string{filepath.Dir(cfg.SourcePath)}
 }
 
 // unitSystem is the site's display unit system: opts.UnitSystem when wired,
@@ -176,11 +199,11 @@ func runExport(ctx context.Context, opts *Options) error {
 		return err
 	}
 
-	// SafeCleanDir refuses to delete a non-empty directory that does not look
-	// like a generated site (no index.html sentinel), so a mistyped --output
-	// can't wipe unrelated user data.
-	if err := fsutil.SafeCleanDir(opts.OutputDir); err != nil {
-		return fmt.Errorf("clean output directory: %w", err)
+	// With --clean, remove only the files the previous export's manifest
+	// lists, after checking that this export overwrites none it did not
+	// write, so a mistyped --output can't wipe unrelated user data.
+	if err := exporter.PrepareOutput(opts.Clean); err != nil {
+		return err
 	}
 
 	logs.From(ctx).Info("exporting static site", "output_dir", opts.OutputDir)
@@ -192,11 +215,7 @@ func runExport(ctx context.Context, opts *Options) error {
 	logs.From(ctx).Info("export complete", "output_dir", opts.OutputDir)
 
 	if opts.JSON != nil {
-		manifest, err := buildManifest(opts.OutputDir, entries)
-		if err != nil {
-			return fmt.Errorf("manifest: %w", err)
-		}
-		return opts.JSON.Write(ios, manifest)
+		return opts.JSON.Write(ios, buildManifest(opts.OutputDir, exporter.Files(), entries))
 	}
 
 	// The "serve locally" hint is chatter, not data: route to ErrOut so
@@ -224,13 +243,13 @@ type manifestCity struct {
 	Files     []string `json:"files"`
 }
 
-// buildManifest walks outputDir and attributes each file to a city by
-// path prefix. The exporter writes single-city sites with data files at
-// outputDir/data/ and multi-city sites at outputDir/cities/<slug>/data/
-// — buildManifest mirrors that layout to produce the per-city groupings.
-// File paths are returned as forward-slash relative paths so the JSON
-// shape is identical on Windows and Unix.
-func buildManifest(outputDir string, entries []exportpkg.CityEntry) (manifest, error) {
+// buildManifest attributes each written file (the exporter's Files: paths
+// relative to outputDir, forward slashes) to a city by path prefix. The
+// exporter writes single-city sites with data files at outputDir/data/ and
+// multi-city sites at outputDir/cities/<slug>/data/; buildManifest mirrors
+// that layout to produce the per-city groupings. A file in the directory the
+// export did not write is not listed.
+func buildManifest(outputDir string, written []string, entries []exportpkg.CityEntry) manifest {
 	m := manifest{OutputDir: outputDir}
 
 	bySlug := make(map[string][]string, len(entries))
@@ -242,25 +261,13 @@ func buildManifest(outputDir string, entries []exportpkg.CityEntry) (manifest, e
 		singleSlug = entries[0].Slug
 	}
 
-	err := filepath.WalkDir(outputDir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
-			return err
-		}
-		rel, relErr := filepath.Rel(outputDir, path)
-		if relErr != nil {
-			return relErr
-		}
-		rel = filepath.ToSlash(rel)
+	for _, rel := range written {
 		m.FileCount++
 		if slug := attributeFile(rel, singleSlug, bySlug); slug != "" {
 			bySlug[slug] = append(bySlug[slug], rel)
 		} else {
 			m.Shared = append(m.Shared, rel)
 		}
-		return nil
-	})
-	if err != nil {
-		return m, err
 	}
 
 	for _, e := range entries {
@@ -274,7 +281,7 @@ func buildManifest(outputDir string, entries []exportpkg.CityEntry) (manifest, e
 		})
 	}
 	sort.Strings(m.Shared)
-	return m, nil
+	return m
 }
 
 // attributeFile returns the slug a relative file path belongs to, or ""

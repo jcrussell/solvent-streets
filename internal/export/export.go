@@ -20,7 +20,6 @@ import (
 	httpcache "github.com/jcrussell/solvent-streets/internal/cache"
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/forecast"
-	"github.com/jcrussell/solvent-streets/internal/fsutil"
 	"github.com/jcrussell/solvent-streets/internal/geo"
 	"github.com/jcrussell/solvent-streets/internal/services"
 	"github.com/jcrussell/solvent-streets/internal/warn"
@@ -33,10 +32,12 @@ type Exporter struct {
 	cfg        *config.Config
 	outputDir  string
 	unitSystem string
-	errOut     io.Writer // progress/warning sink; nil means discard
-	assets     *Assets   // site-root browser files written beside index.html
-	pinned     bool      // Pin has run
-	snapshot   string    // SetSnapshot: the snapshot to publish; "" = each city's newest
+	errOut     io.Writer   // progress/warning sink; nil means discard
+	assets     *Assets     // site-root browser files written beside index.html
+	pinned     bool        // Pin has run
+	snapshot   string      // SetSnapshot: the snapshot to publish; "" = each city's newest
+	site       *siteWriter // Run: writes the files and keeps the manifest
+	root       *os.Root    // PrepareOutput: the output dir, for Run to write through
 }
 
 // SetErrOut routes the exporter's progress and warning output (chatter, not
@@ -87,10 +88,36 @@ func (e *Exporter) Pin(ctx context.Context) error {
 	return nil
 }
 
-func (e *Exporter) Run(ctx context.Context) error {
+// Run writes the site into the output directory, which must be missing,
+// empty or readied by PrepareOutput. Every file it writes is listed in the
+// site's manifest (ManifestFileName) before it is written, and the manifest
+// is marked complete once the export finished, so a later --clean removes
+// exactly these files even after a failed run. Run refuses to overwrite a
+// file the manifest does not list.
+func (e *Exporter) Run(ctx context.Context) (err error) {
 	if err := e.Pin(ctx); err != nil {
 		return err
 	}
+	root := e.root // PrepareOutput's, when it ran
+	e.root = nil
+	if root == nil {
+		if err := os.MkdirAll(e.outputDir, 0o755); err != nil {
+			return fmt.Errorf("create output dir: %w", err)
+		}
+		if root, err = os.OpenRoot(e.outputDir); err != nil {
+			return fmt.Errorf("open output dir: %w", err)
+		}
+	}
+	site, err := openSite(e.outputDir, root)
+	if err != nil {
+		return err
+	}
+	e.site = site
+	defer func() {
+		if cerr := site.close(err == nil); err == nil {
+			err = cerr
+		}
+	}()
 	if len(e.entries) == 1 {
 		return e.runSingleCity(ctx)
 	}
@@ -100,12 +127,6 @@ func (e *Exporter) Run(ctx context.Context) error {
 func (e *Exporter) runSingleCity(ctx context.Context) error {
 	entry := e.entries[0]
 	dataDir := filepath.Join(e.outputDir, DataDirName)
-	if err := os.MkdirAll(dataDir, 0o755); err != nil {
-		return fmt.Errorf("create output dir: %w", err)
-	}
-	if err := e.writeExportMarker(); err != nil {
-		return err
-	}
 	if err := e.writeNojekyll(); err != nil {
 		return err
 	}
@@ -118,7 +139,7 @@ func (e *Exporter) runSingleCity(ctx context.Context) error {
 		return err
 	}
 
-	if err := e.assets.WriteTo(e.outputDir); err != nil {
+	if err := e.assets.WriteTo(e.outputDir, e.site.write); err != nil {
 		return err
 	}
 
@@ -132,13 +153,12 @@ func (e *Exporter) runSingleCity(ctx context.Context) error {
 // aggregation helpers (regionBBox, summedBoundaryArea, etc.) already
 // tolerate missing boundaries via continue-on-error.
 func (e *Exporter) exportOneCity(ctx context.Context, entry CityEntry) (CityInfo, bool, error) {
-	// Decide whether to skip BEFORE creating the directory, not after. If
-	// MkdirAll ran first, a skipped city would leave cities/<slug>/data/
-	// behind, empty — and checksite's discover.go enumerates every directory
-	// under cities/ regardless of what cities.json lists, so `pvmt check-site`
-	// would fail on a city the exporter had deliberately dropped. Ordering
-	// prevents this rather than a RemoveAll in the skip branch, so a future
-	// early return cannot leave a ghost directory by forgetting to clean up.
+	// Decide whether to skip BEFORE writing anything; the writer creates a
+	// file's directories only as it writes the file. A skipped city that left
+	// cities/<slug>/data/ behind, empty, would break check-site: its
+	// discover.go enumerates every directory under cities/ regardless of what
+	// cities.json lists, so `pvmt check-site` would fail on a city the
+	// exporter had deliberately dropped.
 	//
 	// Info is the same BBoxAndCenter lookup exportCityData does first, and it
 	// is where ErrNoBoundary originates (entry.go:178) — before anything is
@@ -154,9 +174,6 @@ func (e *Exporter) exportOneCity(ctx context.Context, entry CityEntry) (CityInfo
 	}
 
 	cityDataDir := CityDataDir(e.outputDir, entry.Slug)
-	if err := os.MkdirAll(cityDataDir, 0o755); err != nil {
-		return CityInfo{}, false, fmt.Errorf("create city dir %s: %w", entry.Slug, err)
-	}
 	// Multi-city discards the per-city meta/seed: the dashboard renders
 	// config-wide aggregates (BuildMultiCityMeta / BuildMultiCityForecastSeed),
 	// and exportOneCity only needs the per-city bbox/center via entry.Info.
@@ -171,25 +188,19 @@ func (e *Exporter) exportOneCity(ctx context.Context, entry CityEntry) (CityInfo
 func (e *Exporter) writeCompareRollup(cities []CityInfo) error {
 	compare := CompareJSON{V: CompareFileVersion, Cities: make([]CompareCity, 0, len(cities))}
 	for _, c := range cities {
-		cc, err := compareCityFromDir(c.Slug, CityDataDir(e.outputDir, c.Slug))
+		cc, err := compareCityFromDir(e.site.root, c.Slug, filepath.Join(CitiesDirName, c.Slug, DataDirName))
 		if err != nil {
 			return fmt.Errorf("build %s for %s: %w", CompareFileName, c.Slug, err)
 		}
 		compare.Cities = append(compare.Cities, cc)
 	}
-	if err := writeJSON(filepath.Join(e.outputDir, CompareFileName), compare); err != nil {
+	if err := e.site.writeJSON(filepath.Join(e.outputDir, CompareFileName), compare); err != nil {
 		return fmt.Errorf("write %s: %w", CompareFileName, err)
 	}
 	return nil
 }
 
 func (e *Exporter) runMultiCity(ctx context.Context) error {
-	if err := os.MkdirAll(e.outputDir, 0o755); err != nil {
-		return fmt.Errorf("create output dir: %w", err)
-	}
-	if err := e.writeExportMarker(); err != nil {
-		return err
-	}
 	if err := e.writeNojekyll(); err != nil {
 		return err
 	}
@@ -211,14 +222,14 @@ func (e *Exporter) runMultiCity(ctx context.Context) error {
 		cities = []CityInfo{}
 	}
 	sortCitiesByName(cities)
-	if err := writeJSON(filepath.Join(e.outputDir, CitiesFileName), cities); err != nil {
+	if err := e.site.writeJSON(filepath.Join(e.outputDir, CitiesFileName), cities); err != nil {
 		return fmt.Errorf("write %s: %w", CitiesFileName, err)
 	}
 	if err := e.writeCompareRollup(cities); err != nil {
 		return err
 	}
 
-	if err := e.assets.WriteTo(e.outputDir); err != nil {
+	if err := e.assets.WriteTo(e.outputDir, e.site.write); err != nil {
 		return err
 	}
 
@@ -351,22 +362,22 @@ func (e *Exporter) exportCityData(ctx context.Context, entry CityEntry, dataDir 
 		return MetaJSON{}, "", fmt.Errorf("build hexgrid: %w", err)
 	}
 	if hexFC != nil {
-		if err := writeJSON(filepath.Join(dataDir, HexGridFileName), hexFC); err != nil {
+		if err := e.site.writeJSON(filepath.Join(dataDir, HexGridFileName), hexFC); err != nil {
 			return MetaJSON{}, "", fmt.Errorf("write hexgrid: %w", err)
 		}
 	}
 
 	// Write meta.json
-	if err := writeJSON(filepath.Join(dataDir, MetaFileName), meta); err != nil {
+	if err := e.site.writeJSON(filepath.Join(dataDir, MetaFileName), meta); err != nil {
 		return MetaJSON{}, "", fmt.Errorf("write meta: %w", err)
 	}
 
-	if err := writeHexMetrics(ctx, entry, grid, dataDir); err != nil {
+	if err := writeHexMetrics(ctx, e.site, entry, grid, dataDir); err != nil {
 		return MetaJSON{}, "", err
 	}
 
 	// Export forecast and scenario data
-	if err := exportScenariosForCity(ctx, entry, dataDir); err != nil {
+	if err := exportScenariosForCity(ctx, e.site, entry, dataDir); err != nil {
 		return MetaJSON{}, "", fmt.Errorf("export scenarios: %w", err)
 	}
 
@@ -376,7 +387,7 @@ func (e *Exporter) exportCityData(ctx context.Context, entry CityEntry, dataDir 
 	if err != nil {
 		return MetaJSON{}, "", fmt.Errorf("build forecast seed: %w", err)
 	}
-	if err := fsutil.WriteFile(filepath.Join(dataDir, ForecastSeedFileName), []byte(seed), 0o644); err != nil {
+	if err := e.site.write(filepath.Join(dataDir, ForecastSeedFileName), []byte(seed)); err != nil {
 		return MetaJSON{}, "", fmt.Errorf("write forecast_seed.json: %w", err)
 	}
 
@@ -387,7 +398,7 @@ func (e *Exporter) exportCityData(ctx context.Context, entry CityEntry, dataDir 
 // only when a metric has rows (OptionalDataFileNames), so a city that never
 // ran `pvmt services compute` publishes without the file and check-site is
 // content either way.
-func writeHexMetrics(ctx context.Context, entry CityEntry, grid *DrawnGrid, dataDir string) error {
+func writeHexMetrics(ctx context.Context, site *siteWriter, entry CityEntry, grid *DrawnGrid, dataDir string) error {
 	hm, err := BuildHexMetricsOn(ctx, entry, grid)
 	if err != nil {
 		return fmt.Errorf("build hex metrics: %w", err)
@@ -395,13 +406,13 @@ func writeHexMetrics(ctx context.Context, entry CityEntry, grid *DrawnGrid, data
 	if hm == nil {
 		return nil
 	}
-	if err := writeJSON(filepath.Join(dataDir, HexMetricsFileName), hm); err != nil {
+	if err := site.writeJSON(filepath.Join(dataDir, HexMetricsFileName), hm); err != nil {
 		return fmt.Errorf("write hex-metrics: %w", err)
 	}
 	return nil
 }
 
-func exportScenariosForCity(ctx context.Context, entry CityEntry, dataDir string) error {
+func exportScenariosForCity(ctx context.Context, site *siteWriter, entry CityEntry, dataDir string) error {
 	fc := entry.Config.ResolvedForecast(&entry.City)
 	costTiers := ConvertCostTiers(&fc)
 
@@ -413,12 +424,12 @@ func exportScenariosForCity(ctx context.Context, entry CityEntry, dataDir string
 	if len(forecasts) > 0 {
 		// Round for emission only, on a copy: BuildHexCostSummary below derives
 		// from `forecasts` and must see full precision.
-		if err := writeJSON(filepath.Join(dataDir, ForecastFileName), RoundForecastsForEmission(forecasts)); err != nil {
+		if err := site.writeJSON(filepath.Join(dataDir, ForecastFileName), RoundForecastsForEmission(forecasts)); err != nil {
 			return fmt.Errorf("write forecast.json: %w", err)
 		}
 
 		hexCostSummary := BuildHexCostSummary(forecasts)
-		if err := writeJSON(filepath.Join(dataDir, HexCostSummaryFileName), hexCostSummary); err != nil {
+		if err := site.writeJSON(filepath.Join(dataDir, HexCostSummaryFileName), hexCostSummary); err != nil {
 			return fmt.Errorf("write hex-cost-summary.json: %w", err)
 		}
 
@@ -426,7 +437,7 @@ func exportScenariosForCity(ctx context.Context, entry CityEntry, dataDir string
 		if err != nil {
 			return fmt.Errorf("build scenarios: %w", err)
 		}
-		if err := writeJSON(filepath.Join(dataDir, ScenariosFileName), RoundScenariosForEmission(scenariosOut)); err != nil {
+		if err := site.writeJSON(filepath.Join(dataDir, ScenariosFileName), RoundScenariosForEmission(scenariosOut)); err != nil {
 			return fmt.Errorf("write scenarios.json: %w", err)
 		}
 	}
@@ -678,21 +689,8 @@ func (e *Exporter) writeBoundary(ctx context.Context, entry CityEntry, proj *geo
 			"city %q boundary could not be simplified, writing it in full: %v",
 			entry.City.Name, simplifyErr)
 	}
-	if err := writeJSON(filepath.Join(dataDir, BoundaryFileName), fc); err != nil {
+	if err := e.site.writeJSON(filepath.Join(dataDir, BoundaryFileName), fc); err != nil {
 		return fmt.Errorf("write boundary geojson: %w", err)
-	}
-	return nil
-}
-
-// writeExportMarker drops a fsutil.ExportMarkerName sentinel at the top of the
-// output dir at the very start of a run. index.html is only written last, so a
-// run that fails partway (e.g. a read error on city N of M) would
-// otherwise leave a non-empty tree that SafeCleanDir refuses to remove; the
-// early marker keeps such a partial export recoverable via --clean.
-func (e *Exporter) writeExportMarker() error {
-	path := filepath.Join(e.outputDir, fsutil.ExportMarkerName)
-	if err := fsutil.WriteFile(path, []byte("pvmt export in progress\n"), 0o644); err != nil {
-		return fmt.Errorf("write export marker: %w", err)
 	}
 	return nil
 }
@@ -702,11 +700,11 @@ func (e *Exporter) writeExportMarker() error {
 // site and silently drops files/dirs whose names start with "_". check-site
 // requires it (checkNojekyll fails on a missing or non-zero-byte file), so the
 // exporter emits a publish-ready tree on its own — this was gensite's job
-// before the site consolidated to a single `pvmt export`. Written next to the
-// export marker (post-MkdirAll) so the output dir already exists.
+// before the site consolidated to a single `pvmt export`. Written first, once
+// Run has created the output dir and opened its manifest.
 func (e *Exporter) writeNojekyll() error {
 	path := filepath.Join(e.outputDir, NojekyllFileName)
-	if err := fsutil.WriteFile(path, nil, 0o644); err != nil {
+	if err := e.site.write(path, nil); err != nil {
 		return fmt.Errorf("write .nojekyll: %w", err)
 	}
 	return nil
@@ -734,10 +732,10 @@ func (e *Exporter) renderHTML(ctx context.Context, meta MetaJSON, seed template.
 	if err != nil {
 		return err
 	}
-	if err := fsutil.WriteFile(filepath.Join(e.outputDir, IndexFileName), index, 0o644); err != nil {
+	if err := e.site.write(filepath.Join(e.outputDir, IndexFileName), index); err != nil {
 		return err
 	}
-	return fsutil.WriteFile(filepath.Join(e.outputDir, PlayFileName), play, 0o644)
+	return e.site.write(filepath.Join(e.outputDir, PlayFileName), play)
 }
 
 // writeJSON writes minified JSON (no indentation). Indentation is pure weight
@@ -750,10 +748,10 @@ func (e *Exporter) renderHTML(ctx context.Context, meta MetaJSON, seed template.
 // written straight from BuildForecastSeed's bytes at the call site above, and
 // is compact because seeds.go marshals it with json.Marshal. Both paths are
 // pinned by TestExport_DataFilesAreMinified.
-func writeJSON(path string, v any) error {
+func (w *siteWriter) writeJSON(path string, v any) error {
 	data, err := json.Marshal(v)
 	if err != nil {
 		return err
 	}
-	return fsutil.WriteFile(path, data, 0o644)
+	return w.write(path, data)
 }

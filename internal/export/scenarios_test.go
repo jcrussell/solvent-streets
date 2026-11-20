@@ -42,7 +42,7 @@ func TestExportScenariosForCity_PropagatesDBError(t *testing.T) {
 	}
 	dataDir := t.TempDir()
 
-	err := exportScenariosForCity(t.Context(), entry, dataDir)
+	err := exportScenariosForCity(t.Context(), nil, entry, dataDir)
 	if err == nil {
 		t.Fatal("expected error from exportScenariosForCity, got nil")
 	}

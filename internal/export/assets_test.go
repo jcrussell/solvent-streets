@@ -60,7 +60,7 @@ func TestNewAssets_RequiresExactlyTheSiteRootFiles(t *testing.T) {
 func TestAssets_WriteToWritesEveryName(t *testing.T) {
 	a := testAssets(t)
 	dir := t.TempDir()
-	if err := a.WriteTo(dir); err != nil {
+	if err := a.WriteTo(dir, nil); err != nil {
 		t.Fatalf("WriteTo: %v", err)
 	}
 	entries, err := os.ReadDir(dir)

@@ -108,7 +108,7 @@ Only names that existed in v0.4.x are listed. Fields of the commands and files t
 
 ### 6. Check where `pvmt export` writes
 
-`pvmt export` without `-o` writes to `./site`, the directory `pvmt check-site` checks by default, rather than `./dist`. A deploy script that picks the site up from `dist/` should pass `-o dist` or read `site/`.
+`pvmt export` without `-o` writes to `./site`, the directory `pvmt check-site` checks by default, rather than `./dist`. A deploy script that picks the site up from `dist/` should pass `-o dist` or read `site/`. `--clean` no longer deletes the output directory: it removes only the files the previous export listed in the site's `.pvmt-export` manifest ([Export and hosting](configuration.md#export-and-hosting)) and leaves every other file alone. A site exported by v0.4.x has no manifest (its `.pvmt-export`, if any, lists no files), so `--clean` refuses it: export into a new directory, or delete the old tree yourself once, and every later `--clean` works. `-o` also refuses the working directory, the config file's directory, the home directory and any directory containing one of them. An existing empty directory needs no `--clean`.
 
 ### 7. Check tags that contain a colon
 

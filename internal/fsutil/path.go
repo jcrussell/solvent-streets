@@ -49,11 +49,13 @@ func SafePath(base, input string) (string, error) {
 }
 
 // ResolveOutputDir abs-resolves the user-supplied outputDir, follows
-// symlinks on its existing prefix, and rejects sensitive locations
-// (filesystem root and the user's home directory). Mirrors the containment
-// check for the CLI output-dir case where the user
-// legitimately may name absolute targets outside the cwd.
-func ResolveOutputDir(outputDir string) (string, error) {
+// symlinks on its existing prefix, and rejects locations no export should
+// write into or clean, as a defence beside the export manifest: the filesystem root,
+// the user's home directory, the working directory, and any directory that
+// is or contains the working directory, the home directory or one of
+// protected (the directory of the config file, say). It allows an absolute
+// target outside the working directory, which SafePath does not.
+func ResolveOutputDir(outputDir string, protected ...string) (string, error) {
 	if outputDir == "" {
 		return "", errors.New("output directory is required")
 	}
@@ -65,72 +67,93 @@ func ResolveOutputDir(outputDir string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("resolving %q: %w", outputDir, err)
 	}
-	if resolved == string(os.PathSeparator) {
+	if resolved == string(os.PathSeparator) || sameDir(resolved, string(os.PathSeparator)) {
 		return "", fmt.Errorf("refusing to use filesystem root %q as output directory", resolved)
 	}
-	if home, herr := os.UserHomeDir(); herr == nil && home != "" && resolved == home {
-		return "", fmt.Errorf("refusing to use home directory %q as output directory", resolved)
+	type guard struct{ what, dir string }
+	var guards []guard
+	if home, herr := os.UserHomeDir(); herr == nil && home != "" {
+		guards = append(guards, guard{"home directory", home})
+	}
+	if wd, werr := os.Getwd(); werr == nil {
+		guards = append(guards, guard{"working directory", wd})
+	}
+	for _, p := range protected {
+		if p != "" {
+			guards = append(guards, guard{"directory", p})
+		}
+	}
+	for _, g := range guards {
+		if err := checkGuard(resolved, g.what, g.dir); err != nil {
+			return "", err
+		}
 	}
 	return resolved, nil
 }
 
-// ExportMarkerName is the sentinel file a pvmt export writes at the very start
-// of a run to mark the output directory as pvmt-managed and therefore safe to
-// clean. index.html is only written last, so a run that fails midway (e.g. a
-// snapshot mismatch on city N of M) would otherwise leave a non-empty tree with
-// no index.html that SafeCleanDir refuses to remove — dead-ending retry. The
-// early marker keeps a partial export recoverable with --clean.
-const ExportMarkerName = ".pvmt-export"
-
-// SafeCleanDir removes outputDir and recreates it empty, but only if the
-// directory is empty or looks like a pvmt-managed output dir — one containing
-// either a completed site's index.html or the ExportMarkerName sentinel written
-// at the start of a run. It refuses to delete a non-empty directory lacking
-// both, so a mistyped --output cannot wipe unrelated user data. The path is
-// canonicalised and screened (root/home rejected) via ResolveOutputDir first.
-//
-// Verifying the sentinel requires reading the directory before removing it, so
-// this performs a stat/read-then-RemoveAll sequence rather than a bare
-// RemoveAll: the data-loss guard is worth the small TOCTOU window for a
-// single-user CLI, and matches the static-site generator's behavior.
-func SafeCleanDir(outputDir string) error {
-	resolved, err := ResolveOutputDir(outputDir)
+// checkGuard refuses resolved when it is guard directory dir (what names it)
+// or one of dir's ancestors.
+func checkGuard(resolved, what, dir string) error {
+	dir, err := filepath.Abs(dir)
 	if err != nil {
-		return err
+		return nil //nolint:nilerr // an unresolvable guard guards nothing
 	}
+	if r, err := evalExistingSymlinks(dir); err == nil {
+		dir = r
+	}
+	if !contains(resolved, dir) && !isAncestorOrSelf(resolved, dir) {
+		return nil
+	}
+	if resolved == dir || sameDir(resolved, dir) {
+		return fmt.Errorf("refusing to use %s %q as output directory", what, resolved)
+	}
+	return fmt.Errorf("refusing to use %q as output directory: it contains the %s %q", resolved, what, dir)
+}
 
-	info, err := os.Stat(resolved)
-	if errors.Is(err, os.ErrNotExist) {
-		return os.MkdirAll(resolved, 0o755)
-	}
+// contains reports whether path is dir or one of its descendants. Both are
+// clean absolute paths.
+func contains(dir, path string) bool {
+	rel, err := filepath.Rel(dir, path)
 	if err != nil {
-		return err
+		return false
 	}
-	if !info.IsDir() {
-		return fmt.Errorf("output path %q exists but is not a directory", resolved)
-	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator)))
+}
 
-	entries, err := os.ReadDir(resolved)
+// sameDir reports whether a and b both exist and are the same directory
+// (os.SameFile), however they are spelled: on a case-insensitive
+// filesystem "Site" and "site" are one directory.
+func sameDir(a, b string) bool {
+	ai, err := os.Stat(a)
 	if err != nil {
-		return fmt.Errorf("read output dir: %w", err)
+		return false
 	}
-	if len(entries) > 0 {
-		managed := false
-		for _, e := range entries {
-			if e.Name() == "index.html" || e.Name() == ExportMarkerName {
-				managed = true
-				break
-			}
+	bi, err := os.Stat(b)
+	return err == nil && os.SameFile(ai, bi)
+}
+
+// isAncestorOrSelf reports whether the existing directory out is dir or one
+// of dir's ancestors, comparing each ancestor by identity (sameDir) rather
+// than by spelling.
+func isAncestorOrSelf(out, dir string) bool {
+	oi, err := os.Stat(out)
+	if err != nil {
+		return false
+	}
+	for d := dir; ; d = filepath.Dir(d) {
+		if di, err := os.Stat(d); err == nil && os.SameFile(oi, di) {
+			return true
 		}
-		if !managed {
-			return fmt.Errorf("output directory %q is non-empty and does not look like a generated site (no index.html or %s marker); refusing to delete", resolved, ExportMarkerName)
+		if filepath.Dir(d) == d {
+			return false
 		}
 	}
+}
 
-	if err := os.RemoveAll(resolved); err != nil {
-		return fmt.Errorf("clean output dir: %w", err)
-	}
-	return os.MkdirAll(resolved, 0o755)
+// IsEmptyDir reports whether path is an existing directory with no entries.
+func IsEmptyDir(path string) bool {
+	entries, err := os.ReadDir(path)
+	return err == nil && len(entries) == 0
 }
 
 // WritableDir verifies path (or its nearest existing ancestor) is a

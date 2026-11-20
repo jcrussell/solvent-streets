@@ -61,10 +61,15 @@ func (a *Assets) Names() []string { return slices.Clone(assetNames) }
 // The slice is shared: callers must not modify it.
 func (a *Assets) Bytes(name string) []byte { return a.files[name] }
 
-// WriteTo writes every asset into dir, each atomically.
-func (a *Assets) WriteTo(dir string) error {
+// WriteTo writes every asset into dir through write (the exporter's
+// manifest-keeping writer), or atomically with fsutil.WriteFile when write is
+// nil.
+func (a *Assets) WriteTo(dir string, write func(path string, data []byte) error) error {
+	if write == nil {
+		write = func(path string, data []byte) error { return fsutil.WriteFile(path, data, 0o644) }
+	}
 	for _, name := range assetNames {
-		if err := fsutil.WriteFile(filepath.Join(dir, name), a.files[name], 0o644); err != nil {
+		if err := write(filepath.Join(dir, name), a.files[name]); err != nil {
 			return fmt.Errorf("write %s: %w", name, err)
 		}
 	}

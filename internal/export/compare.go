@@ -104,24 +104,24 @@ type compareForecast struct {
 }
 
 // compareCityFromDir builds slug's entry from the data files exported into
-// dataDir. A missing file leaves its part absent; a malformed one is an error,
+// dataDir, a directory under root. A missing file leaves its part absent; a malformed one is an error,
 // since the exporter just wrote it.
-func compareCityFromDir(slug, dataDir string) (CompareCity, error) {
+func compareCityFromDir(root *os.Root, slug, dataDir string) (CompareCity, error) {
 	c := CompareCity{Slug: slug}
 	var meta compareMeta
-	if ok, err := readDataFile(dataDir, MetaFileName, &meta); err != nil {
+	if ok, err := readDataFile(root, dataDir, MetaFileName, &meta); err != nil {
 		return c, err
 	} else if ok {
 		c.Meta = &meta
 	}
 	var seed compareSeed
-	if ok, err := readDataFile(dataDir, ForecastSeedFileName, &seed); err != nil {
+	if ok, err := readDataFile(root, dataDir, ForecastSeedFileName, &seed); err != nil {
 		return c, err
 	} else if ok {
 		c.Seed = &seed
 	}
 	var scenarios map[string][]compareScenario
-	if ok, err := readDataFile(dataDir, ScenariosFileName, &scenarios); err != nil {
+	if ok, err := readDataFile(root, dataDir, ScenariosFileName, &scenarios); err != nil {
 		return c, err
 	} else if ok {
 		c.Scenarios = map[string][]compareScenario{}
@@ -131,7 +131,7 @@ func compareCityFromDir(slug, dataDir string) (CompareCity, error) {
 			}
 		}
 	}
-	roads, err := readRoadsForecast(dataDir)
+	roads, err := readRoadsForecast(root, dataDir)
 	if err != nil {
 		return c, err
 	}
@@ -141,9 +141,9 @@ func compareCityFromDir(slug, dataDir string) (CompareCity, error) {
 
 // readRoadsForecast returns forecast.json's roads entry as a one-element
 // slice, or nil when the file or the entry is absent.
-func readRoadsForecast(dataDir string) ([]compareForecast, error) {
+func readRoadsForecast(root *os.Root, dataDir string) ([]compareForecast, error) {
 	var forecasts []compareForecast
-	ok, err := readDataFile(dataDir, ForecastFileName, &forecasts)
+	ok, err := readDataFile(root, dataDir, ForecastFileName, &forecasts)
 	if err != nil || !ok {
 		return nil, err
 	}
@@ -155,10 +155,10 @@ func readRoadsForecast(dataDir string) ([]compareForecast, error) {
 	return nil, nil
 }
 
-// readDataFile decodes dataDir/name into v. It reports false, with no error,
-// when the file does not exist.
-func readDataFile(dataDir, name string, v any) (bool, error) {
-	raw, err := os.ReadFile(filepath.Join(dataDir, name))
+// readDataFile decodes dataDir/name, under root, into v. It reports false,
+// with no error, when the file does not exist.
+func readDataFile(root *os.Root, dataDir, name string, v any) (bool, error) {
+	raw, err := root.ReadFile(filepath.Join(dataDir, name))
 	if errors.Is(err, fs.ErrNotExist) {
 		return false, nil
 	}
