@@ -45,7 +45,7 @@ const (
 )
 
 // TestCityEntry_InfoMapsTags: Info() carries the city's Tags into CityInfo — the
-// source of tags for cities.json and the index CITIES array (solvent-streets-8je6).
+// source of tags for cities.json and the index CITIES array.
 func TestCityEntry_InfoMapsTags(t *testing.T) {
 	entry := exportTestEntry(&config.Config{}, "San Jose", "san-jose", exportBoundaryA, nil)
 	entry.City.Tags = []string{"Bay Area", "Top 50"}
@@ -614,7 +614,7 @@ func TestSortCitiesByName(t *testing.T) {
 
 // TestSortCitiesByName_PlaceThenState: "Bell, CA" sorts before
 // "Bell Gardens, CA" (whole names would not: ' ' < ','), and a shared place
-// orders by state (solvent-streets-ern4.36). selectors.test.mjs pins the same
+// orders by state. selectors.test.mjs pins the same
 // order for the client's byName.
 func TestSortCitiesByName_PlaceThenState(t *testing.T) {
 	cities := []CityInfo{
@@ -636,7 +636,7 @@ func TestSortCitiesByName_PlaceThenState(t *testing.T) {
 	}
 }
 
-// TestRunMultiCity_WritesCompareRollup pins solvent-streets-l0qo: a
+// TestRunMultiCity_WritesCompareRollup: a
 // multi-city export writes compare.json beside cities.json, one entry per
 // exported city, each a strict subset of that city's files, and far smaller
 // than the four files the Compare and Aggregate tabs used to fetch.

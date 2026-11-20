@@ -127,7 +127,7 @@ func TestBuildResourceForecast_AllBaselineGatedOnCityScope(t *testing.T) {
 // The blended scenarios and the per-resource forecasts price the same network
 // the same way: the baseline's year-1 need in scenarios.json is the sum of
 // forecast.json's per-resource baselines, sidewalks at the sidewalk rate in
-// both (solvent-streets-mea7).
+// both.
 func TestScenarios_Year1NeedMatchesPerResourceForecasts(t *testing.T) {
 	var rows []db.CityMetric
 	rows = append(rows, results.TotalRows(resource.TypeRoads, results.Totals{Area: 9000})...)

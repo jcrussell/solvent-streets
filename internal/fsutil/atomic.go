@@ -20,7 +20,7 @@ import (
 func TempPattern(base string) string { return base + ".tmp-*" }
 
 // WriteFile writes data to path atomically: temp file in the same
-// directory, fsync, then rename. Implements byob-runtime-directories.3.
+// directory, fsync, then rename.
 // If a write or rename fails, the temp file is removed so the target
 // never sees a partial body and the directory accumulates no garbage.
 func WriteFile(path string, data []byte, perm fs.FileMode) error {

@@ -95,7 +95,6 @@ func TestSubtractGeoJSON_DisjointSubtrahendUnchanged(t *testing.T) {
 // mathematically (Difference is set-theoretically correct), but the
 // clip means downstream defenses operate on a sane subtrahend and any
 // future per-step validation has bounded input. Part of
-// solvent-streets-vtcs.
 func TestSubtractGeoJSON_OversizedSubtrahendClippedToBoundary(t *testing.T) {
 	// Boundary is a small SF square.
 	boundary := `{"type":"Polygon","coordinates":[[[-122.5,37.7],[-122.4,37.7],[-122.4,37.8],[-122.5,37.8],[-122.5,37.7]]]}`
@@ -173,7 +172,7 @@ func TestSubtractGeoJSON_FullCoverReturnsError(t *testing.T) {
 }
 
 // TestSubtractGeoJSON_OverlappingPolygonsWithSharedEdge is the end-to-end
-// sanity check for solvent-streets-i3ih: the same polygon pair as the
+// sanity check for RetainPolygonal's normalization: the same polygon pair as the
 // bedrock TestRetainPolygonal_NormalizesMixedDimIntersectionResult test,
 // but fed through SubtractGeoJSON (GeoJSON parsing + UTM projection +
 // the Intersection/Difference chain). Without the fix the inner

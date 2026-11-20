@@ -131,7 +131,7 @@ func ingestCity(ctx context.Context, ios *iostreams.IOStreams, cf *cmdutil.Facto
 	// `all compute`, a failure here fails the run (after every step has had
 	// its turn): a city published without its fire stations or population is
 	// incomplete, and only the exit status reaches a chained
-	// `ingest && compute && export` (solvent-streets-r0ro).
+	// `ingest && compute && export`.
 	return runOptionalSteps(err, ios, []optionalStep{
 		{label: servicescmd.DefaultService + " ingest", required: true, fn: func() error {
 			return retry(servicescmd.RunIngestForCity(ctx, cf, servicescmd.DefaultService), "services")
@@ -170,7 +170,7 @@ a setting that affects results.`,
 // computeCity runs every compute step for one city into ONE draft and commits
 // it into the city's latest compute: the steps that succeeded swap in their
 // parts, a failed step leaves its part as it was, and a cancellation commits
-// nothing (solvent-streets-25t6).
+// nothing.
 func computeCity(ctx context.Context, ios *iostreams.IOStreams, cf *cmdutil.Factory, city *config.CityConfig) error {
 	cfg, err := cf.Config()
 	if err != nil {
@@ -308,7 +308,7 @@ type optionalStep struct {
 // steps still run, but it is joined into the result. When the pavement result
 // is ErrNoResults, a required failure replaces it rather than joining it: the
 // callers match ErrNoResults first (Outcomes.Add, ForEachCity, exitCode) and
-// would file the city as empty, swallowing the failure (solvent-streets-sn8l).
+// would file the city as empty, swallowing the failure.
 func runOptionalSteps(resErr error, ios *iostreams.IOStreams, steps []optionalStep) error {
 	var failures []error
 	for _, st := range steps {
@@ -320,7 +320,7 @@ func runOptionalSteps(resErr error, ios *iostreams.IOStreams, steps []optionalSt
 			failures = append(failures, fmt.Errorf("%s: %w", st.label, err))
 		case err != nil:
 			// A best-effort failure is dropped after its warning, so its
-			// remediation hint is shown here or never (solvent-streets-0z82).
+			// remediation hint is shown here or never.
 			// A required one keeps it for the final error.
 			hint.Fprint(ios.ErrOut, err)
 		}

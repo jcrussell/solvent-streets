@@ -53,7 +53,7 @@ func parentPaths(t *testing.T) [][]string {
 	return paths
 }
 
-// TestRun_TyposExitTwo pins byob-command-shape.6: every typo is a usage
+// TestRun_TyposExitTwo: every typo is a usage
 // error — exit 2, nothing on stdout, the typo named on stderr. Cobra alone
 // turns `help <typo>` and `<group> <typo>` into help text and exit 0, which
 // a `pvmt cache pruen && …` chain reads as success.

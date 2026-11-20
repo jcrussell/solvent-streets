@@ -148,8 +148,7 @@ func ResolveCycleYears(years float64) float64 {
 // With totalSpend == totalNeed the two are the same number in exact arithmetic,
 // but not in floating point: round-tripping through the ratio lands a cohort a
 // hair either side of spend == need. Exact allocation keeps full funding
-// exactly at need, so the fully funded run never moves with the cost scale
-// (solvent-streets-0ulx).
+// exactly at need, so the fully funded run never moves with the cost scale.
 func (sm *simulator) distribute(totalNeed, totalSpend float64, strategy Strategy, fullFund bool) float64 {
 	actualSpend := 0.0
 	for j := range sm.states {
@@ -172,7 +171,7 @@ func (sm *simulator) distribute(totalNeed, totalSpend float64, strategy Strategy
 // surplusGapYears is how many years of surplus, each the size of the year's
 // hold-steady need, it takes to close a cohort's gap to maxPCI at efficiency
 // 1. It is a calibration constant equal to the DEFAULT treatment cycle, and it
-// is deliberately not the configured one (solvent-streets-mcn8).
+// is deliberately not the configured one.
 //
 // Physically a need is the cost of treating 1/N of the cohort, so a second
 // need's worth would treat another 1/N and restore 1/N of the gap. At the
@@ -192,7 +191,7 @@ const surplusGapYears = DefaultTreatmentCycleYears
 // spend actually used. need is the cost of holding the cohort steady: treating
 // its scheduled slice at the tier cost of its decayed condition. The response
 // is continuous and monotone in spend, and depends on it only through
-// spend/need (solvent-streets-j5co):
+// spend/need:
 //
 //   - spend <= need recovers fundedFraction(spend/need) of the year's decay,
 //     from 0 (decays like doing nothing) to 1 (holds at the current PCI). The
@@ -208,7 +207,7 @@ const surplusGapYears = DefaultTreatmentCycleYears
 //     that much more area would; no surplus closes more than eff/12 of the
 //     gap in one year, so condition approaches maxPCI but never reaches it.
 //     Surplus beyond surplusSaturationNeeds needs buys almost nothing and is
-//     not spent (solvent-streets-ern4.26).
+//     not spent.
 //
 // The per-year ceiling is what keeps a surplus from snapping a cohort to 100:
 // once PCI passes the preventive threshold the need falls tenfold, so a fixed
@@ -255,7 +254,7 @@ func fundedFraction(r, eff float64) float64 {
 // partialEfficiency is a strategy's efficiency below need: how much of a
 // year's decay a partial budget recovers (fundedFraction). It is fitted to the
 // budgeted MTC 2019-2024 backtest, in which every city runs below need
-// (TestBacktest_BudgetedFiveYears, solvent-streets-ern4.29). The surplus
+// (TestBacktest_BudgetedFiveYears). The surplus
 // response keeps its own, smaller multipliers (surplusEfficiency): the
 // backtest says nothing about spending above need, and at these levels a 10%
 // surplus would drive a network to PCI ~100 within 20 years.
@@ -272,7 +271,7 @@ func partialEfficiency(strategy Strategy) float64 {
 		// than preventive work because it addresses pavement already past its
 		// economic service life (FHWA-HIF-12-042, Section 3.2). The level is
 		// set by the budgeted MTC 2019-2024 backtest at the LTPP decay rates
-		// (TestBacktest_BudgetedFiveYears, solvent-streets-ern4.29): the
+		// (TestBacktest_BudgetedFiveYears): the
 		// backtest constrains decay and efficiency only together, and the
 		// cited decay rates are kept.
 		return 3.0

@@ -1,4 +1,4 @@
-// The hexgrid.geojson reader. This is the B6 change (solvent-streets-pav7.5)
+// The hexgrid.geojson reader. This is the B6 change
 // that would have silently dropped 69.7% of city-scope features while the map
 // kept rendering — the exact class of failure eslint and tsc cannot see.
 import { test } from 'node:test';

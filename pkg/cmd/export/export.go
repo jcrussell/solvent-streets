@@ -93,7 +93,7 @@ exported with a warning. Deploy to GitHub Pages or any static host.`,
 	return cmd
 }
 
-// Validate runs at the Options boundary per byob-input-validation.5:
+// Validate runs at the Options boundary:
 // resolve the user-supplied path, reject sensitive locations, probe
 // writability — all before the multi-minute export work begins. Errors
 // are returned as FlagError so the runner maps them to exit code 2.
@@ -194,7 +194,7 @@ func runExport(ctx context.Context, opts *Options) error {
 
 	// The "serve locally" hint is chatter, not data: route to ErrOut so
 	// stdout stays empty and pipelines (`pvmt export > log`) capture only
-	// the data path — none here — and never this hint (byob-iostreams.3).
+	// the data path — none here — and never this hint.
 	fmt.Fprintf(ios.ErrOut, "Serve locally: cd %s && python3 -m http.server\n", opts.OutputDir)
 	return nil
 }

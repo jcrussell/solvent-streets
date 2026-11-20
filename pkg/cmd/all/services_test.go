@@ -51,7 +51,7 @@ func TestRunOptionalSteps(t *testing.T) {
 	}
 }
 
-// TestRunOptionalSteps_RequiredFailureFailsTheRun pins solvent-streets-r0ro:
+// TestRunOptionalSteps_RequiredFailureFailsTheRun:
 // in `all ingest` the fire and Census steps are required. A failure there
 // still lets the remaining steps run, but it is joined into the result, so
 // the run exits 1 instead of 0.
@@ -71,8 +71,7 @@ func TestRunOptionalSteps_RequiredFailureFailsTheRun(t *testing.T) {
 		t.Errorf("ran %v; want every step to run past the failure", ran)
 	}
 	// An empty pavement result must not swallow a required failure: callers
-	// match ErrNoResults first and would file the city as empty
-	// (solvent-streets-sn8l).
+	// match ErrNoResults first and would file the city as empty.
 	steps[0].fn = func() error { return boom }
 	got = runOptionalSteps(cmdutil.ErrNoResults, ios, steps)
 	if !errors.Is(got, boom) || errors.Is(got, cmdutil.ErrNoResults) {
@@ -85,7 +84,7 @@ func TestRunOptionalSteps_RequiredFailureFailsTheRun(t *testing.T) {
 	}
 }
 
-// TestRunOptionalSteps_BestEffortFailureKeepsItsHint pins solvent-streets-0z82:
+// TestRunOptionalSteps_BestEffortFailureKeepsItsHint:
 // a best-effort step's error is dropped after the warning, so its hint has to
 // be printed with it; a required step's hint is left for the final error.
 func TestRunOptionalSteps_BestEffortFailureKeepsItsHint(t *testing.T) {

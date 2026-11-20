@@ -215,8 +215,7 @@ func (q *ArcGISQuery) FetchAll(ctx context.Context, client *http.Client) ([]ArcG
 	// seenRaw holds the id of every row the server has returned, with or
 	// without geometry. It is what the repeated-page rule counts: whether a
 	// page re-served what we already hold is a question about the whole raw
-	// page, not about the rows that survived the null-geometry filter
-	// (solvent-streets-cfi8).
+	// page, not about the rows that survived the null-geometry filter.
 	seenRaw := make(map[string]bool)
 	offset := 0
 
@@ -319,15 +318,14 @@ const (
 //     everything: such a layer may equally have clamped to its own
 //     maxRecordCount and withheld the rest. This function reports
 //     pageRepeatedRows and the caller disambiguates via repeatedPageOutcome,
-//     which needs the layer metadata this pure function has no way to fetch
-//     (solvent-streets-ofbo).
+//     which needs the layer metadata this pure function has no way to fetch.
 //
 //     newRaw counts the RAW page, rows without geometry included. Counting
 //     only the rows that survive the null-geometry filter misreads a page
 //     whose one geometry row is a re-served boundary row (Esri offset paging
 //     can repeat one when the server reorders rows) and whose other rows are
 //     new but null-geometry: no new geometry ids, yet more rows remain, so
-//     stopping there would silently drop the rest (solvent-streets-cfi8).
+//     stopping there would silently drop the rest.
 //
 //     If the flag says rows DO remain, the same shape means the server is
 //     withholding them — truncation, not completion. That must fail: a partial
@@ -342,8 +340,7 @@ const (
 //
 //  4. Otherwise keep paging. In particular a flag-absent short page is
 //     ambiguous: stopping on it (`!exceeded && rawCount < arcgisMaxRecords`)
-//     drops real rows — 2000 of 5780 on Livermore's layer
-//     (solvent-streets-9auy).
+//     drops real rows — 2000 of 5780 on Livermore's layer.
 func classifyArcGISPage(rawCount, newRaw int, exceeded, flagPresent bool) pageOutcome {
 	if rawCount == 0 {
 		return pageDone
@@ -438,7 +435,7 @@ func arcgisLayerMaxRecordCount(ctx context.Context, client *http.Client, endpoin
 //
 // A repeated page is ambiguous on its own — it is equally the signature of a
 // complete single-response layer and of one that clamped and withheld the rest.
-// The layer's own maxRecordCount tells them apart (solvent-streets-ofbo).
+// The layer's own maxRecordCount tells them apart.
 // Fetching it is LAZY: this is the only path that needs it, so a healthy ingest
 // never spends the extra request.
 func (q *ArcGISQuery) confirmRepeatedPageIsComplete(ctx context.Context, client *http.Client,

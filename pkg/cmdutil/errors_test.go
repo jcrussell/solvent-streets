@@ -9,8 +9,7 @@ import (
 // Compile-time guards: constructors that can fail must return the `error`
 // interface, not the concrete pointer. Returning *FlagError from a function
 // signature creates the typed-nil-in-interface trap — `var err error = ctor()`
-// is non-nil even when the constructor returned `(*FlagError)(nil)`. See
-// byob-errors.5 for the full rationale.
+// is non-nil even when the constructor returned `(*FlagError)(nil)`.
 var _ func(string, ...any) error = FlagErrorf
 
 func TestFlagErrorf_ReturnsErrorInterface(t *testing.T) {
@@ -53,7 +52,7 @@ func TestErrSilent_WrapsAndCompares(t *testing.T) {
 	}
 }
 
-// TestTypedNilTrap demonstrates the failure mode that byob-errors.5 forbids.
+// TestTypedNilTrap demonstrates the typed-nil failure mode.
 // A constructor that returns the concrete pointer type makes `err != nil`
 // true even when the constructor returned a typed nil. The test pins the
 // behavior so any future drift toward `func() *FlagError` shapes is visible

@@ -95,8 +95,8 @@ type ForecastExport struct {
 	RoadsArea float64 `json:"roads_area,omitempty"`
 	// InitialPCISource is the config layer the starting condition comes from
 	// (config.Config.InitialPCISource's kind: "default", "env" or "file"), so
-	// a page can flag figures built on the default PCI
-	// (solvent-streets-ern4.24). Roads only, like the figures.
+	// a page can flag figures built on the default PCI.
+	// Roads only, like the figures.
 	InitialPCISource config.SourceKind `json:"initial_pci_source,omitempty"`
 }
 

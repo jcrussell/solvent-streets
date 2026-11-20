@@ -21,7 +21,7 @@ const noTimestamp = "never"
 // its own TTY flag because they can independently be a terminal, a file,
 // or a pipe (e.g. `pvmt cities | less` has stdout=pipe but stderr=tty).
 //
-// Stream-routing contract (byob-iostreams.3):
+// Stream-routing contract:
 //
 //   - Out  — command DATA: the rows, table, JSON, or value a user might
 //     pipe into jq/awk/wc. If removing the print would change the meaning
@@ -39,12 +39,12 @@ const noTimestamp = "never"
 type IOStreams struct {
 	In io.ReadCloser
 	// Out carries command DATA only — see the IOStreams type comment for
-	// the Out vs ErrOut routing contract (byob-iostreams.3). Chatter,
+	// the Out vs ErrOut routing contract. Chatter,
 	// warnings, progress, and prompts go to ErrOut.
 	Out io.Writer
 	// ErrOut carries chatter: status, progress, warnings, hints, prompts.
 	// Anything whose absence would not change the meaning of `cmd | wc -l`
-	// belongs here. See the IOStreams type comment (byob-iostreams.3).
+	// belongs here. See the IOStreams type comment.
 	ErrOut io.Writer
 
 	stdinIsTTY     bool
@@ -100,7 +100,7 @@ func Test() (*IOStreams, *bytes.Buffer, *bytes.Buffer, *bytes.Buffer) {
 	}, in, out, errOut
 }
 
-// IsStdinTTY reports whether In is a terminal. The Prompter (byob-prompter)
+// IsStdinTTY reports whether In is a terminal. The Prompter
 // consults this to decide whether to prompt at all — when stdin is a pipe,
 // prompting would block on input that's never coming.
 func (s *IOStreams) IsStdinTTY() bool { return s.stdinIsTTY }

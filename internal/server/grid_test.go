@@ -29,8 +29,8 @@ func gridTestServer(t *testing.T) (*Server, export.CityEntry) {
 	return New([]export.CityEntry{entry}, "127.0.0.1", 0, ios, testAssets(t)), entry
 }
 
-// TestWithDrawnGrid_SharedPerSnapshotAndEvicted pins the drawn-grid cache
-// (solvent-streets-ern4.33's perf fix): every build for one city and
+// TestWithDrawnGrid_SharedPerSnapshotAndEvicted pins the drawn-grid cache:
+// every build for one city and
 // snapshot gets the same grid, so meta.json, hex-metrics.json and
 // hexgrid.geojson clip the lattice once between them; another snapshot gets
 // its own; and a build that fails or panics drops the grid, as every cache

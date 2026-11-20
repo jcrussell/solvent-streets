@@ -1,4 +1,4 @@
-// What the page derives from the city's cost tiers (solvent-streets-lu32.23):
+// What the page derives from the city's cost tiers:
 // the cohort table's PCI badge, the tier colours and the chart legend all
 // follow forecast_seed.json's cost_tiers, including a config's own bands and
 // labels.

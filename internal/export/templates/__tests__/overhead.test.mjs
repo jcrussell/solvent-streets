@@ -1,4 +1,4 @@
-// The program-overhead slider (solvent-streets-tzsr). Turns the bare
+// The program-overhead slider. Turns the bare
 // construction cost tiers into the all-in program cost a city budgets:
 // +ADA curb ramps, +design/inspection, +contingency.
 import { test } from 'node:test';

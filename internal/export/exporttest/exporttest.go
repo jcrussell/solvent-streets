@@ -1,7 +1,7 @@
 // Package exporttest builds the deterministic export fixture shared by the
 // internal/export contract tests, the JS-spec fixture generator and the
 // integration tier's summary golden. It builds the store and config in
-// memory rather than reading a captured golden (byob-testing.8), and returns
+// memory rather than reading a captured golden, and returns
 // parts rather than an export.CityEntry so that export's own in-package
 // tests can import it without an import cycle.
 package exporttest

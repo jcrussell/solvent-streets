@@ -84,7 +84,7 @@ test('the static export has neither picker nor badge', () => {
   assert.equal($('#latest-compute-badge'), null);
 });
 
-// solvent-streets-a1ud: going back across a snapshot change reloads the city's
+// Going back across a snapshot change reloads the city's
 // data, which empties the metric list; the entry's Color-by must survive that
 // reload rather than collapse to coverage while the URL keeps ?metric=.
 test('back across a snapshot change keeps the entry\'s Color-by', async () => {

@@ -1,4 +1,4 @@
-// One forecast horizon (solvent-streets-lu32.20): Financials, Compare and
+// One forecast horizon: Financials, Compare and
 // Aggregate label the same year, and each figure "at the horizon" is read at
 // the year its label names. A city whose series stops short of the horizon
 // shows its last year and is flagged, the same way on Compare and Aggregate.
@@ -92,7 +92,7 @@ test('a city that stops short shows its last year on both pages, flagged', async
   const board = doc.getElementById('leaderboard-list').innerHTML;
   const start = board.indexOf('Deferred Backlog per acre');
   const block = board.slice(start, board.indexOf('lb-category', start));
-  // Each row also shows its per-area denominator (solvent-streets-mea7).
+  // Each row also shows its per-area denominator.
   const rowOf = (name) => block.slice(block.indexOf('lb-name">' + name), block.indexOf('lb-bar-wrap', block.indexOf('lb-name">' + name)));
   assert.match(rowOf('Short'), /<span class="lb-note"[^>]*>\(through year 12\)<\/span>/);
   assert.ok(!/through year/.test(rowOf('Full')), 'a city at the horizon must not be flagged');

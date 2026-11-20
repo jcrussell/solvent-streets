@@ -112,7 +112,7 @@ func TestNewCmdIngest_ForceFlag(t *testing.T) {
 	}
 }
 
-// TestNewCmdIngest_ForceAndDryRunMutuallyExclusive covers byob-command-shape.6:
+// TestNewCmdIngest_ForceAndDryRunMutuallyExclusive:
 // --force (bypass HTTP cache) and --dry-run (no fetch) are nonsense together,
 // so cobra's MarkFlagsMutuallyExclusive helper rejects the combination at
 // flag-parse time rather than each command silently ignoring one. The
@@ -259,8 +259,8 @@ func boundaryStore(saved *[]string, upserts *[]string) *dbtest.MockStore {
 	}
 }
 
-// TestRunResourceWithBoundary_RoadsStepReusesBoundaryRoads
-// (solvent-streets-npg2): `all ingest` resolves a fresh boundary up front,
+// TestRunResourceWithBoundary_RoadsStepReusesBoundaryRoads:
+// `all ingest` resolves a fresh boundary up front,
 // which fetches the roads over the unstripped boundary and saves them; the
 // roads step then reports those instead of fetching again, so the roads,
 // parking and sidewalks steps make exactly one roads query between them.
@@ -415,7 +415,7 @@ func TestFetchFromSources_AllFailedReturnsErrAllSourcesFailed(t *testing.T) {
 	if !errors.Is(err, cmdutil.ErrAllSourcesFailed) {
 		t.Errorf("expected ErrAllSourcesFailed, got %v", err)
 	}
-	// Both failures are kept for the record (solvent-streets-o831.1).
+	// Both failures are kept for the record.
 	if len(attempts) != 2 || attempts[0].Outcome != db.IngestFailed || attempts[1].Error != "upstream offline" {
 		t.Errorf("attempts = %+v, want two failed attempts with the error", attempts)
 	}
@@ -717,7 +717,7 @@ func TestResolveBoundary_FetcherErrorWrappedWithHint(t *testing.T) {
 	if !strings.Contains(err.Error(), "synthetic nominatim failure") {
 		t.Errorf("expected wrapped underlying error, got: %v", err)
 	}
-	// The failed fetch is recorded (solvent-streets-o831.1).
+	// The failed fetch is recorded.
 	if len(store.Attempts) != 1 || store.Attempts[0].Input != db.InputBoundary ||
 		store.Attempts[0].Source != "nominatim" || store.Attempts[0].Outcome != db.IngestFailed ||
 		!strings.Contains(store.Attempts[0].Error, "synthetic nominatim failure") {
@@ -725,7 +725,7 @@ func TestResolveBoundary_FetcherErrorWrappedWithHint(t *testing.T) {
 	}
 }
 
-// TestResolveBoundary_RecordsAttempts (solvent-streets-o831.1): a fetched
+// TestResolveBoundary_RecordsAttempts: a fetched
 // boundary records an ok attempt under its source; a cached one records
 // nothing, because no upstream was asked.
 func TestResolveBoundary_RecordsAttempts(t *testing.T) {
@@ -750,8 +750,7 @@ func TestResolveBoundary_RecordsAttempts(t *testing.T) {
 	}
 }
 
-// TestResolveBoundary_RelationErrorHintsAreClassSpecific pins the
-// solvent-streets-90ev fix: relation-path failures should NOT emit the
+// TestResolveBoundary_RelationErrorHintsAreClassSpecific: relation-path failures should NOT emit the
 // Nominatim-only hint ("set boundary_relation_id"). Instead, the hint
 // branches on errors.Is against the sentinels in internal/ingest/boundary.go.
 func TestResolveBoundary_RelationErrorHintsAreClassSpecific(t *testing.T) {
@@ -891,7 +890,7 @@ func failingWaterFetcher(_ context.Context, _ *http.Client, _ [4]float64, _ inge
 	return "", errors.New("simulated overpass outage")
 }
 
-// TestStripWaterFromBoundary_FetchErrorIsHard pins solvent-streets-o9a3: a
+// TestStripWaterFromBoundary_FetchErrorIsHard: a
 // failed water fetch is an ErrWaterFetch error, not a soft warn. Falling
 // back used to save the unstripped boundary, which every later ingest then
 // reused, so one Overpass hiccup left open water in the city's area.
@@ -912,8 +911,8 @@ func TestStripWaterFromBoundary_FetchErrorIsHard(t *testing.T) {
 	}
 }
 
-// TestResolveBoundary_WaterFetchErrorSavesNothing pins the other half of
-// solvent-streets-o9a3: when the water fetch fails, no boundary is saved,
+// TestResolveBoundary_WaterFetchErrorSavesNothing pins the other half:
+// When the water fetch fails, no boundary is saved,
 // so the next ingest finds nothing cached and retries the fetch.
 func TestResolveBoundary_WaterFetchErrorSavesNothing(t *testing.T) {
 	boundary := `{"type":"Polygon","coordinates":[[[-122.5,37.5],[-122.4,37.5],[-122.4,37.6],[-122.5,37.6],[-122.5,37.5]]]}`
@@ -947,7 +946,7 @@ func TestResolveBoundary_WaterFetchErrorSavesNothing(t *testing.T) {
 // TestResolveBoundary_CancelledWaterFetchHasNoOverloadHint: a Ctrl-C during
 // the water fetch is the user stopping the run, not an overloaded Overpass, so
 // it must stay a plain cancellation without the "wait a few minutes and
-// re-run" hint (solvent-streets-ern4.7).
+// re-run" hint.
 func TestResolveBoundary_CancelledWaterFetchHasNoOverloadHint(t *testing.T) {
 	boundary := `{"type":"Polygon","coordinates":[[[-122.5,37.5],[-122.4,37.5],[-122.4,37.6],[-122.5,37.6],[-122.5,37.5]]]}`
 	store := &dbtest.MockStore{
@@ -989,8 +988,7 @@ func TestStripWaterFromBoundary_NoWaterIsNoOp(t *testing.T) {
 	}
 }
 
-// TestResolveSources_DisabledSourceExplainsItself pins solvent-streets-rw06.
-//
+// TestResolveSources_DisabledSourceExplainsItself:
 // `--source overpass` on a city with overpass unset used to fail with
 // `resolving source "overpass": unknown source: overpass`, because
 // SourceByName builds AllSources and reports "unknown" when nothing matches.
@@ -1192,7 +1190,7 @@ func TestResolveSources_OwnSourcedTakesItsOwnSource(t *testing.T) {
 	}
 }
 
-// TestReplaceScope pins solvent-streets-vqu9: only a --source all run whose
+// TestReplaceScope: only a --source all run whose
 // every source succeeded replaces the whole resource. A single-source run on
 // a city that also uses another source used to wipe that source's rows (all
 // 9,992 Livermore OSM ways on `pvmt roads ingest --source arcgis`).
@@ -1219,7 +1217,7 @@ func TestReplaceScope(t *testing.T) {
 }
 
 // TestRunIngest_SourceArcGISKeepsOverpassRows drives the --source arcgis
-// wiring end to end against a real store (solvent-streets-vqu9, -rcpy):
+// wiring end to end against a real store:
 // a city that uses both sources re-ingests ArcGIS only, and its stored
 // Overpass rows must survive the save. TestReplaceScope covers the helper;
 // this covers runIngest passing its result to UpsertFeatures.
@@ -1289,7 +1287,7 @@ func TestRunIngest_SourceArcGISKeepsOverpassRows(t *testing.T) {
 	}
 }
 
-// TestRunIngest_PartialSourceFailureSavesAndFails pins solvent-streets-r0ro:
+// TestRunIngest_PartialSourceFailureSavesAndFails:
 // when one of a city's sources fails, what answered is saved, but the run
 // reports ErrPartialIngest naming the failed source, so `pvmt all ingest`
 // exits 1 instead of publishing a city missing a source as if complete.
@@ -1336,8 +1334,7 @@ func TestRunIngest_PartialSourceFailureSavesAndFails(t *testing.T) {
 	if n := len(saved); n != 1 {
 		t.Errorf("saved %d features, want the 1 ArcGIS row kept despite the failure", n)
 	}
-	// Both answers are on record: the partial-source status reads them
-	// (solvent-streets-o831.1).
+	// Both answers are on record: the partial-source status reads them.
 	got := map[string]db.IngestOutcome{}
 	for _, a := range store.Attempts {
 		got[a.Source] = a.Outcome
@@ -1347,7 +1344,7 @@ func TestRunIngest_PartialSourceFailureSavesAndFails(t *testing.T) {
 	}
 }
 
-// TestRunIngest_SaveFailureRecordsFailedAttempts (solvent-streets-o831.1): a
+// TestRunIngest_SaveFailureRecordsFailedAttempts: a
 // source that answered but whose rows could not be saved is recorded as
 // failed, with the save error, not as a success.
 func TestRunIngest_SaveFailureRecordsFailedAttempts(t *testing.T) {
@@ -1386,7 +1383,7 @@ func TestRunIngest_SaveFailureRecordsFailedAttempts(t *testing.T) {
 	}
 }
 
-// TestRunIngest_PartialFailureWithEmptySurvivor pins solvent-streets-sn8l: a
+// TestRunIngest_PartialFailureWithEmptySurvivor: a
 // failed source outranks an empty survivor. Reporting ErrNoResults would let
 // `pvmt all ingest` skip the layer as empty and exit 0 with it missing. The
 // store is not touched, so previously-stored rows are kept.
@@ -1536,7 +1533,7 @@ func TestPrintDryRunPlan_DisabledSourceGivesTheRealRunsReason(t *testing.T) {
 	}
 }
 
-// TestRunIngest_CensusOptOut pins solvent-streets-0z82: a city with
+// TestRunIngest_CensusOptOut: a city with
 // census = false is skipped by `pvmt census ingest` (and its --dry-run), as
 // `pvmt census compute` and `pvmt all` already skip it, before any fetch.
 func TestRunIngest_CensusOptOut(t *testing.T) {
@@ -1563,7 +1560,7 @@ func TestRunIngest_CensusOptOut(t *testing.T) {
 	}
 }
 
-// TestRunIngest_DisabledSourceFailsBeforeBoundary pins solvent-streets-0z82: a
+// TestRunIngest_DisabledSourceFailsBeforeBoundary: a
 // --source the city's pvmt.toml switched off fails before any network work,
 // with the hint naming the setting.
 func TestRunIngest_DisabledSourceFailsBeforeBoundary(t *testing.T) {
@@ -1588,8 +1585,8 @@ func TestRunIngest_DisabledSourceFailsBeforeBoundary(t *testing.T) {
 	}
 }
 
-// TestRunResourceForCity_FacilitiesFetchPaddedWithRoutingRoads pins
-// solvent-streets-n17z: a service's facilities are fetched over the boundary
+// TestRunResourceForCity_FacilitiesFetchPaddedWithRoutingRoads pins:
+// A service's facilities are fetched over the boundary
 // bbox padded by resource.ServiceAreaPadM, so a neighbouring station just
 // across the line exists, and the ingest also fetches the routing roads (a
 // companion) over the same padded bbox, so the graph reaches it. Each is
@@ -1647,7 +1644,7 @@ func TestRunResourceForCity_FacilitiesFetchPaddedWithRoutingRoads(t *testing.T) 
 	}
 }
 
-// TestRunIngest_RoutingRoadsFetchTheRing (solvent-streets-530m): a city whose
+// TestRunIngest_RoutingRoadsFetchTheRing: a city whose
 // roads come from Overpass fetches its routing roads as the ring outside its
 // boundary bbox; a city without OSM roads fetches the whole padded bbox.
 func TestRunIngest_RoutingRoadsFetchTheRing(t *testing.T) {
@@ -1830,7 +1827,7 @@ func recordingWater(body string, got *ingestpkg.LandProbes) waterFetcher {
 	}
 }
 
-// TestFetchBoundary_FetchesRoadsOverUnstrippedBBox (solvent-streets-npg2):
+// TestFetchBoundary_FetchesRoadsOverUnstrippedBBox:
 // the roads are fetched over the unstripped boundary's bbox, which holds
 // every boundary the strip can produce, and become the water strip's dense
 // land probes.
@@ -1869,7 +1866,7 @@ func TestFetchBoundary_FetchesRoadsOverUnstrippedBBox(t *testing.T) {
 }
 
 // TestFetchBoundary_InvertedStripKeepsRoadsForFinalBoundary
-// (solvent-streets-npg2, the El Segundo case): when the backstop replaces an
+// (the El Segundo case): when the backstop replaces an
 // inverted strip with its complement, the boundary is saved once, and the
 // saved roads are the ones touching the FINAL boundary's bbox, not the
 // inverted shape's.

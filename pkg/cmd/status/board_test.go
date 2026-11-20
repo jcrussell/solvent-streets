@@ -89,7 +89,7 @@ func boardOpts(t *testing.T, cities []boardCity) (*Options, func() (string, stri
 	}, func() (string, string) { return out.String(), errOut.String() }
 }
 
-// TestBoard_IncompleteLayers (solvent-streets-o831.2): --incomplete lists
+// TestBoard_IncompleteLayers: --incomplete lists
 // exactly the layers needing an ingest, each with its failing source, the
 // error and the command that retries only that source.
 func TestBoard_IncompleteLayers(t *testing.T) {

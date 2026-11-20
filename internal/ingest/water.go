@@ -34,7 +34,7 @@ import (
 // holds no city land. If both candidates hold land, the chain doesn't
 // cleanly separate water from land and is dropped. This invariant catches
 // OSM coastline ways digitized in inconsistent orientations relative to the
-// right-hand-water convention (the cause of solvent-streets-yrr0).
+// right-hand-water convention.
 //
 // baseURL is the Overpass interpreter to query; empty uses
 // DefaultOverpassURL.
@@ -173,7 +173,7 @@ func assembleWaterGeoJSON(ctx context.Context, elements []overpassElement, bbox 
 	chains := stitchCoastlineChains(coastWays)
 	if probes.dense {
 		// With road probes the coastlines cut the bbox into faces, each
-		// classified by the roads it holds (solvent-streets-aot4); an
+		// classified by the roads it holds; an
 		// island's closed CCW ring is land, a hole in the face around it.
 		boundary := boundaryLonLat(landProbes.Boundary)
 		for _, p := range coastlineFaces(ctx, chains, bbox, probes, coastlineIslands(chains, bbox), boundary) {
@@ -363,7 +363,7 @@ const (
 // Nor is it applied with dense (road) land probes (landProbeIndex.capArea):
 // there the probes are the discriminator, and a real lake or river is
 // often far larger than a small city's bbox (Lake Champlain's relation
-// covers 15 times Burlington's, solvent-streets-z3si). A mis-tagged giant
+// covers 15 times Burlington's). A mis-tagged giant
 // polygon holds the city's streets and is dropped "containing city land";
 // one that holds none of them can remove only water, because the subtract
 // clips it to the boundary first.
@@ -391,7 +391,7 @@ const maxOuterBboxAreaFraction = 0.8
 // CCW — orientation is a convention. Callers normalize to CW for
 // downstream consistency. The CW=water/CCW=island distinction is
 // semantic only for *coastline*-derived rings and lives in
-// closeCoastlineChain (solvent-streets-b0v9), which drops CCW closed
+// closeCoastlineChain, which drops CCW closed
 // rings outright rather than reversing them.
 //
 // Rejection rules compose: adding a new check appends another clause
@@ -631,8 +631,7 @@ func buildChainForward(
 // subtract from a city boundary cannot contain any point of the
 // city's land. A local right-hand-water probe would rely on the OSM
 // coastline direction convention, and guesses wrong for ways digitized
-// inconsistently with it, as some in NYC are (solvent-streets-vtcs,
-// solvent-streets-yrr0).
+// inconsistently with it, as some in NYC are.
 //
 // When a chain's closure produces two candidate rings that both
 // contain land probes (NYC chain=30 cuts through multiple boroughs),

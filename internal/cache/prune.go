@@ -25,7 +25,7 @@ import (
 // reclaimed. Prune is the eviction half: an explicit, offline sweep
 // driven by `pvmt cache prune`, not an online policy on the hot path —
 // evicting during RoundTrip would put a full directory scan in front of
-// every request. (solvent-streets-b136)
+// every request.
 const (
 	// DefaultMaxAge is the default age ceiling. An entry untouched for a
 	// month has gone unwanted for at least four DefaultTTL windows (more
@@ -154,15 +154,15 @@ func (e *cacheEntry) complete() bool { return (e.hasBody && e.hasMeta) || e.hasM
 // print the partial result.
 // Cancellation: ctx is checked once per directory entry and once per entry in
 // each sweep, so a SIGINT stops the sweep promptly instead of running to
-// completion (solvent-streets-q48z.22).
-// Main unregisters after the first signal (solvent-streets-f6pu), so a
+// completion.
+// Main unregisters after the first signal, so a
 // second Ctrl-C kills the process outright — possibly between a temp write
 // and its rename; the next prune sweeps that residue. A cancelled sweep returns a context.Canceled in
 // the joined error alongside the partial report — entries it never reached are
 // credited to BytesRemaining, so the printed numbers stay honest. A cancel
 // that lands in the directory scan credits the entries scanned so far; files
 // the scan never stat-ed have no known size, so there BytesRemaining is a
-// lower bound (solvent-streets-8hi1).
+// lower bound.
 func Prune(ctx context.Context, dir string, opts PruneOptions) (*PruneReport, error) {
 	p := &pruneRun{ctx: ctx, opts: opts, report: &PruneReport{}, now: time.Now()}
 	entries, temps, err := scanCacheDir(ctx, dir, p.report)

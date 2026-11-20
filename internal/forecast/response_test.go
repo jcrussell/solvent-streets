@@ -6,7 +6,7 @@ import (
 )
 
 // The yearly PCI response to spend is continuous and monotone across the
-// spend == need boundary (solvent-streets-j5co). It used to freeze a funded
+// spend == need boundary. It used to freeze a funded
 // cohort and let any surplus close surplus/need of its gap in one year, so a
 // budget 10% above the year-1 need ended at PCI 100 while spending half the
 // need.
@@ -98,8 +98,8 @@ func TestSimulate_NoCliffAboveNeed(t *testing.T) {
 
 // TestApplyCohortSpend_SurplusNeverReaches100: however large the surplus, one
 // year closes at most eff/12 of the gap and records at most the saturation
-// spend, so a cohort approaches PCI 100 without reaching it
-// (solvent-streets-ern4.26). It used to treat the whole cohort once the
+// spend, so a cohort approaches PCI 100 without reaching it.
+// It used to treat the whole cohort once the
 // surplus reached 12/eff needs, then hold it at 100 for the rest of the run.
 func TestApplyCohortSpend_SurplusNeverReaches100(t *testing.T) {
 	for _, s := range []Strategy{StrategyWorstFirst, StrategyPreventiveFirst} {

@@ -9,9 +9,9 @@ import (
 
 // Processes that open a brand-new database at once race its creation: one
 // stamps the generation and creates the tables while another reads. None may
-// call the file incompatible: it is the database pvmt is creating right now
-// (peer review of solvent-streets-cmth). A raw SQLITE_BUSY from such a race
-// is the separate, known solvent-streets-w0b6 and is not judged here.
+// call the file incompatible: it is the database pvmt is creating right now.
+// A raw SQLITE_BUSY from such a race is a separate, known issue and is not
+// judged here.
 func TestOpen_ConcurrentFirstOpenIsNeverIncompatible(t *testing.T) {
 	const rounds, openers = 50, 8
 	for range rounds {

@@ -207,7 +207,7 @@ func TestBuildMeta_MetricSummaries(t *testing.T) {
 	}
 }
 
-// TestBuildMeta_UnreachableHexesLowerTheShare pins solvent-streets-8x0f: a
+// TestBuildMeta_UnreachableHexesLowerTheShare: a
 // hex the fire run recorded as unreachable counts against the
 // within-threshold share and is reported, but has no value in
 // hex-metrics.json and stays out of the count, median and range.

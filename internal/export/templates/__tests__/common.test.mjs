@@ -1,5 +1,5 @@
-// common.js is the plumbing both pages load before their own script
-// (solvent-streets-lu32.31): one money formatter, one error banner, one JSON
+// common.js is the plumbing both pages load before their own script:
+// one money formatter, one error banner, one JSON
 // fetch wrapper, and one way to boot and call the forecast WASM. These specs
 // run it inside both rendered pages.
 import { test } from 'node:test';
@@ -71,8 +71,7 @@ test('the hold-steady budget reads the same on Financials and on Play', async ()
   const index = load({ data });
   await index.flush(12);
   assert.match(index.$('#solvency-headline .lead').textContent, /\$12\.3M\/yr/);
-  // Visitors read this: it says what is missing, not which config key to set
-  // (solvent-streets-ern4.36).
+  // Visitors read this: it says what is missing, not which config key to set.
   const detail = index.$('#solvency-headline .detail').textContent;
   assert.match(detail, /No cited street budget for .+ is on file/);
   assert.doesNotMatch(index.$('#solvency-headline').innerHTML, /current_budget|<code>/);

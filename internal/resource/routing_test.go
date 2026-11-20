@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// TestRoutingRoads_OverpassQueryExcluding (solvent-streets-530m): the ring
+// TestRoutingRoads_OverpassQueryExcluding: the ring
 // query selects the same road classes as the full query, minus those over
 // the excluded bbox, in one Overpass difference statement.
 func TestRoutingRoads_OverpassQueryExcluding(t *testing.T) {

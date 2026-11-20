@@ -60,7 +60,7 @@ func getBig(ctx context.Context, client *http.Client, url string) error {
 }
 
 // TestCachingTransport_OversizedBodyLeavesAMarker pins the cache-path half of
-// the ruk4 fix and solvent-streets-vds3: an over-limit 200 errors (never
+// the body-size guard: an over-limit 200 errors (never
 // silently truncated) and its body is never cached, so it cannot be served as
 // a fresh hit; instead a too-large marker is written, and until the TTL the
 // request fails at once with the same ErrBodyTooLarge, without asking
@@ -178,7 +178,6 @@ func TestCachingTransport_HitAndMiss(t *testing.T) {
 // path: when a cached entry past TTL carries an ETag (or Last-Modified)
 // validator, the next request sends If-None-Match and a 304 response
 // renews the cached timestamp without re-downloading the body.
-// Regression for solvent-streets-f367.
 func TestCachingTransport_Revalidate304(t *testing.T) {
 	const etag = `"abc123"`
 	callCount := 0
@@ -311,7 +310,7 @@ func TestCachingTransport_ForceBypass(t *testing.T) {
 // TestCachingTransport_WithBypass pins the --force contract: a request
 // whose context carries WithBypass re-fetches from the origin even when a
 // warm (within-TTL) cache entry exists, and the fresh response is written
-// back. Regression for solvent-streets-2a7n.20.
+// back.
 func TestCachingTransport_WithBypass(t *testing.T) {
 	callCount := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -370,7 +369,6 @@ func TestCachingTransport_WithBypass(t *testing.T) {
 // TestWriteCache_MetaNotWrittenWhenBodyFails pins the body-first commit
 // ordering: if the body write fails, the meta must NOT be written, so a
 // prior consistent (meta,body) pair is never replaced by new-meta/old-body.
-// Regression for solvent-streets-2a7n.24.
 func TestWriteCache_MetaNotWrittenWhenBodyFails(t *testing.T) {
 	dir := t.TempDir()
 	ct := NewTransport(http.DefaultTransport, dir, time.Hour)
@@ -715,7 +713,7 @@ func getBody(t *testing.T, client *http.Client, url string) string {
 	return string(b)
 }
 
-// TestCachingTransport_BodiesAreGzipped pins solvent-streets-lv3r: the body
+// TestCachingTransport_BodiesAreGzipped: the body
 // half of an entry is <key>.json.gz holding a gzip stream of the response, no
 // uncompressed <key>.json is written, and a hit serves the decompressed bytes.
 func TestCachingTransport_BodiesAreGzipped(t *testing.T) {

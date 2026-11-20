@@ -1137,7 +1137,7 @@ func TestHandleCitiesList_Cached(t *testing.T) {
 // TestHttpErr_HidesInternalMessage pins the policy that internal error
 // strings (DB paths, file paths, wrapped chains) never reach the HTTP
 // response body — they are logged to ErrOut and the client sees only the
-// generic status text. Regression guard for solvent-streets-fvzj.
+// generic status text.
 func TestHttpErr_HidesInternalMessage(t *testing.T) {
 	ios, _, _, errOut := iostreams.Test()
 	srv := New(nil, "127.0.0.1", 0, ios, testAssets(t))

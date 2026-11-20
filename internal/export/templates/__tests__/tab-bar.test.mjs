@@ -1,5 +1,5 @@
-// The tab bar's accessibility tree and its phone scroll fades
-// (solvent-streets-mddm, solvent-streets-eaqn): the tablist holds only tabs
+// The tab bar's accessibility tree and its phone scroll fades:
+// the tablist holds only tabs
 // (the Play link sits beside it in the same scrolling strip), the gear is a
 // disclosure rather than a menu, since it holds selects and toggles, not
 // menu items.

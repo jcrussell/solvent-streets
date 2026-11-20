@@ -74,7 +74,7 @@ test('the seeded area and cohorts reach the WASM bridge', async () => {
   assert.equal(sent.area, seedJSON.city_maintained_area,
     'the bridge did not receive the seeded city_maintained_area');
   assert.ok(sent.area > 0, 'the bridge simulated a network of zero area');
-  // By default the forecast maintains streets only (solvent-streets-ma98).
+  // By default the forecast maintains streets only.
   assert.deepEqual(
     Array.from(sent.cohorts ?? [], (c) => c.classification).sort(),
     roadClasses(seedJSON.city_cohorts),
@@ -154,7 +154,7 @@ test('forecast controls stay hidden when the seed is missing', async () => {
     'controls revealed without this city\'s seed');
 });
 
-// solvent-streets-i9pt. Three call sites each ran runCustomScenario twice —
+// Three call sites each ran runCustomScenario twice —
 // renderFinancialsFromCache, selectScope, and the renderFinancials wrapper
 // firing inside both, so a render cost two custom scenarios where one would
 // do. Each runCustomScenario is one scenario simulation, plus solvency probes
@@ -211,7 +211,7 @@ test('the custom scenario, not the baseline, has the last word on the tiles', as
     'headline tiles were not written by the custom scenario');
 });
 
-// solvent-streets-i4ly: the four Financials charts are created without the
+// The four Financials charts are created without the
 // entry animation, because the interactive series is pushed with
 // update('none') right after creation and that froze the other series
 // mid-animation, drawn below their data.

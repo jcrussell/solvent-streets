@@ -311,7 +311,7 @@ func lineSequences(gjson string) []geom.Sequence {
 // blocked. A private way stays in: it is gated, not closed, and an engine
 // has the gate code. Dropping private ways cut off campuses whose interior
 // roads are private, such as Lawrence Livermore National Lab, whose own fire
-// station then served none of them (solvent-streets-8eb3). A way that admits
+// station then served none of them. A way that admits
 // emergency vehicles (emergency=yes or designated, or an access tag of
 // "emergency") stays in even when closed.
 func closedToTraffic(tags map[string]string) bool {

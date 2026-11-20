@@ -139,7 +139,7 @@ func TestCityRow_ExportData_AllFieldsPopulated(t *testing.T) {
 	}
 }
 
-// TestRunCities_EmptyDatabase locks in byob-iostreams.3 routing for an
+// TestRunCities_EmptyDatabase locks in Out/ErrOut routing for an
 // empty-state message: the "No cities" hint is chatter, not data, so it
 // must land on ErrOut. The contract is what makes `pvmt cities | wc -l`
 // return 0 instead of 1 when the database is empty — scripted consumers

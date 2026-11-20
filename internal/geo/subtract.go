@@ -67,7 +67,7 @@ func SubtractGeoJSON(ctx context.Context, boundaryGJSON, otherGJSON string) (str
 	// the city. This is the last defense behind per-polygon validation
 	// in internal/ingest/water.go: even if a bad polygon leaks through
 	// every upstream check, it can only carve out city interior, not
-	// reduce the boundary to a sliver. Part of solvent-streets-vtcs.
+	// reduce the boundary to a sliver.
 	otherClipped, err := geom.Intersection(other, boundary)
 	if err != nil {
 		return "", fmt.Errorf("clip subtrahend to boundary: %w", err)
@@ -79,7 +79,7 @@ func SubtractGeoJSON(ctx context.Context, boundaryGJSON, otherGJSON string) (str
 	// area we want to subtract. (Difference accepts a mixed GC and its
 	// output is clean either way, so the strip is belt-and-suspenders here;
 	// it is strictly required at the hex-clip call sites that keep the
-	// result geometry — see RetainPolygonal. solvent-streets-i3ih.)
+	// result geometry — see RetainPolygonal.)
 	otherClipped, err = RetainPolygonal(otherClipped)
 	if err != nil {
 		return "", fmt.Errorf("clean clipped subtrahend (polygonal-only): %w", err)

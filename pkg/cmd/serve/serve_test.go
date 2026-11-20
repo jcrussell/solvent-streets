@@ -129,7 +129,7 @@ func TestNewCmdServe_DefaultPort(t *testing.T) {
 	}
 }
 
-// TestOptions_Validate_Port covers byob-input-validation.5: bad --port
+// TestOptions_Validate_Port: bad --port
 // surfaces as FlagError before any listener bind or DB open. Port 0 is
 // rejected even though net/http accepts it (means "pick free") so the
 // served address stays predictable.

@@ -99,7 +99,7 @@ func replayStrip(t *testing.T, name string) (float64, replayFixture, string) {
 }
 
 // TestReplay_WaterStripMatchesCensusLand pins the batch-1 replay cities whose
-// strip went wrong (solvent-streets-npg2, -z3si, -gu2k, -aot4) to their
+// strip went wrong to their
 // land area, on trimmed real data:
 //   - Alameda (an island city): its bay face holds 4 wharf roads against the
 //     island's 424; judged chain by chain both closures were over the

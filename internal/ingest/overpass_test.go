@@ -643,7 +643,7 @@ func TestParseOverpassResponse_UnnamedFeatureNames(t *testing.T) {
 	}
 }
 
-// TestOverpassSource_ExcludeSendsDifference (solvent-streets-530m): with
+// TestOverpassSource_ExcludeSendsDifference: with
 // Exclude set, a resource that implements resource.ExcludingQuerier is
 // fetched as the difference between the bbox and the excluded bbox, and every
 // other resource ignores Exclude.
@@ -676,7 +676,7 @@ func TestOverpassSource_ExcludeSendsDifference(t *testing.T) {
 	}
 }
 
-// TestFetch_TooLargeMarkerSkipsTheFullRequestOnRepeat (solvent-streets-vds3):
+// TestFetch_TooLargeMarkerSkipsTheFullRequestOnRepeat:
 // behind the caching transport, a full-bbox response over the size cap is
 // remembered as too large, so a repeat fetch makes no upstream request at
 // all: the marker answers the full request and the quadrants are cached.

@@ -75,7 +75,7 @@ func TestNewCmdShow_RunFInjection(t *testing.T) {
 	}
 }
 
-// TestShow_DefaultEmitsTOML locks in byob-iostreams.3 routing for a pure-
+// TestShow_DefaultEmitsTOML locks in Out/ErrOut routing for a pure-
 // data command: the rendered TOML is the command's DATA and must land on
 // Out alone. ErrOut stays silent so `pvmt config show > pvmt.toml`
 // produces a valid file with no chatter mixed in.

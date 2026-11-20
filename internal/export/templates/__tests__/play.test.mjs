@@ -92,7 +92,7 @@ test('play (live server): an unknown ?city= with no filters keeps the served cit
   assert.deepEqual(gone, []);
 });
 
-// solvent-streets-mw80: an unsatisfiable ?tag= set leaves no city to play, so
+// An unsatisfiable ?tag= set leaves no city to play, so
 // Start is disabled and says why, rather than starting the excluded city.
 test('play: no matching city disables Start', async () => {
   const { $, flush } = load({

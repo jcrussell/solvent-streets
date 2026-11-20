@@ -139,7 +139,7 @@ func TestRun_FailingGateExitsSilentlyNonZero(t *testing.T) {
 	}
 }
 
-// Data to Out, chatter to ErrOut (byob-iostreams.3), so `pvmt validate --json`
+// Data to Out, chatter to ErrOut, so `pvmt validate --json`
 // pipes cleanly into jq.
 func TestRun_JSONIsCleanOnStdout(t *testing.T) {
 	ios, _, out, _ := iostreams.Test()

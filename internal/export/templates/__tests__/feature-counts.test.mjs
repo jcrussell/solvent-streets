@@ -1,4 +1,4 @@
-// The site publishes no feature counts (solvent-streets-04r7). A count of
+// The site publishes no feature counts. A count of
 // fetched OSM/ArcGIS features describes the ingest bounding box and how
 // mappers split ways, not the city, and it sat next to boundary-clipped area
 // ("7 features, 0 area"). meta.json carries none, the stats panel shows none,

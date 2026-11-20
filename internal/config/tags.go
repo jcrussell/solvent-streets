@@ -30,7 +30,7 @@ var stateSuffixRe = regexp.MustCompile(`, ([A-Z]{2})$`)
 
 // usPostalCodes is every code StateFromName accepts: the 50 states, DC and
 // the inhabited territories. Any other ", XX" suffix ("Toronto, ON") is not a
-// US state and derives no tag (solvent-streets-zcyy).
+// US state and derives no tag.
 var usPostalCodes = func() map[string]bool {
 	m := make(map[string]bool)
 	for c := range strings.FieldsSeq(`

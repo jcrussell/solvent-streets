@@ -26,8 +26,8 @@ import (
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 )
 
-// TestNewPVMTTransport_TunedTimeouts locks in the byob-http-client.2 transport
-// contract. The exact values are picked deliberately (10s connect/handshake,
+// TestNewPVMTTransport_TunedTimeouts locks in the transport
+// timeout contract. The exact values are picked deliberately (10s connect/handshake,
 // 30s response-header, 90s idle) — drift here is a behavior change that should
 // be a conscious bead update, not a silent edit. The most load-bearing item
 // is ResponseHeaderTimeout: http.DefaultTransport sets it to zero, leaving
@@ -79,7 +79,7 @@ func TestHttpClientFactory_NoClientWideTimeout(t *testing.T) {
 }
 
 // TestHttpClientFactory_LazyCachedAcrossCalls locks in the sync.OnceValues
-// half of the byob-http-client.2 contract: f.HttpClient() returns the same
+// half of the HTTP client contract: f.HttpClient() returns the same
 // *http.Client on every call, so callers can hand it around without thinking
 // about which one is "the" client and the cache directory is created at most
 // once per process.
@@ -102,7 +102,7 @@ func TestHttpClientFactory_LazyCachedAcrossCalls(t *testing.T) {
 // TestHttpClientFactory_CacheTTL pins where the HTTP cache TTL comes from: the
 // config's [cache] ttl when set, else cache.DefaultTTL, including when there is
 // no pvmt.toml at all. Any other config error fails the client rather than
-// silently falling back to the default (solvent-streets-9vzr).
+// silently falling back to the default.
 func TestHttpClientFactory_CacheTTL(t *testing.T) {
 	loadErr := errors.New("bad toml")
 	tests := map[string]struct {
@@ -147,8 +147,7 @@ func TestHttpClientFactory_CacheTTL(t *testing.T) {
 // PVMT_OVERPASS_URL over the config's [overpass] url over
 // ingest.DefaultOverpassURL, the env layer applying with no pvmt.toml too. An
 // unusable env value is dropped (config.EnvProblems reports it), and a broken
-// config fails rather than silently querying the default instance
-// (solvent-streets-ern4.18).
+// config fails rather than silently querying the default instance.
 func TestResolveOverpassURL(t *testing.T) {
 	const fileURL = "https://overpass.example.org/api/interpreter"
 	const envURL = "https://overpass.example.net/api/interpreter"
@@ -331,7 +330,7 @@ func TestHttpClientFactory_DefersConstructionUntilCalled(t *testing.T) {
 
 // TestHttpClientFactory_TransportChainIsCacheWrapped pins the outer layer of
 // the wired chain. The disk cache must be the outermost wrapper so cache hits
-// short-circuit the User-Agent and retry middlewares (byob-http-client.1).
+// short-circuit the User-Agent and retry middlewares.
 // We do not walk the whole chain here — that belongs in the ingest package's
 // transport tests — but the outer assertion guards against a refactor that
 // re-orders the wrappers (e.g. ingest.NewTransport(cache.NewTransport(...))).
@@ -352,7 +351,7 @@ func TestHttpClientFactory_TransportChainIsCacheWrapped(t *testing.T) {
 }
 
 // TestLazyConfig_DefersConstructionUntilCalled locks in the laziness
-// half of the byob-config.3 contract: building the closure must not
+// half of the lazy-config contract: building the closure must not
 // invoke the loader, so `pvmt --version` and `pvmt --help` never read
 // the filesystem looking for pvmt.toml. A regression here would mean a
 // broken pvmt.toml could prevent users from running `pvmt --help` to
@@ -476,7 +475,7 @@ func TestNew_DoesNotLoadConfigEagerly(t *testing.T) {
 }
 
 // TestHttpClient_RejectsRedirectToPrivate pins the redirect-layer SSRF
-// guard (solvent-streets-a2z8.1): the per-call validatePublicHTTPURL only
+// guard: the per-call validatePublicHTTPURL only
 // checks the INITIAL URL, so a 302 to a loopback/link-local/RFC1918 host
 // must be blocked by the client's CheckRedirect re-validation. We drive
 // CheckRedirect directly (it is what the stdlib invokes on each hop),
@@ -665,7 +664,7 @@ func TestConfigFactory_EmitsLoadWarningsOnce(t *testing.T) {
 // TestConfigFactory_SilentWhenNothingToSay pins the other half: a config that
 // merges cleanly prints nothing, and a config that fails to load prints
 // nothing either — the command that needed it reports that failure, and a
-// command that never dereferences the closure (the byob-config.3 case) must be
+// command that never dereferences the closure (as lazy config allows) must be
 // able to run to completion beside a broken pvmt.toml without a word.
 func TestConfigFactory_SilentWhenNothingToSay(t *testing.T) {
 	t.Run("clean config", func(t *testing.T) {
@@ -742,7 +741,7 @@ func TestHintForConfigError_ExampleConfigLoads(t *testing.T) {
 	}
 }
 
-// TestHostTransport_OverpassWaitsLongerForHeaders pins solvent-streets-e7h3:
+// TestHostTransport_OverpassWaitsLongerForHeaders:
 // Overpass holds its headers until the query has run, so its requests get a
 // header deadline above the queries' [timeout:N]; every other host keeps the
 // short one, so a dead server still fails fast.
@@ -781,7 +780,7 @@ func TestHostTransport_OverpassWaitsLongerForHeaders(t *testing.T) {
 	}
 }
 
-// TestOverpassHeaderTimeout_NotRetried pins solvent-streets-lrnw: a server
+// TestOverpassHeaderTimeout_NotRetried: a server
 // that holds its headers past the Overpass header deadline is dead, so the
 // full client stack makes one attempt, not seven.
 func TestOverpassHeaderTimeout_NotRetried(t *testing.T) {

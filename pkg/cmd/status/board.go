@@ -18,7 +18,7 @@ import (
 )
 
 // boardFields are the --json fields of `pvmt status --all`, one row per city
-// and layer (solvent-streets-o831.2).
+// and layer.
 var boardFields = []string{"city", "layer", "feature_count", "last_success_at", "failing_sources", "error", "empty_upstream", "state", "incomplete", "retry"}
 
 // boardRow is one city's layer on the status board: what is stored, how its

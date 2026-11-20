@@ -1,4 +1,4 @@
-// Generic "Color by" (solvent-streets-59hj): every hex coloring is a registry
+// Generic "Color by": every hex coloring is a registry
 // metric. The pavement colorings are DERIVED specs shipped in
 // PVMT_CONFIG.hex_metrics (rendered from the real Go registry by the harness)
 // and computed client-side over the toggled resources; stored metrics come

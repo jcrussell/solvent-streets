@@ -214,7 +214,7 @@ func TestRenderBaselineTable_AreaPctSumsTo100UnderGrowth(t *testing.T) {
 	}
 }
 
-// TestRunForecast_StaleSnapshotsSayWhy is solvent-streets-ern4.12 (b): a city
+// TestRunForecast_StaleSnapshotsSayWhy: a city
 // computed only under other settings used to print "no compute results for
 // roads, skipping" once per resource and exit 3 with no hint why. Now it says
 // once, with export's wording, and still exits 3 (ErrNoResults).

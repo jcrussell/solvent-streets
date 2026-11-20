@@ -23,7 +23,7 @@ func Main() int {
 	// gets the default disposition and kills the process: while the
 	// NotifyContext registration is live, Go diverts every SIGINT into ctx,
 	// so a command stuck in a loop that never checks ctx could not be
-	// interrupted at all (byob-lifecycle.2).
+	// interrupted at all.
 	go func() {
 		<-ctx.Done()
 		stop()
@@ -60,8 +60,8 @@ func exitCode(err error, errOut io.Writer) int {
 	// too would make `pvmt check-site && deploy` and `pvmt export && deploy`
 	// treat a half-done run as a green gate — the gate would report ready for
 	// checks that never ran, and export would exit 0 with a partially written
-	// site after SafeCleanDir had already removed the previous one
-	// (solvent-streets-kh5n). Cancellation falls through to the generic arm
+	// site after SafeCleanDir had already removed the previous one.
+	// Cancellation falls through to the generic arm
 	// below: printed, exit 1.
 	//
 	// Deliberately NOT a dedicated quiet `context.Canceled -> 1` arm. A
@@ -93,11 +93,11 @@ func exitCode(err error, errOut io.Writer) int {
 // errors so they map to exit code 2 alongside flag-parse errors. Cobra
 // has no public sentinels for these paths — string-prefix matching is
 // the documented escape hatch. Covered:
-//   - "unknown command ..." from cobra's command lookup (byob-errors.4).
+//   - "unknown command ..." from cobra's command lookup.
 //   - "if any flags in the group ..." from MarkFlagsMutuallyExclusive
-//     and MarkFlagsRequiredTogether (byob-command-shape.6).
+//     and MarkFlagsRequiredTogether.
 //   - "at least one of the flags in the group ..." from
-//     MarkFlagsOneRequired (byob-command-shape.6).
+//     MarkFlagsOneRequired.
 //   - "required flag(s) ... not set" from MarkFlagRequired.
 //   - "accepts ... arg(s) ..." from ExactArgs/RangeArgs/MaximumNArgs.
 //   - "requires at least ... arg(s)" from MinimumNArgs.
@@ -105,7 +105,7 @@ func exitCode(err error, errOut io.Writer) int {
 // Without the arg-count / required-flag prefixes, e.g. `snapshots prune`
 // (missing --keep) and `snapshots delete` (missing id) exited 1 while a bad
 // --keep value exited 2 — inconsistent exit codes for the same class of
-// user error (solvent-streets-8407).
+// user error.
 func classifyUsageError(err error) error {
 	if err == nil {
 		return nil

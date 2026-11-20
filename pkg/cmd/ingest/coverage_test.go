@@ -149,7 +149,6 @@ const invertedStripBoundary = `{"type":"Polygon","coordinates":[[[1,0],[2,0],[2,
 func TestChooseBoundary_StripInverted_RecoversViaComplement(t *testing.T) {
 	// The complement recovers the land where the roads live, so it is
 	// chosen — NOT the water-inclusive unstripped Nominatim.
-	// solvent-streets-e5mk.
 	roads := []db.Feature{road("a", 0.3, 0.3), road("b", 0.5, 1.0), road("c", 0.2, 1.7)}
 	gjson, source, note, err := chooseBoundary(context.Background(), "San Francisco, CA",
 		bigSquareBoundary, invertedStripBoundary, "nominatim+osm-water", "nominatim", roads)

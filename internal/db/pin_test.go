@@ -9,7 +9,7 @@ import (
 // TestWithSnapshot_GoneFailsEveryRead: a view pinned to a snapshot that was
 // deleted (or never existed, or is another city's) fails every
 // snapshot-scoped read with ErrSnapshotGone instead of reading as an empty,
-// never-computed city (solvent-streets-jxdj).
+// never-computed city.
 func TestWithSnapshot_GoneFailsEveryRead(t *testing.T) {
 	ctx := context.Background()
 	root, store, _ := openInputsStore(t)

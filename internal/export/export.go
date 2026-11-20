@@ -30,14 +30,14 @@ type Exporter struct {
 	cfg        *config.Config
 	outputDir  string
 	unitSystem string
-	errOut     io.Writer // progress/warning sink; nil means discard (byob-iostreams.3)
+	errOut     io.Writer // progress/warning sink; nil means discard
 	assets     *Assets   // site-root browser files written beside index.html
 	pinned     bool      // Pin has run
 	snapshot   string    // SetSnapshot: the snapshot to publish; "" = each city's newest
 }
 
 // SetErrOut routes the exporter's progress and warning output (chatter, not
-// data — byob-iostreams.3). Unset, warnings are discarded.
+// data). Unset, warnings are discarded.
 func (e *Exporter) SetErrOut(w io.Writer) { e.errOut = w }
 
 // warnOut returns the warning sink, defaulting to io.Discard when unset so

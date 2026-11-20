@@ -46,7 +46,7 @@ test: wasm
 test-hooks:
 	sh scripts/check-commit-msg_test.sh
 
-# Pinned, not @latest (byob-security.1); CI runs this same target. Scans the
+# Pinned, not @latest; CI runs this same target. Scans the
 # stdlib of the toolchain go.mod's `toolchain` line selects.
 GOVULNCHECK_VERSION := v1.9.0
 vuln:

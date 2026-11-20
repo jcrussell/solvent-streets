@@ -19,7 +19,7 @@ var externalExampleConsumers = map[string]string{
 	"all":          "`make site` (SITE_CONFIG_DIR in the Makefile)",
 }
 
-// TestShippedExamplesLoad locks in solvent-streets-mv2p: every example under
+// TestShippedExamplesLoad: every example under
 // examples/ must survive config.Load, so a validation rule that outdates a
 // shipped config fails on the PR that adds the rule.
 //

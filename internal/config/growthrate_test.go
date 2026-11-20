@@ -16,8 +16,7 @@ func growthRateOf(t *testing.T, cfg *Config, slug string) float64 {
 	return fc.GrowthRate
 }
 
-// TestGrowthRate_ExplicitPerCityZeroOverridesTopLevel is solvent-streets-r312.
-//
+// TestGrowthRate_ExplicitPerCityZeroOverridesTopLevel:
 // growth_rate is the only forecast field where 0 is a value rather than an
 // unset sentinel: "this city's network does not grow" is a real statement, and
 // it has to beat a positive top-level rate. applyCityForecastProv used to guard

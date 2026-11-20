@@ -34,7 +34,7 @@ var migrationsFS embed.FS
 //
 // WAL is deliberately not in the DSN: journal_mode(WAL) there rewrites the
 // file header on connect, before checkGeneration can refuse a file that is
-// not ours (solvent-streets-cmth). Open switches to WAL (enableWAL) only once
+// not ours. Open switches to WAL (enableWAL) only once
 // the file is accepted; WAL is persistent in the file, so every later
 // connection inherits it.
 const dsnPragmas = "?_pragma=busy_timeout(5000)&_pragma=foreign_keys(on)&_txlock=immediate"

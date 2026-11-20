@@ -59,7 +59,7 @@ func (r *overpassRecorder) assertAll(t *testing.T, want string) {
 // TestLiveBoundaryFetchers_UseConfiguredOverpass pins that the boundary
 // step's Overpass fetches (a boundary relation, the water strip and the roads
 // fetched as its land evidence) go to the run's configured endpoint, and to
-// ingest.DefaultOverpassURL when none is configured (solvent-streets-ern4.18).
+// ingest.DefaultOverpassURL when none is configured.
 func TestLiveBoundaryFetchers_UseConfiguredOverpass(t *testing.T) {
 	ctx := context.Background()
 	city := cmdtest.NewTestCity()

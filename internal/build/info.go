@@ -36,7 +36,7 @@ type Info struct {
 // settings; a pseudo-version for a plain `go build` in a checkout) and the
 // commit and its time. vcs.modified is read
 // regardless — the Makefile's `git describe --dirty` misses untracked files
-// and a plain build sets no ldflags at all (byob-release.1). The scan runs
+// and a plain build sets no ldflags at all. The scan runs
 // once per process and never mutates the package vars.
 var Current = sync.OnceValue(func() Info {
 	i := Info{

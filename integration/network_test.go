@@ -51,7 +51,7 @@ func TestE2ENetwork_Livermore(t *testing.T) {
 	// A cold-cache Livermore ingest is minutes of Overpass time on a slow
 	// day; the budget leaves room for that, and stays inside `make e2e`'s
 	// -timeout so an exhausted budget reports which stage it ran out in
-	// rather than dying in a test-binary timeout (solvent-streets-e7h3).
+	// rather than dying in a test-binary timeout.
 	ctx, cancel := context.WithTimeout(context.Background(), e2eBudget)
 	defer cancel()
 

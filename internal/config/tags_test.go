@@ -63,7 +63,7 @@ func TestStateFromName(t *testing.T) {
 		{"Livermore, California", "", false},
 		{"Livermore,CA", "", false},
 		{"Oakland, ca", "", false},
-		// Only US postal codes derive (solvent-streets-zcyy): a Canadian
+		// Only US postal codes derive: a Canadian
 		// province or any other two capitals is not a US state.
 		{"Toronto, ON", "", false},
 		{"Paris, FR", "", false},

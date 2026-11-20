@@ -1067,7 +1067,7 @@ func TestInclude_LoadFSRejects(t *testing.T) {
 
 // TestInclude_RejectsTopLevelForecast: an including file must keep its top-level
 // [grid]/[forecast] empty, else the flatten would silently re-calibrate included
-// cities (solvent-streets-agwc).
+// cities.
 func TestInclude_RejectsTopLevelForecast(t *testing.T) {
 	dir := t.TempDir()
 	writeTOML(t, dir, "leaf/pvmt.toml", "[[cities]]\nname = \"Reno, NV\"\n")
@@ -1087,7 +1087,7 @@ func TestInclude_RejectsTopLevelForecast(t *testing.T) {
 
 // TestInclude_TransitiveNesting: an included file that itself declares
 // [[include]]. Grandchild tags accumulate through both include sites and the
-// grandchild's calibration flattens onto its cities (solvent-streets-8je6).
+// grandchild's calibration flattens onto its cities.
 func TestInclude_TransitiveNesting(t *testing.T) {
 	dir := t.TempDir()
 	writeTOML(t, dir, "grandchild/pvmt.toml", `
@@ -1187,7 +1187,7 @@ path = "../right/pvmt.toml"
 }
 
 // TestInclude_ThreeNodeCycle: A -> B -> C -> A is a cycle, caught cleanly rather
-// than recursing forever (solvent-streets-8je6).
+// than recursing forever.
 func TestInclude_ThreeNodeCycle(t *testing.T) {
 	dir := t.TempDir()
 	writeTOML(t, dir, "a/pvmt.toml", "[[include]]\npath = \"../b/pvmt.toml\"\n")
@@ -1200,7 +1200,7 @@ func TestInclude_ThreeNodeCycle(t *testing.T) {
 }
 
 // TestInclude_AbsolutePath: an include path given absolutely (not ../relative)
-// resolves (solvent-streets-8je6).
+// resolves.
 func TestInclude_AbsolutePath(t *testing.T) {
 	dir := t.TempDir()
 	leaf := writeTOML(t, dir, "leaf/pvmt.toml", "[[cities]]\nname = \"Reno, NV\"\noverpass = true\n")
@@ -1216,7 +1216,7 @@ func TestInclude_AbsolutePath(t *testing.T) {
 
 // TestInclude_FlattensHexEdge: an included example's [grid] hex_edge_m flattens
 // onto its merged cities so it survives the empty-top-level collapse
-// (solvent-streets-8je6, effectiveHexEdge).
+// (effectiveHexEdge).
 func TestInclude_FlattensHexEdge(t *testing.T) {
 	dir := t.TempDir()
 	writeTOML(t, dir, "leaf/pvmt.toml", `
@@ -1458,7 +1458,7 @@ path = "../b/pvmt.toml"
 
 // TestInclude_ParentOwnCitiesAndIncludes: a parent that declares its own
 // [[cities]] and also includes. A slug present in both keeps the parent's
-// direct city and unions the include's tags in (solvent-streets-8je6).
+// direct city and unions the include's tags in.
 func TestInclude_ParentOwnCitiesAndIncludes(t *testing.T) {
 	dir := t.TempDir()
 	writeTOML(t, dir, "leaf/pvmt.toml", `
@@ -1499,7 +1499,7 @@ tags = ["West"]
 }
 
 // TestInclude_MalformedChild: a syntax/unknown-key error in an included file is
-// wrapped with that file's path so the user can locate it (solvent-streets-8je6).
+// wrapped with that file's path so the user can locate it.
 func TestInclude_MalformedChild(t *testing.T) {
 	dir := t.TempDir()
 	leaf := writeTOML(t, dir, "leaf/pvmt.toml", "[[cities]]\nnaem = \"Reno, NV\"\n") // typo: naem
@@ -1515,8 +1515,7 @@ func TestInclude_MalformedChild(t *testing.T) {
 
 // TestInclude_DepthCap: a directory symlink pointing at its own ancestor makes
 // every include level a distinct path, defeating the string-keyed cycle check;
-// the depth cap stops it cleanly instead of exhausting the stack
-// (solvent-streets-ndit).
+// the depth cap stops it cleanly instead of exhausting the stack.
 func TestInclude_DepthCap(t *testing.T) {
 	dir := t.TempDir()
 	root := filepath.Join(dir, "x")
@@ -1541,7 +1540,7 @@ func TestInclude_DepthCap(t *testing.T) {
 
 // TestInclude_NonRegularFile: an include pointing at a directory (a stand-in for
 // any non-regular file, e.g. a FIFO that would otherwise block os.ReadFile) is
-// rejected cleanly (solvent-streets-ndit).
+// rejected cleanly.
 func TestInclude_NonRegularFile(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, "leaf"), 0o755); err != nil {
@@ -1681,7 +1680,6 @@ func TestInclude_DirectCityHasNoSourceIdentity(t *testing.T) {
 }
 
 // TestInclude_BackfilledGridMovesSourceIdentity pins the first half of
-// solvent-streets-1h6j.
 //
 // mergeIncludedCities stamps the source identity preserve-if-set, i.e. from the
 // FIRST include to declare the city. The old per-field union then let a LATER
@@ -1744,8 +1742,8 @@ path = "../second/pvmt.toml"
 	}
 }
 
-// TestInclude_NestedIdentitySurvivesTheMergePath pins solvent-streets-q48z.12,
-// the gap between the two tests above.
+// TestInclude_NestedIdentitySurvivesTheMergePath covers the gap between the
+// two tests above.
 //
 // TestInclude_NestedSourceIdentityKeepsDeclaringFile covers a nested city on the
 // APPEND path, where mergeIncludedCities' `if merged.SourceConfigID == ""` guard
@@ -1832,8 +1830,8 @@ path = "../mid/pvmt.toml"
 	}
 }
 
-// TestInclude_GridPairCannotSplitAcrossIncludes pins the second half of
-// solvent-streets-1h6j, which is the worse of the two: it fails SILENTLY.
+// TestInclude_GridPairCannotSplitAcrossIncludes pins the worse of the two
+// grid-pair failures: it fails SILENTLY.
 //
 // hex_edge_m and min_hex_area used to union independently, so a city could take
 // a fine grid from one include and a sliver threshold sized for a coarse one
@@ -1930,7 +1928,7 @@ tags = ["metro:Kansas City"]
 	}
 }
 
-// TestInclude_OneHorizon pins solvent-streets-zkf2: a config has one forecast
+// TestInclude_OneHorizon: a config has one forecast
 // horizon. An included file must agree with the including file (unset on
 // both sides means the default), and an including file may state the
 // horizon at its top level even though the rest of its [forecast] must stay
@@ -1986,8 +1984,8 @@ func TestInclude_OneHorizon(t *testing.T) {
 	}
 }
 
-// TestValidate_PerCityYearsRejected: forecast.years is top-level only
-// (solvent-streets-zkf2). A per-city value fails to load with a hint
+// TestValidate_PerCityYearsRejected: forecast.years is top-level only.
+// A per-city value fails to load with a hint
 // instead of giving one city its own horizon.
 func TestValidate_PerCityYearsRejected(t *testing.T) {
 	path := writeTOML(t, t.TempDir(), "pvmt.toml", `
@@ -2008,8 +2006,7 @@ years = 15
 
 // TestInitialPCISource: a city's PCI source is the default only when no layer
 // sets one and it falls to DefaultInitialPCI -- not when it comes from the
-// city entry, an included example's file-level [forecast], or the environment
-// (solvent-streets-ern4.24).
+// city entry, an included example's file-level [forecast], or the environment.
 func TestInitialPCISource(t *testing.T) {
 	dir := t.TempDir()
 	writeTOML(t, dir, "cited/pvmt.toml", `

@@ -42,7 +42,7 @@ type middleware func(root *cobra.Command, f *cmdutil.Factory) error
 
 // Nothing here may dereference f.Config: the chain runs for every non-exempt
 // command, so a config-reading middleware would make config discovery eager
-// for all of them and break byob-config.3's "commands that never touch the
+// for all of them and break the "commands that never touch the
 // config pay nothing" contract (see configFactory). The config's own load
 // warnings are emitted from the lazy Config closure in pkg/cmd/factory for
 // exactly that reason.
@@ -77,7 +77,7 @@ func warnInvalidEnv(_ *cobra.Command, f *cmdutil.Factory) error {
 }
 
 // (display.units needs no warning here: Config.validate hard-rejects an
-// unknown value at load time — solvent-streets-dfm5. PVMT_UNITS, which is
+// unknown value at load time. PVMT_UNITS, which is
 // soft-defaulted rather than validated, is covered by warnInvalidEnv.)
 
 func NewCmdRoot(f *cmdutil.Factory) *cobra.Command {
@@ -95,7 +95,7 @@ func NewCmdRoot(f *cmdutil.Factory) *cobra.Command {
 	// maps them to exit code 2. Without this, "unknown flag" / "missing
 	// argument" come back as plain errors and exit 1, indistinguishable
 	// from runtime failures. Pairs with SilenceErrors=true above: the
-	// runner owns formatting. (byob-errors.4)
+	// runner owns formatting.
 	cmd.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {
 		return &cmdutil.FlagError{Err: err}
 	})
@@ -137,7 +137,7 @@ func NewCmdRoot(f *cmdutil.Factory) *cobra.Command {
 
 	// Route cobra's own output (help, usage, completion scripts) through the
 	// factory's streams rather than its os.Stdout/os.Stderr defaults, so
-	// tests can capture it and byob-iostreams.1 holds for cobra too.
+	// tests can capture it and the one-entry-point rule holds for cobra too.
 	cmd.SetOut(f.IOStreams.Out)
 	cmd.SetErr(f.IOStreams.ErrOut)
 
@@ -170,7 +170,6 @@ func RefuseUnknownShells(root *cobra.Command) {
 // fails (`help biuld`) or stops at a group with arguments left over
 // (`help cache biuld`). Leftovers after a leaf are that command's own
 // positional arguments (`help snapshots delete 5`), so its help is shown.
-// (byob-command-shape.6)
 //
 // The root itself deliberately stays non-runnable with no Args: cobra's
 // legacy arg check then rejects `pvmt biuld` with a "Did you mean"
@@ -192,14 +191,14 @@ func refuseUnknownHelpTopics(root *cobra.Command) {
 	}
 }
 
-// applyLogLevel implements byob-logging.3's precedence ladder:
+// applyLogLevel implements the log-level precedence ladder:
 //
 //	--log-level   (explicit; wins when set)
 //	-v / -vv      (Info / Debug; loses to --log-level)
 //	PVMT_LOG=...  (env var; loses to both flags, beats the default)
 //	default       (Warn)
 //
-// Direction is deliberately opposite to byob-config.2's env > file > default:
+// Direction is deliberately opposite to config's env > file > default:
 // logging verbosity is per-invocation, so a -vv on the command line must
 // not be silenced by a stale PVMT_LOG=warn in the environment.
 //

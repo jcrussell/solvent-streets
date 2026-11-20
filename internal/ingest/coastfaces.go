@@ -16,7 +16,7 @@ type coastFace struct {
 }
 
 // Face classification constants (dense probes only), from the batch-1
-// replay (solvent-streets-aot4). A face holding at most the allowance
+// replay. A face holding at most the allowance
 // (LandProbes.MaxHits) is water; one holding more is land. Each landmass
 // the coastlines cut off is its own face, bounded across its coastline by
 // water faces, so its roads keep it however few they are beside the
@@ -40,8 +40,8 @@ const (
 	faceSliverMaxAllowances = 3
 )
 
-// coastlineFaces is the dense-probe coastline assembly
-// (solvent-streets-aot4). It cuts the bbox into faces along every open
+// coastlineFaces is the dense-probe coastline assembly.
+// It cuts the bbox into faces along every open
 // coastline sub-chain, each chain splitting the face it lies in into its
 // two closures' parts, so every landmass and every stretch of water the
 // coastlines bound is its own face. Each face is then classified by the
@@ -117,7 +117,7 @@ func waterFaces(ctx context.Context, faces []coastFace, opens [][][2]float64, pr
 	// landByDirection warns about a water face that every coastline bounding
 	// it puts on land, when enough of it lies in the city boundary to matter
 	// (landSideWarnMinKm2). The decision stands, since coastline direction
-	// is sometimes wrong (solvent-streets-yrr0), but such a face is usually
+	// is sometimes wrong, but such a face is usually
 	// a roadless island or headland, so the warning lets a replay find each
 	// one the city loses.
 	minKm2 := landSideWarnMin(boundary)

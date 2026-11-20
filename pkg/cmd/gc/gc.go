@@ -204,7 +204,7 @@ func scanCities(ctx context.Context, opts *Options, root db.RootStorer,
 		// A failure here is NOT fatal to the run. retainedOverpassRows only
 		// feeds the cosmetic "kept (overpass off)" line; propagating its error
 		// let a second, purely informational query fail a city whose real scan
-		// had just succeeded (solvent-streets-q48z.21). The primary GCScan
+		// had just succeeded. The primary GCScan
 		// above stays fatal — that one's count is what the prompt quotes.
 		retained, err := retainedOverpassRows(ctx, store, city, opts.SweepDisabledSources, report.StaleFeatures)
 		if err != nil {

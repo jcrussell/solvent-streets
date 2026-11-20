@@ -1,4 +1,4 @@
-// Units toggle — the client-side display preference (solvent-streets-frlu).
+// Units toggle — the client-side display preference.
 // All emitted data is raw metric; these helpers convert on the fly, so the
 // whole feature is JS with no server round-trip and nothing on the Go side can
 // cover it.

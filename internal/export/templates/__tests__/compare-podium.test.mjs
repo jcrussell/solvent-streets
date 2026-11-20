@@ -1,5 +1,5 @@
-// The Compare podium and the About tab's in-page links
-// (solvent-streets-ern4.34): a Solvency Score medal needs a score of at least
+// The Compare podium and the About tab's in-page links:
+// a Solvency Score medal needs a score of at least
 // 50, the ranking's tie-break is a total order, the city in view is marked on
 // the cards and leaderboards, and an About link scrolls the tab to its heading.
 import { test } from 'node:test';
@@ -132,7 +132,7 @@ test('Years to Insolvency shows no silver under an unmedalled leader (solvent-st
 });
 
 // Compare's per-area figures depend on the scope, so the scope toggle must
-// re-render it, and a units round trip must not change it (solvent-streets-aeia).
+// re-render it, and a units round trip must not change it.
 test('Compare follows the scope toggle, and a units round trip leaves it unchanged', async () => {
   const { win, $, flush } = load({ data: { ...fullData, 'compare.json': readFixture('compare.json') },
     url: 'https://example.test/index.html?tab=compare-tab' });

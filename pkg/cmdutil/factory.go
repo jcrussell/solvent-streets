@@ -45,16 +45,15 @@ type Factory struct {
 	Paths       func() (*paths.Paths, error)
 
 	// Prompter is the interactive-input surface for destructive or
-	// otherwise-prompting commands (byob-prompter.1). Eager like
+	// otherwise-prompting commands. Eager like
 	// IOStreams: construction is cheap, and a per-call closure adds
 	// nothing here. Tests replace it with prompt.Stub; production uses
 	// prompt.NewLive(IOStreams). Commands that prompt should also
-	// accept a --yes flag (byob-prompter.5) and short-circuit before
+	// accept a --yes flag and short-circuit before
 	// calling Prompter when the flag is set.
 	Prompter prompt.Prompter
 
-	// Logger is the base slog.Logger wired to IOStreams.ErrOut. Per
-	// byob-logging.2 it is eager (cheap to construct) rather than lazy.
+	// Logger is the base slog.Logger wired to IOStreams.ErrOut. It is eager (cheap to construct) rather than lazy.
 	// The root command's PersistentPreRunE clones it with per-run
 	// attributes and attaches the result to cmd.Context() via
 	// internal/logs.WithLogger; command bodies pull it back out via
@@ -185,10 +184,10 @@ func cityOverrideFunc(cmd *cobra.Command, f *Factory, fallback func() (*config.C
 //
 // When some cities fail, the rows the others produced are still written and
 // the error is returned after them, so the run exits non-zero without hiding
-// the cities that did commit (solvent-streets-n5fx). A failed city's own
+// the cities that did commit. A failed city's own
 // rows are dropped: a command may record a row before the city's commit
-// fails or is cancelled, and that row would name a discarded run
-// (solvent-streets-af52). A run with no rows at all writes nothing.
+// fails or is cancelled, and that row would name a discarded run.
+// A run with no rows at all writes nothing.
 func ForEachCityRows[R RowExporter](ctx context.Context, f *Factory, ios *iostreams.IOStreams, exporter Exporter, run func(cf *Factory, rows *[]R) error) error {
 	var acc []R
 	err := ForEachCity(ctx, f, func(cf *Factory, _ *config.CityConfig) error {
@@ -217,7 +216,7 @@ func ForEachCityRows[R RowExporter](ctx context.Context, f *Factory, ios *iostre
 // one empty city doesn't fail a run that produced results elsewhere — but when
 // EVERY city yields ErrNoResults, ForEachCity returns ErrNoResults so the
 // "nothing produced" outcome maps to the same exit code (3) as the single-city
-// path, instead of silently exiting 0 (solvent-streets-9zc2). A cancellation,
+// path, instead of silently exiting 0. A cancellation,
 // whether ctx is done or fn returns context.Canceled, stops the loop, and a
 // database that will not open fails the run once, before any city.
 func ForEachCity(ctx context.Context, f *Factory, fn func(cf *Factory, city *config.CityConfig) error) error {
@@ -238,8 +237,7 @@ func ForEachCity(ctx context.Context, f *Factory, fn func(cf *Factory, city *con
 
 	// Open the database before the first city. Failing to (say, a database
 	// from an older pvmt) is not about any one city: reported per city it
-	// printed once for every city, with its hint lost below them all
-	// (solvent-streets-ern4.8).
+	// printed once for every city, with its hint lost below them all.
 	if f.RootDB != nil {
 		if _, err := f.RootDB(); err != nil {
 			return err

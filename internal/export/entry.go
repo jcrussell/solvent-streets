@@ -38,7 +38,7 @@ type CityEntry struct {
 	Latest []db.LatestPart
 	// Snapshots is the city's snapshot list, newest first, as serve read it
 	// at startup alongside the pin, so the picker names the snapshot it
-	// serves (solvent-streets-u45d). nil when not read (export).
+	// serves. nil when not read (export).
 	Snapshots []db.SnapshotCity
 	// readsLatest marks an entry whose Store reads Latest
 	// (LatestComputeEntry) rather than a snapshot.

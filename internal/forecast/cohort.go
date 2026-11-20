@@ -59,7 +59,7 @@ func ScaleRoadDecay(classRate, overrideDecayRate float64) float64 {
 // config decay_rate override (0 = none): road classes scale their default by
 // the override (ScaleRoadDecay); parking and sidewalks keep their own rates.
 // It is the one rule every path that builds cohorts follows, so forecast.json,
-// the dashboard's seeds and the game's hexes agree (solvent-streets-89n4).
+// the dashboard's seeds and the game's hexes agree.
 func ClassDecayRate(classification string, overrideDecayRate float64) float64 {
 	rate := DecayRateForClass(classification)
 	if overrideDecayRate > 0 && IsRoadClass(classification) {
@@ -112,7 +112,7 @@ type RawCohort struct {
 //
 // Export, the WASM bridge, the game, validate and the CLI all build cohorts
 // through here or CohortsFromInputs, so they cannot drift on the spread or the
-// decay fallback (solvent-streets-i55x).
+// decay fallback.
 func SpreadCohorts(raw []RawCohort, initialPCI float64) []Cohort {
 	if len(raw) == 0 {
 		return nil

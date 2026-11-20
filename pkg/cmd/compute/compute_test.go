@@ -205,7 +205,7 @@ func (c *countingSource) BufferFeaturesPaired(ctx context.Context, f []resource.
 	return c.inner.BufferFeaturesPaired(ctx, f, p)
 }
 
-// TestRunCompute_BuffersFeaturesOncePerRun pins the solvent-streets-2nc fix:
+// TestRunCompute_BuffersFeaturesOncePerRun:
 // across the all-jurisdiction pass, the city-only pass, and the per-class
 // cohort breakdown, every feature is buffered exactly once. Regression
 // guard against re-introducing a second BufferFeaturesPaired pass on the city
@@ -361,7 +361,7 @@ func TestRunCompute_PrebuiltGridMatchesInline(t *testing.T) {
 	}
 }
 
-// TestRunCompute_SaveHexStatsErrorFatal pins solvent-streets-yvlv.41: per-hex
+// TestRunCompute_SaveHexStatsErrorFatal: per-hex
 // stats are the primary output, so a SaveHexStats failure must make compute
 // exit non-zero rather than warn-and-continue.
 func TestRunCompute_SaveHexStatsErrorFatal(t *testing.T) {
@@ -393,8 +393,8 @@ func TestRunCompute_SaveHexStatsErrorFatal(t *testing.T) {
 	}
 }
 
-// TestRunCompute_CityOnlySuppressesAllCohortBreakdown pins
-// solvent-streets-yvlv.42: with --city-only, the all-jurisdiction "Cohort
+// TestRunCompute_CityOnlySuppressesAllCohortBreakdown pins:
+// With --city-only, the all-jurisdiction "Cohort
 // breakdown" summary must be suppressed to match the gated printResults.
 func TestRunCompute_CityOnlySuppressesAllCohortBreakdown(t *testing.T) {
 	store := &dbtest.MockStore{
@@ -425,7 +425,7 @@ func TestRunCompute_CityOnlySuppressesAllCohortBreakdown(t *testing.T) {
 	}
 }
 
-// TestRunCompute_NoFeaturesDropsThePart pins solvent-streets-yvlv.39 under
+// TestRunCompute_NoFeaturesDropsThePart pins the empty-part rule under
 // runs and snapshots: when loadResourceFeatures reports no features, no run is
 // created, and the only thing committed is the removal of the resource's part
 // (a no-op in the store when the city never had it), so coverage from
@@ -471,7 +471,7 @@ func TestRunCompute_NoFeaturesDropsThePart(t *testing.T) {
 	}
 }
 
-// TestRunCompute_InvalidBoundaryWarns pins solvent-streets-yvlv.40: when the
+// TestRunCompute_InvalidBoundaryWarns: when the
 // stored boundary fails to parse into a projected geometry, compute must warn
 // (naming the city) instead of silently computing over the full bbox.
 func TestRunCompute_InvalidBoundaryWarns(t *testing.T) {
@@ -506,7 +506,7 @@ func TestRunCompute_InvalidBoundaryWarns(t *testing.T) {
 	}
 }
 
-// TestRunCompute_CancelledDoesNotSave pins solvent-streets-yvlv.43: a cancelled
+// TestRunCompute_CancelledDoesNotSave: a cancelled
 // context must make the compute path return context.Canceled and must NOT
 // persist truncated hex stats / compute results under a complete-looking
 // snapshot. geo.ParallelMap returns partial results with no error on cancel,

@@ -199,9 +199,8 @@ func TestFetchCityBoundary_FallsBackToNonCityTypedPolygon(t *testing.T) {
 }
 
 // TestFetchCityBoundary_OversizedBodyRejected pins the body-size guard on the
-// Nominatim response. Regression for solvent-streets-675b (OOM defense) and
-// solvent-streets-ruk4: an oversized body must now error explicitly at read
-// time (ErrBodyTooLarge) rather than being silently truncated to the cap and
+// Nominatim response (OOM defense): an oversized body must error explicitly
+// at read time (ErrBodyTooLarge) rather than being silently truncated to the cap and
 // surfacing as an opaque downstream JSON parse error.
 func TestFetchCityBoundary_OversizedBodyRejected(t *testing.T) {
 	prev := maxResponseBodyBytes

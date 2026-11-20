@@ -92,7 +92,7 @@ func TestResolveHexEdge_Precedence(t *testing.T) {
 			t.Errorf("source kind = %v, want file", s.Kind)
 		}
 	})
-	// solvent-streets-rbv7. The env layer wins over the file value and never
+	// The env layer wins over the file value and never
 	// passes through Validate, so this guard is the ONLY thing between
 	// PVMT_HEX_EDGE_M=1 and an OOM kill. Falling through (rather than erroring)
 	// matches how every other invalid env value is treated here.
@@ -468,7 +468,7 @@ overpass = true
 	}
 }
 
-// TestResolve_IncludedCityReportsItsSourceServices pins solvent-streets-t9rt:
+// TestResolve_IncludedCityReportsItsSourceServices:
 // an [[include]]d city runs under its declaring file's [[services]]
 // (ResolvedServices), so `config show --sources` must report those for it,
 // not leave the including file's top-level list as the only services lines.
@@ -633,7 +633,7 @@ func TestSourceKind_WireValues(t *testing.T) {
 	}
 }
 
-// TestResolve_AllLayersReachable is the byob-config.2 contract test: a
+// TestResolve_AllLayersReachable is the layered-resolution contract test: a
 // single configuration must reach every layer of the precedence chain
 // (flag / env / file / default) and surface the correct SourceKind for
 // each. A future refactor that collapses or reorders the chain has to
@@ -686,8 +686,8 @@ func TestResolve_AllLayersReachable(t *testing.T) {
 	}
 }
 
-// TestResolve_EveryFieldHasNonEmptySource is the property guard for
-// byob-config.2: no ResolvedField may carry a zero Source. A new field
+// TestResolve_EveryFieldHasNonEmptySource is the property guard:
+// No ResolvedField may carry a zero Source. A new field
 // added to Resolve() that forgets to populate Source.Kind would render
 // as "(<empty>)" in `config show --sources` and "" in JSON — neither
 // of which lets a user answer "where did this come from?".

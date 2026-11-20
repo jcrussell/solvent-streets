@@ -153,8 +153,8 @@ func runCheckSite(ctx context.Context, opts *Options) error {
 			// still finish: finish() is the only thing that prints the tally,
 			// and the only thing that converts those failures into
 			// cmdutil.ErrSilent. Returning the ctx error directly made
-			// check-site stream its FAIL lines and print no summary
-			// (solvent-streets-q48z.7). Main installs signal.NotifyContext, so
+			// check-site stream its FAIL lines and print no summary.
+			// Main installs signal.NotifyContext, so
 			// the first Ctrl-C reaches exactly here rather than killing the
 			// process.
 			//
@@ -165,7 +165,7 @@ func runCheckSite(ctx context.Context, opts *Options) error {
 			// site whose remaining checks never ran.
 			//
 			// The interrupted tally names how many checks never ran, so it
-			// cannot be mistaken for a completed audit (solvent-streets-tq8z).
+			// cannot be mistaken for a completed audit.
 			if r.failing() {
 				r.skipped, r.total = len(checks)-i, len(checks)
 				return r.finish()

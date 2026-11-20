@@ -77,7 +77,7 @@ func (c *sqliteCity) entry() CityEntry {
 
 // TestExport_PinnedSnapshotDeletedFails: a snapshot deleted while an export
 // holds it pinned fails the export with db.ErrSnapshotGone, never publishing
-// the city as empty, and nothing is written for the city (solvent-streets-jxdj).
+// the city as empty, and nothing is written for the city.
 func TestExport_PinnedSnapshotDeletedFails(t *testing.T) {
 	ctx := context.Background()
 	cfg := &config.Config{}

@@ -117,7 +117,6 @@ var (
 	// any of which would otherwise fall through the whole ladder into City.
 	// Sharing this regex also inherits the [A-Z]?
 	// lettered handling, so "State Highway A1A" works like "SR A1A".
-	// solvent-streets-fu74.
 	//
 	// Measured: STATE HIGHWAY and STATE ROAD are ZERO in the corpus and
 	// "State Hwy 391" is 3 features (Lakewood CO, highway=primary) -- the
@@ -284,7 +283,7 @@ var (
 	// County but "County Rd 12" is City, and "CO HWY 12" is County but
 	// "COUNTY HWY 5" is City -- the same "one county road billed to the
 	// state, its neighbour billed to the city" split the CO arm exists to
-	// prevent, one level down. solvent-streets-fu74.
+	// prevent, one level down.
 	//
 	// Measured: every spelling only the shared alternation reaches is ZERO
 	// in the ingested corpus (8.7M road features) -- COUNTY HWY, COUNTY RTE, CO.RD, CO TRUNK
@@ -324,7 +323,7 @@ var (
 	// This covers the LOOP/SPUR gap and nothing wider; the spelled State, US
 	// and County forms are handled by
 	// stateExplicitRefRe, federalWordRefRe and spelledCountyRefRe's shared
-	// designator alternation (solvent-streets-fu74, all measured ~0 and
+	// designator alternation (all measured ~0 and
 	// carried on domain knowledge).
 	//
 	// What remains open is NOT a spelling gap but a shape gap, and it is
@@ -433,7 +432,7 @@ var (
 // past the county checks, and land in the City bucket, silently inflating
 // city cohort area, AnnualNeed and FundingGap.
 //
-// The deny list is NOT the whole story (solvent-streets-qwfo). Every rule
+// The deny list is NOT the whole story. Every rule
 // here is a two-letter-then-DIGIT shape, so it can only ever see the
 // ABBREVIATED spelling of a route. The same TxDOT loops and spurs the
 // permissive default catches as "SL 12"/"SS 55" are also written out as
@@ -446,12 +445,12 @@ var (
 //
 // That class is closed for the ABBREVIATED, LETTERED and fully SPELLED-OUT
 // shapes -- "State Highway 26", "US Highway 12", "Interstate 90" and
-// "County Rd 12" are handled (solvent-streets-fu74). What is still open is a
+// "County Rd 12" are handled. What is still open is a
 // different axis: refs whose shape defeats the ^-anchor entirely (a leading
 // paren, a foreign country prefix, a bare number with no prefix at all). See the
 // closing paragraphs on stateWordRefRe above before adding a prefix here.
-// Single letters and lettered supplementals are covered too
-// (solvent-streets-m0qa). A rule requiring TWO letters would send the
+// Single letters and lettered supplementals are covered too.
+// A rule requiring TWO letters would send the
 // single-letter conventions to City -- Michigan's "M 5"/"M 1", Nebraska's
 // "N-64"/"L-28K", Kansas's "K-32", 1648 features -- and one requiring a DIGIT
 // would do the same to Missouri's lettered supplementals ("MO W"), 81 more.

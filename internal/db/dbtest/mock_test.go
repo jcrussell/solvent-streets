@@ -14,7 +14,6 @@ import (
 // divergence from the real sqliteStore, which returns NIL on zero rows
 // (its List* methods use `var xs []T` + append). Empty-path JSON-shape
 // assertions must use a real in-memory store, not this mock.
-// Regression guard for solvent-streets-a66s.
 func TestMockStore_DefaultListReturnsEmptyNotNil(t *testing.T) {
 	ctx := context.Background()
 	m := &MockStore{}

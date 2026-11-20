@@ -95,7 +95,7 @@ func NewCmdIngest(f *cmdutil.Factory, rt resource.Source, runF func(context.Cont
 
 	// --dry-run never fetches, so --force (bypass cache) is meaningless
 	// in that combination. Reject the typo with cobra's flag-group helper
-	// rather than silently ignoring one (byob-command-shape.6).
+	// rather than silently ignoring one.
 	cmd.MarkFlagsMutuallyExclusive("force", "dry-run")
 
 	return cmd
@@ -334,7 +334,7 @@ func runIngest(ctx context.Context, opts *Options) error {
 	// the outermost cache.CachingTransport skips serving/revalidating
 	// cached GET responses (it still writes the fresh ones back). All
 	// fetches below derive from this ctx, and stdlib propagates it across
-	// redirects, so every hop is bypassed too. (solvent-streets-2a7n.20)
+	// redirects, so every hop is bypassed too.
 	if opts.Force {
 		ctx = cache.WithBypass(ctx)
 	}
@@ -344,7 +344,7 @@ func runIngest(ctx context.Context, opts *Options) error {
 	}
 
 	// A --source this city's pvmt.toml switched off fails before the
-	// boundary fetch, not after it (solvent-streets-0z82). The dry run above
+	// boundary fetch, not after it. The dry run above
 	// only warns about it.
 	roads, err := fetchAndSave(ctx, opts, store, client, city)
 	err = ingestCompanions(opts, err, func(o *Options) error {
@@ -512,8 +512,7 @@ func fetchBBox(rt resource.Source, bbox [4]float64) [4]float64 {
 
 // emptyFetchErr is the result of a fetch that saved nothing. A source that
 // failed outranks an empty survivor: reporting ErrNoResults would let
-// `pvmt all ingest` skip the layer as empty and exit 0 with it missing
-// (solvent-streets-sn8l).
+// `pvmt all ingest` skip the layer as empty and exit 0 with it missing.
 func emptyFetchErr(rt resource.Type, failed, succeeded []string) error {
 	if len(failed) == 0 {
 		return cmdutil.ErrNoResults
@@ -591,7 +590,7 @@ func fmtArcgis(url string) string {
 
 // nominatimFetcher abstracts the by-name Nominatim search so tests
 // can inject canned responses without spinning up an httptest server
-// inside the consumer test file. Narrow per byob-interfaces.1
+// inside the consumer test file. Narrow.1
 // (define in consumer, not in internal/ingest).
 type nominatimFetcher func(ctx context.Context, client *http.Client, cityName string) (string, error)
 
@@ -1036,7 +1035,7 @@ var ErrWaterStripOverSubtracted = errors.New("water strip over-subtracted")
 // failures: falling back would save the UNSTRIPPED boundary, and every
 // later ingest reuses a saved boundary ("Using cached boundary"), so one
 // transient Overpass hiccup would permanently leave open water in the
-// city's area denominator (solvent-streets-o9a3). Failing saves nothing,
+// city's area denominator. Failing saves nothing,
 // so the next ingest retries.
 var ErrWaterFetch = errors.New("water fetch failed")
 
@@ -1048,8 +1047,8 @@ var ErrRoadsFetch = errors.New("roads fetch failed")
 
 // waterFetcher abstracts the OSM water fetch so tests can inject a
 // fake response without spinning up an httptest server inside the
-// internal/ingest package. The interface is intentionally narrow per
-// byob-interfaces.1 (define in consumer, not in internal/ingest).
+// internal/ingest package. The interface is intentionally narrow and is
+// defined in the consumer, not in internal/ingest.
 // probes are points on the city's land (ingestpkg.LandProbes); the
 // water-stitching pipeline uses them to drop water candidates that hold
 // city land and to disambiguate coastline closures.
@@ -1156,7 +1155,7 @@ func resolveSources(opts *Options, bbox [4]float64, exclude *[4]float64, overpas
 
 // censusOptOut keeps a city with census = false out of every census step,
 // `pvmt census ingest` and its --dry-run included, as `pvmt census compute`
-// already does: a quiet skip, exit 3 (solvent-streets-0z82).
+// already does: a quiet skip, exit 3.
 func censusOptOut(opts *Options, city *config.CityConfig) error {
 	if opts.ResourceType.Type() != resource.TypeCensusBlocks || city.CensusEnabled() {
 		return nil
@@ -1256,7 +1255,7 @@ func recordAttempts(ctx context.Context, opts *Options, store db.Store, attempts
 
 // withRetryNotices makes every request under ctx print a line to ios.ErrOut
 // when the HTTP client waits to retry it, so minutes of backoff against a busy
-// Overpass are not silent (solvent-streets-t3wt).
+// Overpass are not silent.
 func withRetryNotices(ctx context.Context, ios *iostreams.IOStreams) context.Context {
 	return ingestpkg.WithRetryNotifier(ctx, func(n ingestpkg.RetryNotice) {
 		wait := n.Wait.Round(time.Second)

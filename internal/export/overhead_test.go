@@ -184,7 +184,7 @@ func TestOverhead_MultiCitySeedMatchesSingleCity(t *testing.T) {
 	fc := exporttest.ForecastConfig()
 	fc.CostOverhead = 1.75
 	// The region reads each city's cohort decay rate from that city's own
-	// resolved forecast (solvent-streets-l8d2), so the entry's config must
+	// resolved forecast, so the entry's config must
 	// state the same forecast the single-city builder is handed.
 	entry.Config = &config.Config{Forecast: fc}
 

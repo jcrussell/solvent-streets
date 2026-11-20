@@ -18,7 +18,7 @@ import (
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 )
 
-// TestAllCompute_SharedGridMatchesStandalone pins solvent-streets-7ou7.4
+// TestAllCompute_SharedGridMatchesStandalone pins the shared grid
 // end-to-end against a real sqlite store: `all compute` now builds the clipped
 // hex grid once per city and shares it across the roads/parking/sidewalks
 // passes and the combined pass, instead of rebuilding + reclipping it four

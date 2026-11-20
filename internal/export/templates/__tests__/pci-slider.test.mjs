@@ -1,4 +1,4 @@
-// The Initial PCI slider's seeding (solvent-streets-q48z.9). Config validation
+// The Initial PCI slider's seeding. Config validation
 // accepts initial_pci anywhere in 0-100 and NormalizeForecast only replaces <=0
 // or >100, so a city configured below the markup's 50 floor reaches the seed
 // intact. Clamping it there ran the interactive line — and the End PCI /
@@ -60,7 +60,7 @@ test('a widened track is restored on the next city', async () => {
 });
 
 test('a next city whose seed lacks initial_pci still gets the shipped track back', async () => {
-  // solvent-streets-vc7u: the restore lives in seedRangeInput, so an early
+  // The restore lives in seedRangeInput, so an early
   // return on an unusable initial_pci left the previous city's widened track
   // and its PCI on the slider. Fall back to the markup default instead, as
   // the overhead slider falls back to 1.

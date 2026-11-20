@@ -1,4 +1,4 @@
-// solvent-streets-ern4.24: a city whose config cites no PCI forecasts from
+// A city whose config cites no PCI forecasts from
 // the default condition, so its hold-steady budget and solvency score rest
 // on an assumed starting point. forecast.json's roads entry says so
 // (initial_pci_source "default"), and Compare and Financials mark the city with a †.

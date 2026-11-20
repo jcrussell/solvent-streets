@@ -85,8 +85,7 @@
                 const prefer = (want && cities.some(c => c.slug === want)) ? want : (served || sel.value);
                 if (cities.length > 0) PvmtSelectors.rebuildCitySelect(sel, cities, dims, filters, prefer);
                 // With no city matching, the board behind the overlay is a city
-                // the filters exclude, so Start stays disabled until one matches
-                // (solvent-streets-mw80).
+                // the filters exclude, so Start stays disabled until one matches.
                 const syncNoMatch = () => {
                     const empty = cities.length > 0 && !sel.value;
                     const btn = /** @type {HTMLButtonElement | null} */ (document.getElementById('start-btn'));
@@ -824,7 +823,7 @@
             // year it must agree with is the roads forecast's. The seed's cohort
             // lists also carry the parking and sidewalks classes, which billed
             // the road budget for lots and sidewalks and put Play's insolvency a
-            // year early (solvent-streets-162r).
+            // year early.
             /** @param {any[]} list */
             const roadCohorts = list => (list || []).filter(c => c.resource_type === 'roads');
             const cityRoads = roadCohorts(seed.city_cohorts);

@@ -54,8 +54,8 @@ func TestTimestamps_SchemaIsInteger(t *testing.T) {
 
 // TestTimestamps_EveryWriterStoresInteger exercises every statement that
 // writes a timestamp and checks each stored value is an integer, so no two
-// rows can hold the same instant in different text forms (solvent-streets-9uu5:
-// gc compared Go's time.String() against CURRENT_TIMESTAMP text).
+// rows can hold the same instant in different text forms (such as Go's
+// time.String() and CURRENT_TIMESTAMP text).
 func TestTimestamps_EveryWriterStoresInteger(t *testing.T) {
 	ctx := context.Background()
 	root, store, _ := openInputsStore(t)

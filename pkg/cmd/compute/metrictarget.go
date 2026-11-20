@@ -12,8 +12,8 @@ import (
 // MetricTarget is the shared geometry a per-hex metric producer (service
 // coverage, population) computes against: the boundary-clipped hex grid the
 // pavement passes use, in the city's projection, so hex ids line up. Each
-// producer writes its rows under its own run, independent of any compute
-// (solvent-streets-25t6), so recomputing roads never hides them.
+// producer writes its rows under its own run, independent of any compute,
+// so recomputing roads never hides them.
 type MetricTarget struct {
 	Proj *geo.UTMProjector
 	Grid []geo.Hex

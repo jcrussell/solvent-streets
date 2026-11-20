@@ -179,7 +179,7 @@ func latestParts(t *testing.T, store Store, hash string) map[string]int64 {
 
 // TestCommitLatest_SwapsOnlyItsPart: recomputing roads swaps the new roads
 // run into the latest compute and carries every other part (fire coverage
-// here) forward untouched (solvent-streets-25t6), and no commit creates a
+// here) forward untouched, and no commit creates a
 // snapshot: a snapshot is only ever made by CreateSnapshot, and one made
 // earlier keeps reading what it froze.
 func TestCommitLatest_SwapsOnlyItsPart(t *testing.T) {
@@ -501,7 +501,7 @@ func TestGC_OrphanRuns(t *testing.T) {
 	}
 }
 
-// TestGC_SupersededEpoch (solvent-streets-e26d): a latest compute committed
+// TestGC_SupersededEpoch: a latest compute committed
 // under an older ComputeEpoch can never be produced again, so gc drops it and
 // sweeps its runs. Another config's latest compute from the current epoch is
 // kept, and so is an old-epoch run a snapshot still holds.

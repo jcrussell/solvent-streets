@@ -9,7 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-// TestStepModel_CtrlCIsACancellation pins solvent-streets-ern4.6: raw mode
+// TestStepModel_CtrlCIsACancellation: raw mode
 // swallows SIGINT, so ctrl+c reaches the model as a key press and the error it
 // leaves is the only signal the caller gets. It must match context.Canceled,
 // or `pvmt all compute` warns "roads failed: interrupted" and carries on
@@ -30,8 +30,7 @@ func TestStepModel_CtrlCIsACancellation(t *testing.T) {
 // drives the compute progress UI. PhaseStart on a pending step flips it
 // to active; PhaseDone (with nil err) flips it to done; PhaseDone with
 // an err flips it to failed and stores the error string in Detail.
-// Regression for solvent-streets-v382: a transition that silently
-// dropped a state would leave operators watching a frozen UI.
+// A transition that silently dropped a state would leave operators watching a frozen UI.
 func TestStepModel_PhaseTransitions(t *testing.T) {
 	m := NewStepModel("compute", []Step{
 		{Name: "step-0"},

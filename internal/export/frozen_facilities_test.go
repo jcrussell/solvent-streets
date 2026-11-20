@@ -17,7 +17,7 @@ import (
 // coverage legend come from the service run that produced the colours. A
 // station moved or added after the compute, and a turnout_s edit, change
 // neither; the travel threshold, a presentation setting, still follows the
-// config (solvent-streets-s53d).
+// config.
 func TestBuildHexMetrics_MarkersAndLegendFromTheRun(t *testing.T) {
 	ctx := context.Background()
 	cfg := &config.Config{}

@@ -30,7 +30,7 @@ func TestNewCmdVersion_RunFInjection(t *testing.T) {
 	}
 }
 
-// TestNewCmdVersion_DefaultPrintsVersion locks in byob-iostreams.3 routing
+// TestNewCmdVersion_DefaultPrintsVersion locks in Out/ErrOut routing
 // for a pure-data command: the version string is the command's DATA and
 // must land on Out alone. ErrOut stays silent so `pvmt version | cat`
 // captures the string with no chatter contamination.

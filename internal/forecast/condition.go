@@ -12,7 +12,7 @@ import "math"
 // the single-average assumption under-stating modeled cost by ~32–37%.
 //
 // We have no measured per-segment condition yet (that arrives with the Phase-2
-// per-segment ingest, solvent-streets-mmvv.1). So applyConditionSpread models the
+// per-segment ingest). So applyConditionSpread models the
 // distribution parametrically: a Beta on [0,100] re-centered on each cohort's
 // InitialPCI, discretized into equal-probability sub-cohorts. This is a deliberate
 // *conservative partial* correction — a unimodal Beta cannot reproduce a true

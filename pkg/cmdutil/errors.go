@@ -47,5 +47,5 @@ var ErrAllSourcesFailed = errors.New("all sources failed")
 // others answered: what answered was saved, but the resource is incomplete
 // for this run. It fails the run (exit 1) so a chained
 // `ingest && compute && export` does not publish a city missing a source
-// as if it were complete (solvent-streets-r0ro).
+// as if it were complete.
 var ErrPartialIngest = errors.New("some sources failed")

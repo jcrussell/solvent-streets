@@ -349,7 +349,7 @@ func TestRunStatus_NonTTY_TabSeparated(t *testing.T) {
 // TestStatusRow_ExportData_OmitsNotApplicable: a resource never ingested or
 // computed has no timestamps and no area, and a non-parking resource has no
 // space estimate; those keys are omitted rather than emitted as "" or a 0
-// sentinel (solvent-streets-ern4.9).
+// sentinel.
 func TestStatusRow_ExportData_OmitsNotApplicable(t *testing.T) {
 	out := statusRow{ResourceType: "roads"}.ExportData(statusFields)
 	for _, f := range []string{"last_ingest_at", "last_compute_at", "area", "estimated_spaces"} {
@@ -372,7 +372,7 @@ func TestStatusRow_ExportData_ComputedZeroAreaIsKept(t *testing.T) {
 	}
 }
 
-// TestRunStatus_StaleSnapshotsSayWhy is solvent-streets-ern4.12 (b): after a
+// TestRunStatus_StaleSnapshotsSayWhy: after a
 // settings change, Last Compute reads through the new settings' (empty)
 // latest compute and shows blank. Status must say why — with the shared hint —
 // and mark which listed snapshots are current, rather than look
@@ -437,7 +437,7 @@ func TestRunStatus_StaleSnapshotsSayWhy(t *testing.T) {
 	}
 }
 
-// TestRunStatus_ConfigErrorsAreNotDatabaseErrors pins solvent-streets-4ftl: a
+// TestRunStatus_ConfigErrorsAreNotDatabaseErrors: a
 // missing config or an unknown --city is reported as such, before the
 // database is opened, rather than prefixed "database:".
 func TestRunStatus_ConfigErrorsAreNotDatabaseErrors(t *testing.T) {
@@ -461,7 +461,7 @@ func TestRunStatus_ConfigErrorsAreNotDatabaseErrors(t *testing.T) {
 	}
 }
 
-// TestRunStatus_PartStates is solvent-streets-wcuw: after a roads re-ingest
+// TestRunStatus_PartStates: after a roads re-ingest
 // and a roads compute alone, status shows each part's state from the latest
 // compute (roads and parking current, the combined total stale, sidewalks
 // not computed), footnotes the stale combined Paved Area instead

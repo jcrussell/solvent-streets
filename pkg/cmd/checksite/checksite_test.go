@@ -86,7 +86,7 @@ func TestCheckSite_CancelledContext(t *testing.T) {
 	}
 	// The cancellation probe fires before the first check, so no summary line
 	// ("N passed, ...") should have been printed. The bare ctx error is the
-	// interrupt signal itself; exitCode maps it to 1 (solvent-streets-kh5n).
+	// interrupt signal itself; exitCode maps it to 1.
 	if strings.Contains(out.String(), "passed,") {
 		t.Errorf("cancelled run should abort before finish(); got output:\n%s", out.String())
 	}
@@ -231,7 +231,7 @@ func TestCheckSite_NearZeroPavedShare(t *testing.T) {
 }
 
 // A city with a layer that was never ingested is WARNed by name, so the
-// release build has a re-ingest list (solvent-streets-56r1).
+// release build has a re-ingest list.
 func TestCheckSite_MissingResourcesWarns(t *testing.T) {
 	dir := buildValidSite(t)
 	m := export.MetaJSON{ProjectName: "Demo", PavedShare: 0.2, TotalPaved: 20000, CityArea: 100000, MissingResources: []string{"sidewalks"}}
@@ -247,7 +247,7 @@ func TestCheckSite_MissingResourcesWarns(t *testing.T) {
 
 // A missing layer every source answered empty for (OpenStreetMap maps none
 // there) is not a re-ingest: no WARN names it, while a missing layer beside
-// it that was never ingested still is (solvent-streets-a3pn).
+// it that was never ingested still is.
 func TestCheckSite_EmptyUpstreamDoesNotAskForReingest(t *testing.T) {
 	dir := buildValidSite(t)
 	m := export.MetaJSON{ProjectName: "Demo", PavedShare: 0.2, TotalPaved: 20000, CityArea: 100000,
@@ -616,7 +616,7 @@ func TestCheckSite_SingleRootLayout(t *testing.T) {
 	}
 }
 
-// TestCheckSite_RootShadowsChildren guards solvent-streets-lof3: when the site
+// TestCheckSite_RootShadowsChildren: when the site
 // root classifies as an export AND child directories also look like exports, the
 // audit only covers the root and silently skips the children — so it must WARN
 // (and --strict must fail) rather than pass vacuously.
@@ -707,7 +707,7 @@ func TestCheckSite_InterruptedAfterFailStillReportsFailure(t *testing.T) {
 		t.Errorf("expected the recorded FAIL in the output:\n%s", out.String())
 	}
 	// The tally must not read like a completed audit: it names the interrupt
-	// and how many checks never ran (solvent-streets-tq8z).
+	// and how many checks never ran.
 	// Only the first check ran, so every other check is counted as not run,
 	// however many checks there are.
 	m := regexp.MustCompile(`interrupted: (\d+) of (\d+) checks not run`).FindStringSubmatch(out.String())
@@ -738,7 +738,7 @@ func TestCheckSite_CompletedRunHasNoInterruptLine(t *testing.T) {
 // interrupt must abort quietly rather than printing a summary for checks that
 // never ran. Quiet, but not successful — the bare context.Canceled it returns
 // now maps to exit 1, so `check-site && deploy` cannot publish a site whose
-// remaining checks were skipped (solvent-streets-kh5n).
+// remaining checks were skipped.
 func TestCheckSite_InterruptedWithNoFailuresStaysQuiet(t *testing.T) {
 	dir := buildValidSite(t)
 
@@ -805,7 +805,7 @@ func writeCoverageMeta(t *testing.T, path string, pop float64, areas map[string]
 }
 
 // A layer far below the site's per-resident median is WARNed as a likely
-// OpenStreetMap gap (solvent-streets-ern4.35); one the city lacks outright is
+// OpenStreetMap gap; one the city lacks outright is
 // left to the missing-layer warning, and a small site is not judged.
 func TestCheckSite_LowCoverageWarns(t *testing.T) {
 	build := func(n int) string {
@@ -843,7 +843,7 @@ func TestCheckSite_LowCoverageWarns(t *testing.T) {
 
 // A partial or zero layer already has its own warning with its own cause, so
 // coverage leaves it alone; a malformed meta.json FAILs in the existing checks
-// only (peer review of solvent-streets-ern4.35).
+// only.
 func TestCheckSite_LowCoverageSkipsExplainedLayers(t *testing.T) {
 	dir := buildValidSite(t)
 	for i := range 12 {
@@ -905,7 +905,7 @@ func writeDecayFiles(t *testing.T, dataDir string, k float64) {
 }
 
 // A map whose hex decay rates match the forecast passes; one left over from a
-// different set of class rates fails and names the recompute (solvent-streets-ern4.29).
+// different set of class rates fails and names the recompute.
 func TestCheckSite_DecayDrift(t *testing.T) {
 	dir := buildValidSite(t)
 	data := filepath.Join(dir, "demo-ca", "data")

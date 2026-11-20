@@ -1,4 +1,4 @@
-// When the dashboard starts loading the city's map data (solvent-streets-h2pa).
+// When the dashboard starts loading the city's map data.
 //
 // MapLibre's 'load' waits for the style AND every basemap tile, and it fires
 // only from inside a render. A tile that fails with anything but a 404 (a

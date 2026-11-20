@@ -281,7 +281,7 @@ func TestServicesCompute_ZeroTurnoutIsHonoured(t *testing.T) {
 // (the only station is beyond the snap radius) a fire run with no times is
 // still committed, so the snapshot's fire part hides the previous run's
 // coverage instead of carrying it forward. The hexes on the network are
-// recorded as unreachable (solvent-streets-8x0f).
+// recorded as unreachable.
 func TestServicesCompute_NoReachCommitsEmptyRun(t *testing.T) {
 	var saved []db.HexMetric
 	var commits []map[string]int64
@@ -349,7 +349,7 @@ func TestSummarize_ShareIsAFraction(t *testing.T) {
 	}
 }
 
-// TestSummarize_UnreachableLowersShare pins solvent-streets-8x0f: a hex on
+// TestSummarize_UnreachableLowersShare: a hex on
 // the network that no station reaches counts in the within-threshold share's
 // denominator (it is not covered), but not in the median, which has no time
 // for it.
@@ -408,7 +408,7 @@ func TestServicesCompute_RecordsInputs(t *testing.T) {
 // TestServicesCompute_FreezesFacilitiesAndTurnout: the fire run records the
 // facilities it routed from (OSM and [[cities.facilities]]) and the turnout
 // its times include, so export draws markers and legend for the run as
-// computed (solvent-streets-s53d).
+// computed.
 func TestServicesCompute_FreezesFacilitiesAndTurnout(t *testing.T) {
 	var saved []db.HexMetric
 	store := fixtureStore(&saved, nil)
@@ -451,8 +451,8 @@ func TestServicesCompute_FreezesFacilitiesAndTurnout(t *testing.T) {
 	}
 }
 
-// TestServicesCompute_StationOutsideTheBoundaryServesEdgeHexes pins
-// solvent-streets-n17z: a neighbouring station 2 km west of the boundary,
+// TestServicesCompute_StationOutsideTheBoundaryServesEdgeHexes pins:
+// A neighbouring station 2 km west of the boundary,
 // 2.5 km from the city's own road, is routed in over the routing roads
 // fetched around the city and serves the west edge hexes. Without the
 // routing roads it is unplaced and reaches nothing.

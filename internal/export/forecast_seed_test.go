@@ -73,7 +73,7 @@ func TestMergeCohortSeeds_KeysOnResourceAndClassification(t *testing.T) {
 	}
 }
 
-// TestMergeCohortSeeds_PerCityDecayRate (solvent-streets-l8d2): a city whose
+// TestMergeCohortSeeds_PerCityDecayRate: a city whose
 // own forecast overrides decay_rate keeps its road cohorts at that rate in the
 // regional seed — the rate its forecast.json uses — rather than taking the
 // region's. Cities that resolve to the same rate still merge.
@@ -231,8 +231,7 @@ func TestMergeCohortSeeds_CityScopeReadsCityLabels(t *testing.T) {
 	}
 }
 
-// TestForecastSeed_AsphaltShareNetsOutSidewalks pins solvent-streets-q48z.11.
-//
+// TestForecastSeed_AsphaltShareNetsOutSidewalks:
 // DefaultMaterialTiers describes flexible (asphalt) pavement — mix mass and
 // asphalt-cement binder per m² — and forecast/material.go says outright that
 // sidewalks are concrete. But the tiers were attached to the seed
@@ -331,7 +330,7 @@ func TestMergeCohortSeeds_AsphaltShareIsRegionWide(t *testing.T) {
 	}
 }
 
-// TestSeedDecayRate_MatchesForecastCohorts pins solvent-streets-89n4: the
+// TestSeedDecayRate_MatchesForecastCohorts: the
 // seed cohorts the dashboard and WASM simulate, and the game's hexes, resolve
 // each class's decay (forecast.ClassDecayRate) exactly as forecast.json's
 // cohorts (forecast.CohortsFromInputs) do. With a
@@ -399,7 +398,7 @@ func TestForecastSeed_SingleAndMultiCityAgree(t *testing.T) {
 	}
 }
 
-// TestForecastSeed_AreasAreTheMaintainedArea pins solvent-streets-ern4.33:
+// TestForecastSeed_AreasAreTheMaintainedArea:
 // the seed's areas are the maintained area — roads + parking + sidewalks
 // summed, the basis the cohorts sum to and the forecast prices — not the
 // deduplicated paved footprint meta.json publishes as total_paved. The

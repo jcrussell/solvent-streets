@@ -9,7 +9,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/services"
 )
 
-// TestMetricSummary_StationsInsideAndOutside pins solvent-streets-ern4.28:
+// TestMetricSummary_StationsInsideAndOutside:
 // the fire summary splits the stations serving the city by whether they lie
 // inside its boundary, and flags a station list that is probably incomplete
 // (none inside, or fewer inside than services.Spec.SparsePer100k per 100,000

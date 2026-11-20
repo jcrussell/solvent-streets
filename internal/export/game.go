@@ -35,8 +35,8 @@ func ParseGameTemplate() (*template.Template, error) {
 	return ParseGameTemplateFS(templatesFS)
 }
 
-// ParseGameTemplateFS is the fs.FS-parametrized form of ParseGameTemplate
-// (byob-interfaces.3), matching ParseIndexTemplateFS: production callers use
+// ParseGameTemplateFS is the fs.FS-parametrized form of ParseGameTemplate,
+// matching ParseIndexTemplateFS: production callers use
 // ParseGameTemplate (embedded templatesFS); tests can pass a synthetic fs.FS.
 func ParseGameTemplateFS(source fs.FS) (*template.Template, error) {
 	return parseTemplateFiles(source, "game",

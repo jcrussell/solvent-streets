@@ -1,4 +1,4 @@
-// The Compare tab's funding-gap leaderboard (solvent-streets-q48z.25).
+// The Compare tab's funding-gap leaderboard.
 //
 // fundingGap is the only signed leaderboard metric: negative means the city
 // already budgets above its hold-steady level. Bar widths are a ratio against
@@ -74,7 +74,7 @@ test('all gaps exactly zero: no division by zero', async () => {
   assert.deepEqual(barWidths(win), [0, 0]);
 });
 
-// solvent-streets-3ij1: medals need a field, and awards must not read as
+// Medals need a field, and awards must not read as
 // praise for a bad outcome.
 test('one eligible city gets no medal and no award', async () => {
   // Only Alpha has a cited budget, so the funding-gap pool has one city.

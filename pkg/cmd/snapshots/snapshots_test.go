@@ -298,7 +298,7 @@ func TestRunDelete_CancelOnPromptNo(t *testing.T) {
 	}
 }
 
-// TestRunDelete_NoTTYWithoutYesIsFlagError pins byob-prompter.3: no TTY and
+// TestRunDelete_NoTTYWithoutYesIsFlagError: no TTY and
 // no --yes refuses with a FlagError rather than deleting.
 func TestRunDelete_NoTTYWithoutYesIsFlagError(t *testing.T) {
 	var deleted []string

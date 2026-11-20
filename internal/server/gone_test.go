@@ -70,8 +70,7 @@ func sqliteEntry(t *testing.T, cfg *config.Config, city config.CityConfig) (expo
 
 // TestDataFile_PinnedSnapshotDeletedIs410: when the snapshot serve pinned at
 // startup is deleted, every uncached data file answers 410 Gone saying to
-// restart, not 200 with an empty city, and the failure is not cached
-// (solvent-streets-jxdj).
+// restart, not 200 with an empty city, and the failure is not cached.
 func TestDataFile_PinnedSnapshotDeletedIs410(t *testing.T) {
 	ctx := context.Background()
 	cfg := &config.Config{Cities: []config.CityConfig{{Name: "Test City"}}}

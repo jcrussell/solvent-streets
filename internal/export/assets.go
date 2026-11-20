@@ -113,7 +113,7 @@ var embeddedAssets = sync.OnceValues(func() (*Assets, error) { return loadEmbedd
 func EmbeddedAssets() (*Assets, error) { return embeddedAssets() }
 
 // loadEmbeddedAssets reads the WASM pair from wasm (the embed in production,
-// an fstest.MapFS in tests: byob-interfaces.3) and joins it with the
+// an fstest.MapFS in tests) and joins it with the
 // always-embedded JavaScript.
 func loadEmbeddedAssets(wasm fs.FS) (*Assets, error) {
 	wasmBin, werr := fs.ReadFile(wasm, "wasm/pvmt.wasm")

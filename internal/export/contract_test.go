@@ -17,8 +17,8 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/forecast"
 )
 
-// The export's JSON artifacts are pinned here by contract, not by bytes
-// (byob-testing.8): every key the dashboard reads must exist with the right
+// The export's JSON artifacts are pinned here by contract, not by bytes:
+// every key the dashboard reads must exist with the right
 // JSON type, and the numbers must satisfy invariants that hold for any
 // correct forecast. Prose, key order, extra fields and the last digit of a
 // float are free to change. The one whole-output check — a small,
@@ -465,7 +465,7 @@ func TestResolvedTOML_PreservesBoundarySimplifyOptOut(t *testing.T) {
 	}
 }
 
-// TestResolvedTOML_ShowsPerCityResolvedCalibration pins solvent-streets-xl1t:
+// TestResolvedTOML_ShowsPerCityResolvedCalibration:
 // the Config tab must reflect each city's effective, resolved calibration
 // (the per-metro hex_edge/forecast an [[include]] flattens onto the city),
 // not a parent-only view that hides those overrides.
@@ -489,8 +489,8 @@ func TestResolvedTOML_ShowsPerCityResolvedCalibration(t *testing.T) {
 	}
 }
 
-// TestCityResolvedTOML_OneCity pins the multi-city Config tab
-// (solvent-streets-ern4.36): one city's settings, with its resolved forecast
+// TestCityResolvedTOML_OneCity pins the multi-city Config tab:
+// one city's settings, with its resolved forecast
 // and the edge its snapshot is drawn at, and nothing of the other cities.
 func TestCityResolvedTOML_OneCity(t *testing.T) {
 	cfg := &config.Config{

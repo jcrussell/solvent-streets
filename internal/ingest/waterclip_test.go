@@ -168,7 +168,7 @@ func TestAssembleWater_CityOnAnIslandOfALakeHasNoWater(t *testing.T) {
 // TestClipWaterToBBox_FarIslandsDoNotEmptyTheLake: a lake's islands wholly
 // outside the padded bbox are dropped, not kept unclipped: their area would
 // otherwise outweigh the clipped outer and drop the lake as waterless (Lake
-// Champlain's big islands, miles north of Burlington, solvent-streets-z3si).
+// Champlain's big islands, miles north of Burlington).
 func TestClipWaterToBBox_FarIslandsDoNotEmptyTheLake(t *testing.T) {
 	lake := waterPolygon{
 		outer: [][2]float64{{-1, -1}, {-1, 20}, {20, 20}, {20, -1}, {-1, -1}},

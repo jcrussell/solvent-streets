@@ -19,8 +19,8 @@ import (
 // behind scenarios.json and forecast.json: anything that moves a headline
 // number fails here, including changes no contract test thought to assert.
 // internal/export pins those artifacts by contract (keys, types,
-// invariants); this is the one whole-output check, kept summary-shaped
-// (byob-testing.8/.9): one JSON line per series with its headline numbers,
+// invariants); this is the one whole-output check, kept summary-shaped:
+// one JSON line per series with its headline numbers,
 // rounded to 6 significant digits so last-digit float noise (a Go release
 // reassociating a sum) does not churn it.
 //

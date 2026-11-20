@@ -9,7 +9,7 @@ import (
 )
 
 // ParallelMap applies fn to each element of input in parallel, capped at
-// runtime.NumCPU() concurrent workers via errgroup.SetLimit (byob-lifecycle.3).
+// runtime.NumCPU() concurrent workers via errgroup.SetLimit.
 // Each fn call returns zero or more results; output preserves input order.
 // If counter is non-nil it is incremented after each input item is processed,
 // enabling external progress tracking.

@@ -1,7 +1,7 @@
 // Package offlinetest keeps a package's tests off the network. Unit tests
 // must never reach Overpass, Nominatim, ArcGIS or any other upstream: a live
 // call is slow, flaky, rude to a free public service, and in a sandbox with
-// no route out it hangs until the go test timeout (solvent-streets-zdv7).
+// no route out it hangs until the go test timeout.
 // Network tests belong in integration/, behind PVMT_E2E_NETWORK.
 //
 // Call Main from TestMain in every package whose code talks to an upstream:

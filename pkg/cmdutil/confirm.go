@@ -24,7 +24,7 @@ without a TTY the command refuses to ` + verb + "."
 // ConfirmDestructive gates a destructive delete behind a user confirmation.
 // When yes is true the gate is open. Otherwise: on a TTY it prompts via
 // prompter and returns ErrCancel on "no"; off a TTY it refuses with a
-// FlagError hinting --yes (per byob-prompter.3 — silently confirming
+// FlagError hinting --yes (silently confirming
 // because stdin isn't a TTY is exactly the failure mode the prompter
 // contract is designed to prevent).
 func ConfirmDestructive(ctx context.Context, io *iostreams.IOStreams, prompter prompt.Prompter, yes bool, question, refusal string) error {

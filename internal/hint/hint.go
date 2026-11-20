@@ -1,6 +1,6 @@
 // Package hint attaches actionable remediation text to an error. It is a
 // leaf — it imports only the standard library — so domain packages can hint at their failure
-// sites without importing the CLI layer (byob-errors.2, byob-layout.1). The
+// sites without importing the CLI layer. The
 // top-level runner finds the hint with errors.As and prints it on the line
 // after the error.
 package hint

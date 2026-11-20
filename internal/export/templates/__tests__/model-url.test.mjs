@@ -1,4 +1,4 @@
-// The Financials model settings in the URL (solvent-streets-ern4.31):
+// The Financials model settings in the URL:
 // ?strategy=, ?pci= (Initial PCI), ?cost= (the cost multiplier) and ?tiers=
 // (min-max:$/sq m per tier). A shared or reloaded link must reproduce the
 // forecast the reader set up; the city's own seed needs no URL.
@@ -45,8 +45,8 @@ function type(win, sel, value) {
   const el = win.document.querySelector(sel);
   el.value = value;
   el.dispatchEvent(new win.Event('input', { bubbles: true }));
-  // The URL is written once the input pauses (Router.replaceSoon,
-  // solvent-streets-4hzr): stand in for the pause.
+  // The URL is written once the input pauses (Router.replaceSoon): stand in
+  // for the pause.
   win.eval('Router.flushSoon()');
 }
 
@@ -179,7 +179,7 @@ test('back/forward to another city applies the entry\'s settings over that city\
   assert.equal(m.initial_pci, PCI);
 });
 
-// solvent-streets-uzft: only Financials entries carry the model settings and
+// Only Financials entries carry the model settings and
 // budget, so Back onto another tab's entry must leave them as they are rather
 // than reset them to the seed; returning to Financials then shows them again.
 test('Back through a non-Financials entry keeps the model settings and budget', async () => {
@@ -203,7 +203,7 @@ test('Back through a non-Financials entry keeps the model settings and budget', 
   assert.deepEqual(model(win), byHand, 'the forecast was reset to the seed');
 });
 
-// solvent-streets-4hzr: Safari throws SecurityError after ~100 replaceState
+// Safari throws SecurityError after ~100 replaceState
 // calls in a short window, and the sliders and tier inputs fire on every input
 // event. A drag (input events, no change yet) writes the URL once it pauses,
 // and a push in the meantime still leaves the dragged value on the entry it

@@ -215,8 +215,8 @@ func TestAllIngest_InProcessFanOut(t *testing.T) {
 	}
 }
 
-// TestAllIngest_ForceBypassesTheCache pins `all ingest --force`
-// (solvent-streets-9vzr): behind a real CachingTransport a repeat run is served
+// TestAllIngest_ForceBypassesTheCache pins `all ingest --force`:
+// behind a real CachingTransport a repeat run is served
 // entirely from the cache, while --force sends even cached requests upstream
 // and re-fetches the boundary the store already holds instead of reusing it.
 func TestAllIngest_ForceBypassesTheCache(t *testing.T) {
@@ -267,7 +267,7 @@ func TestAllIngest_ForceBypassesTheCache(t *testing.T) {
 	}
 }
 
-// TestAllIngest_BoundaryFailureSkipsCity pins solvent-streets-ern4.7: every
+// TestAllIngest_BoundaryFailureSkipsCity: every
 // ingest step needs the city boundary, so when it cannot be resolved the city
 // is skipped after one attempt and one warning. Each step used to resolve it
 // on its own, so a failing Overpass re-issued the boundary and water-strip
@@ -341,7 +341,7 @@ func TestAllIngest_CancelledContextAborts(t *testing.T) {
 // dbtest.MockStore ignores ctx entirely, which is the whole point — real sqlite
 // surfaces context.Canceled on its own, so without an explicit ctx.Err() check
 // in ingest.RunResourceForCity this fixture would happily run every remaining
-// resource after cancellation (solvent-streets-b3k2).
+// resource after cancellation.
 func TestAllIngest_MidFanOutCancelAborts(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -523,7 +523,7 @@ func TestAllCompute_CombinedFailureIsFatal(t *testing.T) {
 	}
 }
 
-// TestAllCompute_TUIInterruptAbortsCity pins solvent-streets-ern4.6. Ctrl-C
+// TestAllCompute_TUIInterruptAbortsCity: ctrl-C
 // inside a step's TUI never cancels the request context (raw mode swallows
 // SIGINT); it surfaces only as the step returning tui.ErrInterrupted. That
 // must abort the city like any cancellation: no further resource passes, no
@@ -648,7 +648,7 @@ func TestAllCompute_CombinedFailureNotMaskedByEmptyResources(t *testing.T) {
 	}
 }
 
-// TestAllIngest_FailuresFailTheRunWithRetryCommands pins solvent-streets-r0ro:
+// TestAllIngest_FailuresFailTheRunWithRetryCommands:
 // with every upstream down, `all ingest` still visits every step, then fails
 // (not exit 0) with an error that lists each failed step, the fire and
 // Census steps included, with the command that retries it.

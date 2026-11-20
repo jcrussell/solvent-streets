@@ -47,8 +47,8 @@ func migrate(ctx context.Context, d *sql.DB) error {
 }
 
 // enableWAL switches an accepted database to WAL. It runs only after
-// checkGeneration, so a refused file keeps its journal mode and its bytes
-// (solvent-streets-cmth). The mode is persistent in the file, so later
+// checkGeneration, so a refused file keeps its journal mode and its bytes.
+// The mode is persistent in the file, so later
 // connections inherit it; an in-memory database reports "memory" and stays
 // that way, which is fine.
 func enableWAL(ctx context.Context, d *sql.DB) error {
@@ -155,7 +155,7 @@ func refusal(ctx context.Context, q rowQueryer, gen int) error {
 	// Every pvmt database, of any generation, has the schema_version table.
 	// A file with tables but without it is some other program's SQLite
 	// file, and calling it "generation 0" sends the operator to re-ingest
-	// over a file that was never pvmt's (solvent-streets-cmth).
+	// over a file that was never pvmt's.
 	var hasVersions int
 	if err := q.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'schema_version'`).Scan(&hasVersions); err != nil {

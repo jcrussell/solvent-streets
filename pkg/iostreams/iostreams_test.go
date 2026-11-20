@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-// TestIsTerminal_DevNullIsNotATerminal pins solvent-streets-zzdi. /dev/null is
+// TestIsTerminal_DevNullIsNotATerminal: /dev/null is
 // a character device but not a terminal; counting it as one sent
 // `pvmt roads compute > /dev/null` (cron, nohup, CI) into the TUI, which then
 // died opening /dev/tty. Regular files and pipes are not terminals either.
@@ -43,8 +43,8 @@ func TestIsTerminal_DevNullIsNotATerminal(t *testing.T) {
 	}
 }
 
-// TestShouldEnableColor pins the (isTTY, NO_COLOR) decision matrix for
-// byob-iostreams.2. NO_COLOR must disable color whenever it is present —
+// TestShouldEnableColor pins the (isTTY, NO_COLOR) decision matrix:
+// NO_COLOR must disable color whenever it is present —
 // including the empty string — per https://no-color.org. Non-TTY always
 // short-circuits regardless of NO_COLOR.
 func TestShouldEnableColor(t *testing.T) {
@@ -104,7 +104,7 @@ func TestColorScheme_LazyAndStable(t *testing.T) {
 	}
 }
 
-// TestTest_PerStreamTTYFlagsDefaultFalse pins byob-iostreams.1: the three
+// TestTest_PerStreamTTYFlagsDefaultFalse: the three
 // streams each carry an independent TTY flag, and Test() starts them all
 // false. Tests that exercise interactive paths must opt in explicitly with
 // the matching setter — surprise true defaults would let TTY-only code
@@ -126,8 +126,7 @@ func TestTest_PerStreamTTYFlagsDefaultFalse(t *testing.T) {
 	}
 }
 
-// TestStreamRoutingContractDocumented locks in byob-iostreams.3: the
-// IOStreams type and its Out/ErrOut field doc comments must spell out the
+// TestStreamRoutingContractDocumented: the IOStreams type and its Out/ErrOut field doc comments must spell out the
 // data-vs-chatter routing rule. The rule is what makes the rest of the
 // codebase auditable — a future author who deletes the comment loses the
 // only place where "where does this print go?" is answered. We parse the
@@ -189,8 +188,8 @@ func TestStreamRoutingContractDocumented(t *testing.T) {
 		}
 	}
 
-	if !strings.Contains(typeDoc, "byob-iostreams.3") {
-		t.Errorf("IOStreams doc comment should reference byob-iostreams.3 to anchor the routing contract; got:\n%s", typeDoc)
+	if !strings.Contains(typeDoc, "Stream-routing contract") {
+		t.Errorf("IOStreams doc comment should state the Stream-routing contract; got:\n%s", typeDoc)
 	}
 	for _, kw := range []string{"DATA", "chatter"} {
 		if !strings.Contains(typeDoc, kw) {

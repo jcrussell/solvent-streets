@@ -214,8 +214,8 @@ const (
 
 func runCompute(ctx context.Context, opts *Options) error {
 	// JSON mode (--json set) routes prose to discard and disables TUI so
-	// only the final JSON payload reaches stdout (byob-iostreams.3: data
-	// to Out, chatter to ErrOut).
+	// only the final JSON payload reaches stdout (data to Out, chatter
+	// to ErrOut).
 	if opts.Exporter != nil {
 		// JSON mode: the final payload is written separately by WriteRows, so
 		// result DATA is discarded here and human progress is discarded too —
@@ -227,7 +227,7 @@ func runCompute(ctx context.Context, opts *Options) error {
 	}
 	// Plain (non-TTY, non-JSON): result DATA goes to Out; human progress
 	// chatter and warnings go to ErrOut so a redirected stdout captures only
-	// the command's data (byob-iostreams.3).
+	// the command's data.
 	return doCompute(ctx, opts.IO.Out, opts.IO.ErrOut, opts.IO.ErrOut, tui.NoopNotifier{}, opts)
 }
 

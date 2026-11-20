@@ -17,9 +17,8 @@ import (
 //
 //	PVMT_CORPUS_DB=~/.local/share/pvmt/pvmt.db go test ./internal/filter -run Corpus -v
 //
-// Run it before and after a change and diff the output. This is the gate that
-// solvent-streets-qwfo was built behind, and the reason it exists as a
-// committed test rather than a throwaway script: every rule in jurisdiction.go
+// Run it before and after a change and diff the output. This is the gate for
+// rule changes, and the reason it exists as a committed test rather than a throwaway script: every rule in jurisdiction.go
 // is seeded from counts like these, and the next one will need the same dump.
 //
 // Reads only; opens the database read-only so it cannot disturb a live one.

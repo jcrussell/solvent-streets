@@ -198,8 +198,8 @@ func TestSnapshotSettingsWarning_IncludedCityUsesSourceHash(t *testing.T) {
 	}
 }
 
-// TestSnapshotSettingsWarning_IncludedServicesMatchSource pins
-// solvent-streets-qtue: an [[include]]d city whose own config sets
+// TestSnapshotSettingsWarning_IncludedServicesMatchSource pins:
+// An [[include]]d city whose own config sets
 // [[services]] runs under them in the union too, so the union reads the
 // snapshot its source computed instead of refusing it as diverged.
 func TestSnapshotSettingsWarning_IncludedServicesMatchSource(t *testing.T) {

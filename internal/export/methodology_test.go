@@ -47,7 +47,7 @@ func TestMethodologyHasNoRawHTML(t *testing.T) {
 
 // TestMethodologyNamesTheFundingLevels: the comparison runs carry one name
 // each, on the Financials charts, the Materials headline and in the
-// methodology that explains them (solvent-streets-ern4.36).
+// methodology that explains them.
 func TestMethodologyNamesTheFundingLevels(t *testing.T) {
 	html, err := MethodologyHTML()
 	if err != nil {
@@ -108,7 +108,7 @@ func TestDashboardHasAboutTab(t *testing.T) {
 
 // TestMethodologyAnchorsResolve checks every in-document link in the
 // methodology lands on a heading id, so renaming a heading cannot silently
-// break a link to it (solvent-streets-ern4.34). The ids must also be unique
+// break a link to it. The ids must also be unique
 // on the dashboard, which carries its own ids beside the prose.
 func TestMethodologyAnchorsResolve(t *testing.T) {
 	html, err := MethodologyHTML()

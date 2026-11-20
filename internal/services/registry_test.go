@@ -6,7 +6,7 @@ import (
 )
 
 // A service with no SourceFormat publishes no methodology line rather than a
-// Sprintf of an empty format (peer review of solvent-streets-znqw).
+// Sprintf of an empty format.
 func TestSpecSourceText_NoFormatIsEmpty(t *testing.T) {
 	if got := (Spec{Name: "made-up", TurnoutS: 60}).SourceText(); got != "" {
 		t.Errorf("SourceText() = %q, want empty", got)

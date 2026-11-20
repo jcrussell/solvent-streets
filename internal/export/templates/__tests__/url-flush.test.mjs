@@ -1,5 +1,5 @@
-// Financials sliders write the URL once input pauses (Router.replaceSoon,
-// solvent-streets-4hzr). A finished edit must still reach the history entry
+// Financials sliders write the URL once input pauses (Router.replaceSoon).
+// A finished edit must still reach the history entry
 // when the reader leaves at once: by leaving the page, or by Back right
 // after letting go of the slider (peer review of 4hzr).
 import { test } from 'node:test';

@@ -18,7 +18,7 @@ func (r *runner) checkDecays(s *site) {
 // map's road decay rate and the forecast's. The two agree to about 1.5% at
 // worst on the release site (hex areas are clipped and k is rounded to four
 // figures); a compute left over from a change to the class decay rates, such
-// as the 0.7x recalibration tried in solvent-streets-ern4.29, is off by tens
+// as a 0.7x recalibration, is off by tens
 // of percent.
 const maxDecayDrift = 0.05
 

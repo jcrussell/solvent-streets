@@ -6,7 +6,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/units"
 )
 
-// Layered resolution (byob-config.2).
+// Layered resolution.
 //
 // Every multi-layer config field is resolved through a fixed precedence
 // chain and carries a Source describing which layer supplied the value:
@@ -190,7 +190,7 @@ func (c *Config) resolveForecast(city *CityConfig) (ForecastConfig, forecastProv
 
 // InitialPCISource returns the layer city's resolved initial_pci comes from,
 // as `config show` reports it. Kind SourceDefault means no layer sets one and
-// the forecast starts at DefaultInitialPCI (solvent-streets-ern4.24).
+// the forecast starts at DefaultInitialPCI.
 func (c *Config) InitialPCISource(city *CityConfig) Source {
 	_, prov := c.resolveForecast(city)
 	return prov.InitialPCI
@@ -206,9 +206,9 @@ func fileForecastProv(fc *ForecastConfig) forecastProvenance {
 	}
 	// GrowthRate has no "unset" sentinel (0 is a legitimate "no growth"), so
 	// the ForecastConfig.growthRateSet presence bit marks an explicit
-	// `growth_rate = 0` as SourceFile (solvent-streets-22kp). The same bit in
+	// `growth_rate = 0` as SourceFile. The same bit in
 	// applyCityForecastProv lets a city opt out of a positive top-level growth
-	// rate (solvent-streets-r312).
+	// rate.
 	if fc.GrowthRate != 0 || fc.growthRateSet {
 		p.GrowthRate = Source{Kind: SourceFile, Detail: "forecast.growth_rate"}
 	}
@@ -344,7 +344,7 @@ func applyDefaultForecastProv(fc *ForecastConfig, p *forecastProvenance) {
 // The top-level list is the including file's own. An [[include]]d city runs
 // under its declaring file's list instead (ResolvedServices), so it gets its
 // own block, keyed cities[<slug>].services[...] and sourced to that file by
-// its config_id (solvent-streets-t9rt).
+// its config_id.
 func (c *Config) appendServiceFields(fields []ResolvedField) []ResolvedField {
 	fields = appendServiceList(fields, c.Services, "", "")
 	for i := range c.Cities {

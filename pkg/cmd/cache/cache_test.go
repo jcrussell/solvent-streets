@@ -430,7 +430,7 @@ func TestNewCmdCache_WiresPrune(t *testing.T) {
 	}
 	// The group itself only aggregates: its RunE shows help, and a stray
 	// argument (a typo'd subcommand) is refused rather than shown help and
-	// exit 0 (byob-command-shape.6; pinned end-to-end in internal/pvmtcmd).
+	// exit 0 (pinned end-to-end in internal/pvmtcmd).
 	if cmd.Args == nil || cmd.Args(cmd, []string{"pruen"}) == nil {
 		t.Error("the cache group should reject stray arguments")
 	}

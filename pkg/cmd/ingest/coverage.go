@@ -230,7 +230,7 @@ func describeGateFailure(cityName string, ratioStripped, ratioOriginal float64) 
 	)
 }
 
-// chooseBoundary is the road-coverage backstop of solvent-streets-e5mk,
+// chooseBoundary is the road-coverage backstop,
 // run on a fresh boundary before it is saved: it returns the boundary to
 // save, its source label, and a note to warn with when it replaced the
 // stripped one. unstripped is the fetched boundary and stripped what the

@@ -183,7 +183,7 @@ func BuildHexMetricsOn(ctx context.Context, entry CityEntry, grid *DrawnGrid) (*
 }
 
 // metricRows lists a stored metric's rows from the entry's resolved snapshot.
-// Each metric is its producer's part of that snapshot (solvent-streets-25t6),
+// Each metric is its producer's part of that snapshot,
 // so it is current by construction: a recompute of roads leaves it in place,
 // and a producer rerun that stored nothing hides it (its new, empty run
 // replaces the old one) rather than letting older rows resurface.

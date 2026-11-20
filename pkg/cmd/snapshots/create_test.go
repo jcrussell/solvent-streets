@@ -265,7 +265,7 @@ func TestRunCreate_RealStore(t *testing.T) {
 
 	// A hashed setting changes: nothing is computed under the new hash. The
 	// refusal says so and names the settings change, rather than calling
-	// every ingested resource never computed (solvent-streets-vx0s).
+	// every ingested resource never computed.
 	cfg.Grid.HexEdgeM = 150
 	out, err = run("v2")
 	if !errors.Is(err, cmdutil.ErrSilent) || !strings.HasPrefix(out, "alpha: refused: nothing computed under the current settings") ||

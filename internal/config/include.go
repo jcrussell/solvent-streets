@@ -239,8 +239,8 @@ func resolveOneInclude(parent *Config, inc IncludeSpec, i int, dir string,
 // the including file's. A config has one horizon (forecast.years, top-level
 // only) so that cities shown side by side -- Compare, Aggregate -- are
 // forecast over the same years; merging a 15-year metro into a 25-year list
-// would otherwise put one city's backlog under another's horizon
-// (solvent-streets-zkf2). Unset means the default on both sides, so leaving
+// would otherwise put one city's backlog under another's horizon.
+// Unset means the default on both sides, so leaving
 // years out everywhere always agrees.
 func checkIncludedHorizon(parent, child *Config) error {
 	py, cy := fileHorizon(parent), fileHorizon(child)

@@ -17,8 +17,7 @@ import (
 // TestExitCode covers the mapping from error shape to process exit code.
 // FlagError (and the usage-error paths that classifyUsageError wraps
 // as FlagError) → 2; ErrNoResults → 3; ErrCancel → 0; everything else,
-// context.Canceled included, → 1. Cross-check on byob-errors.4 and
-// byob-command-shape.6: a `pvmt nope` typo and a cobra flag-group
+// context.Canceled included, → 1. A `pvmt nope` typo and a cobra flag-group
 // violation must both exit 2, not 1, since both are user errors.
 func TestExitCode(t *testing.T) {
 	// exitCode is only invoked on non-nil errors (Main short-circuits to 0
@@ -31,7 +30,7 @@ func TestExitCode(t *testing.T) {
 		{"cancel sentinel", cmdutil.ErrCancel, 0},
 		// An interrupt is not a success: the command did not finish its
 		// work, and exiting 0 let a chained `check-site && deploy` publish
-		// a site whose remaining checks never ran (solvent-streets-kh5n).
+		// a site whose remaining checks never ran.
 		{"context canceled", context.Canceled, 1},
 		{"context canceled wrapped", fmt.Errorf("export: %w", context.Canceled), 1},
 		{"flag error", &cmdutil.FlagError{Err: errors.New("--port out of range")}, 2},
@@ -89,7 +88,7 @@ func TestExitCode_SilentSuppressesPrint(t *testing.T) {
 }
 
 // TestExitCode_CancelledJoinDoesNotSwallowFailures pins why cancellation has
-// no dedicated arm in exitCode (solvent-streets-kh5n).
+// no dedicated arm in exitCode.
 //
 // cmdutil.ForEachCity appends ctx.Err() to its error slice and returns
 // errors.Join(...), so a multi-city run interrupted AFTER real per-city
@@ -142,7 +141,7 @@ func TestExitCode_FlagGroupPrefixIsAnchored(t *testing.T) {
 }
 
 // TestClassifyUsageError_WrapsLiveCobraFlagGroupErrors locks in the
-// integration end of byob-command-shape.6: when a real cobra command
+// integration end of the flag-group contract: when a real cobra command
 // raises a flag-group violation via Execute(), the classifier matches
 // the error string cobra emits today and wraps it as *FlagError. If a
 // cobra upgrade ever rewords these messages, this test fails next to

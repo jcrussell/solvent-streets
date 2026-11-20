@@ -34,7 +34,7 @@ func recordingClient() (*http.Client, func() []string) {
 	}
 }
 
-// TestOverpassEndpoint_ThreadedToEveryCaller pins solvent-streets-ern4.18:
+// TestOverpassEndpoint_ThreadedToEveryCaller:
 // every Overpass caller (the OverpassSource that SourcesFor and AllSources
 // build for roads, parking, sidewalks and facilities, the OSM water fetch and
 // the boundary-relation fetch) queries the configured endpoint, and an empty

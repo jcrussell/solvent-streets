@@ -73,9 +73,9 @@ func (r *runner) checkMeta(label, path string) {
 		r.passf("reasonableness: %s: paved %.2f%% is plausible", label, meta.PavedShare*100)
 	}
 	// A layer whose ingest failed or never ran ships as missing, not as a
-	// zero; a WARN here is the list of cities to re-ingest (solvent-streets-56r1).
+	// zero; a WARN here is the list of cities to re-ingest.
 	// A layer every source answered empty for is not one: upstream maps none
-	// there, and a re-ingest cannot fill it (solvent-streets-a3pn).
+	// there, and a re-ingest cannot fill it.
 	var reingest []string
 	for _, rt := range meta.MissingResources {
 		if sources, ok := meta.EmptyResources[rt]; ok {

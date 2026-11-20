@@ -8,7 +8,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/resource"
 )
 
-// TestRoadFeaturesFromRows_AlamedaClasses pins solvent-streets-stue on rows
+// TestRoadFeaturesFromRows_AlamedaClasses pins class derivation on rows
 // shaped like Alameda County's Street_Centerlines: each functional class
 // becomes the OSM highway value that gives it the right cohort and
 // jurisdiction, and the name comes from STREET.
@@ -62,7 +62,7 @@ func TestArcGISHighway(t *testing.T) {
 		{"numeric F_SYSTEM", map[string]string{"F_SYSTEM": "1"}, "motorway"},
 		{"numeric local", map[string]string{"f_system": "7"}, "residential"},
 		// HERE/NAVTEQ FUNC_CLASS 5 is a local street, not a major collector;
-		// digits outside F_SYSTEM map to nothing (solvent-streets-yd1v).
+		// digits outside F_SYSTEM map to nothing.
 		{"HERE-style FUNC_CLASS is not HPMS", map[string]string{"FUNC_CLASS": "5"}, ""},
 		{"digits in CLASS fall through to F_SYSTEM", map[string]string{"CLASS": "2", "F_SYSTEM": "7"}, "residential"},
 		{"Interstate ramp by street name", map[string]string{"CLASS": "Ramp", "STREET": "VASCO OFF I580 EB"}, "motorway_link"},

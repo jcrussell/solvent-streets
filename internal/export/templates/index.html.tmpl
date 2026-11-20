@@ -78,7 +78,7 @@
         .tab-bar .theme-toggle:hover { border-color: var(--header-fg); }
         .tab-content { display: none; position: absolute; top: calc(var(--tabbar-h) + var(--banner-h)); left: 0; right: 0; bottom: 28px; z-index: 1; }
         .tab-content.active { display: block; }
-        /* solvent-streets-mw80: with no city matching the tag filters, the
+        /* With no city matching the tag filters, the
            city-scoped tabs would show a stale city or empty charts; the
            no-match panel replaces them (About and Config stay). */
         body.no-city-match .tab-content[data-city-scoped].active { display: none; }
@@ -518,7 +518,7 @@
         .score-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; margin-bottom: 40px; }
         .score-card.score-card-muted { opacity: 0.6; }
         .score-card.score-card-muted .score-value { color: var(--text-muted); }
-        /* A layer with no data (meta.json missing_resources; solvent-streets-56r1). */
+        /* A layer with no data (meta.json missing_resources). */
         .lb-row.lb-na { opacity: 0.6; }
         .stat-card.missing-card .stat-label, .stat-row.stat-note { color: var(--text-muted); font-size: 12px; }
         .score-card {

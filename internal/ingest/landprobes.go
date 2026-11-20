@@ -278,7 +278,7 @@ func newPolygonsTester(polys [][][][2]float64) func([2]float64) bool {
 // pointInRing directly. Both paths compute the same ray-cast parity, so the
 // count does not depend on which one ran. Coastal cities produce hundreds
 // of water polygons, and dense road probes number in the hundreds of
-// thousands (solvent-streets-m3kj).
+// thousands.
 type landProbeIndex struct {
 	probes [][2]float64
 	// maxHits is LandProbes.MaxHits: a candidate holding more probes than

@@ -1,4 +1,4 @@
-// Go owns the forecast defaults (solvent-streets-lu32.34): the pages get them
+// Go owns the forecast defaults: the pages get them
 // as PVMT_CONFIG.forecast_defaults and in their static markup, and the scripts
 // carry no copy. The fixture config has a 20-year horizon, not the 30-year
 // default, so a number written into the JS or the template shows up here.

@@ -9,7 +9,7 @@ import "github.com/spf13/cobra"
 // command with no RunE it still yields help and exit 0. With both, a typo
 // returns cobra's `unknown command "x" for "pvmt cache"`, which the runner's
 // classifyUsageError maps to exit 2, and a bare `pvmt cache` still shows
-// help (byob-command-shape.6).
+// help.
 func MarkGroup(cmd *cobra.Command) {
 	cmd.Args = cobra.NoArgs
 	cmd.RunE = func(c *cobra.Command, _ []string) error { return c.Help() }

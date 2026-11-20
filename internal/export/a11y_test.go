@@ -82,7 +82,7 @@ func TestDashboardReducedMotionCSS(t *testing.T) {
 // TestDashboardNarrowViewportCSS asserts the narrow-viewport breakpoint
 // is wired into the rendered dashboard so the legend, tabs, financial
 // cards, and chart grids reflow on a 375px phone viewport rather than
-// overflowing or covering the map (solvent-streets-1vk).
+// overflowing or covering the map.
 func TestDashboardNarrowViewportCSS(t *testing.T) {
 	tmpl := parseDashboardTemplates(t)
 

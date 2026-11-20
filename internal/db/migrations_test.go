@@ -550,7 +550,7 @@ func listIndexes(t *testing.T, ctx context.Context, d *sql.DB, table string) []s
 	return names
 }
 
-// TestMigrateFS_AcceptsCustomFS verifies the byob-interfaces.3 seam:
+// TestMigrateFS_AcceptsCustomFS verifies the fs.FS seam:
 // migrateFS reads SQL from any fs.FS, so tests can drive migration
 // scenarios via fstest.MapFS without touching disk or the embedded
 // production migrations. The production migrate() wraps migrateFS
@@ -755,7 +755,7 @@ func openRaw(t *testing.T, path string) *sql.DB {
 	return d
 }
 
-// TestOpen_RefusesOlderGeneration pins solvent-streets-25t6.2. A database an
+// TestOpen_RefusesOlderGeneration: a database an
 // older pvmt created records schema_version 1, so after the squash migrateFS
 // would skip the new 001_init.sql and run on the old schema. Open must refuse
 // it with ErrIncompatibleDatabase, name the path in the hint, and leave the
@@ -824,7 +824,7 @@ func TestOpen_RefusesOlderGeneration(t *testing.T) {
 	}
 }
 
-// TestOpen_ForeignFileLeftUntouched pins solvent-streets-cmth. Open applied
+// TestOpen_ForeignFileLeftUntouched: open applied
 // journal_mode(WAL) in the DSN, so a refused rollback-journal file was
 // converted to WAL before checkGeneration ever looked at it, and a SQLite
 // file no pvmt wrote was reported as "schema generation 0". A refused file

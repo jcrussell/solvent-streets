@@ -40,7 +40,7 @@ func overpassURLOr(baseURL string) string {
 // deadline below the queries' server-side [timeout:N]
 // (resource.OverpassTimeoutS) would cut slow-but-progressing queries off,
 // and the retry transport would then re-run them up to six times: one
-// stalled request would cost minutes before failing (solvent-streets-e7h3).
+// stalled request would cost minutes before failing.
 // The margin covers transfer start; past it a dead server still fails.
 const OverpassHeaderTimeout = time.Duration(resource.OverpassTimeoutS+30) * time.Second
 

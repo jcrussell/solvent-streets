@@ -1,4 +1,4 @@
-// What the interactive Financials forecast maintains (solvent-streets-ma98):
+// What the interactive Financials forecast maintains:
 // streets only by default, the network the roads headline and the cited
 // "Today" budget describe; Advanced options can add parking lots and
 // sidewalks. Everything the slider drives follows the choice.
@@ -93,7 +93,7 @@ test('the solvency headline stays streets-only whatever is maintained', async ()
   assert.deepEqual(types(headline.cohorts), ['roads']);
 });
 
-// solvent-streets-i55x: the page selects cohorts by the seed's resource_type,
+// The page selects cohorts by the seed's resource_type,
 // not by guessing from the class name. A parking cohort whose class is not
 // literally "parking" must still stay out of the streets-only forecast.
 test('streets-only follows resource_type, not the class name', async () => {
@@ -110,7 +110,7 @@ test('streets-only follows resource_type, not the class name', async () => {
 // Which cohorts a figure prices is one rule (seedCohortsFor): under the city
 // scope, the city-maintained cohorts of each resource, which is none for a
 // resource the city maintains none of. Only a city with no city-scope cohorts
-// at all uses every jurisdiction's (solvent-streets-lu32.42).
+// at all uses every jurisdiction's.
 const roadsOf = (list) => list.filter((c) => c.resource_type === 'roads');
 const areaOf = (list) => list.reduce((s, c) => s + c.area, 0);
 const headlineProbe = (win) => win.__simCalls.filter((c) => c.solvency && c.annual_budget > 0).at(-1);

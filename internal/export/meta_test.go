@@ -339,7 +339,7 @@ func TestBuildMeta_CarriesEstimatedSpaces(t *testing.T) {
 	}
 }
 
-// TestHeadingName pins solvent-streets-youz: before any script runs, a
+// TestHeadingName: before any script runs, a
 // multi-city page names the city its selector opens on (the first city of
 // the first tag group), not the config's first city.
 func TestHeadingName(t *testing.T) {
@@ -378,7 +378,7 @@ func TestHeadingName_FollowsTheSelectedCity(t *testing.T) {
 	}
 }
 
-// TestBuildMeta_MissingResources (solvent-streets-56r1): a resource whose
+// TestBuildMeta_MissingResources: a resource whose
 // compute had no features, or that was never computed, is named in
 // missing_resources so the dashboard does not present it as a real zero.
 func TestBuildMeta_MissingResources(t *testing.T) {
@@ -410,7 +410,7 @@ func TestBuildMeta_MissingResources(t *testing.T) {
 	}
 }
 
-// TestBuildMeta_IngestFailures (solvent-streets-56r1): a configured source
+// TestBuildMeta_IngestFailures: a configured source
 // whose newest attempt failed and that holds no rows is named per resource,
 // whether the resource has data from another source (partial) or none
 // (failed). A source with an earlier successful fetch keeps its rows and is
@@ -451,7 +451,7 @@ func TestBuildMeta_IngestFailures(t *testing.T) {
 	}
 }
 
-// TestBuildMeta_EmptyResources (solvent-streets-a3pn): a missing layer every
+// TestBuildMeta_EmptyResources: a missing layer every
 // configured source answered empty for is named with those sources, so the
 // dashboard and check-site can say upstream maps none rather than asking for
 // a re-ingest. A layer with a source never asked, or one that failed, or one

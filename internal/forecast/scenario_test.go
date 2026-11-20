@@ -556,7 +556,7 @@ func fullFundingTiers(scale float64) []CostTier {
 // deferred. The equality is deliberately EXACT rather than tolerance-based —
 // distribute() hands each cohort need_j itself and accumulates the sum in the
 // same order Simulate accumulated totalNeed, so the two are the same float. A
-// tolerance here would re-admit exactly the drift this guards (solvent-streets-0ulx).
+// tolerance here would re-admit exactly the drift this guards.
 func TestSimulate_FullFunding_SpendsExactlyNeed(t *testing.T) {
 	params := NewParams(0.01, fullFundingTiers(1.0), 12, 1)
 	result := Simulate(
@@ -575,16 +575,16 @@ func TestSimulate_FullFunding_SpendsExactlyNeed(t *testing.T) {
 	}
 }
 
-// TestSimulate_FullFunding_InvariantUnderCostScale is the regression lock for
-// solvent-streets-0ulx. Scaling every cost tier by a constant is a pure
+// TestSimulate_FullFunding_InvariantUnderCostScale is the regression lock:
+// Scaling every cost tier by a constant is a pure
 // rescaling in dollar-space: it multiplies need_j and totalSpend by the same
 // factor and leaves need_j/totalNeed untouched, so it cannot move a PCI in the
 // model. It did anyway — the rescale perturbed the low bits of
 // totalSpend * (need_j/totalNeed), flipping cohorts across what was then a
 // discontinuous `spend >= need` branch, where under-funded cohorts recovered
 // only spendRatio*0.8 of the year's decay. The measured swing was ~0.46 PCI
-// with no modelled cause. The response is continuous now
-// (solvent-streets-j5co), and exact allocation still keeps it bit-identical.
+// with no modelled cause. The response is continuous now,
+// and exact allocation still keeps it bit-identical.
 func TestSimulate_FullFunding_InvariantUnderCostScale(t *testing.T) {
 	scenario := Scenario{Name: "full", Label: "Full", FullFunding: true, Strategy: StrategyWorstFirst}
 

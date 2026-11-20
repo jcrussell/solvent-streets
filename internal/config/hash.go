@@ -67,8 +67,7 @@ import (
 //     published is the input digests, not the hash: each run records the
 //     digest of every input it read, and `pvmt snapshots create` refuses a
 //     latest compute with a part computed from inputs ingested again since,
-//     naming the compute that fixes it (internal/coherence;
-//     solvent-streets-n6lh).
+//     naming the compute that fixes it (internal/coherence).
 //   - Identity and plumbing: config_id (keys the cities row instead),
 //     [[include]] paths and tags (the merged cities are hashed, not the file
 //     layout), SourcePath, and the stamps the merge leaves.
@@ -97,7 +96,7 @@ import (
 // stores as TEXT; widening it desynchronizes write vs read for existing rows.
 
 // ComputeEpoch identifies the compute logic behind a stored result, the half
-// of "what produced this" that no setting can see (solvent-streets-mfjb). It
+// of "what produced this" that no setting can see. It
 // is part of every CityHash, so bumping it leaves every city's latest compute
 // under the new hash empty: `pvmt snapshots create` has nothing to freeze
 // until the city is recomputed. Existing snapshots are untouched and still

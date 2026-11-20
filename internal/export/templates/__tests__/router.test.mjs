@@ -42,8 +42,7 @@ test('a deep-linked tab is restored on load', async () => {
 });
 
 // ?tab= names a tab. An element id that is not one, or a value that is no
-// valid selector, must neither stop the boot nor leave every tab hidden
-// (solvent-streets-ern4.39).
+// valid selector, must neither stop the boot nor leave every tab hidden.
 for (const tab of ['map', 'city-select', 'stats', 'a"]b']) {
   test('?tab=' + tab + ' is ignored and the dashboard still boots', async () => {
     const errors = [];
@@ -109,7 +108,7 @@ test('without ?city=, the data in view follows the selector default, not CITIES[
   // A ?tag= filter that excludes CITIES[0] (Alpha, flat-alphabetical first)
   // leaves the dropdown defaulting to Gamma. DATA_PREFIX was seeded from
   // CITIES[0], so without the boot-time alignment the page would load Alpha's
-  // data under a dropdown naming Gamma (solvent-streets-yvlv.24).
+  // data under a dropdown naming Gamma.
   const { win, $, flush } = load({
     data: fullData,
     url: 'https://example.test/index.html?tag=state:OR',
@@ -247,7 +246,7 @@ test('scope selection round-trips only while the scope row is visible', async ()
   assert.equal(params(win).get('scope'), 'all');
 
   // City-only is the default and is never written, visible row or not, so
-  // the same view has one URL (solvent-streets-ern4.36).
+  // the same view has one URL.
   win.selectScope('city', { push: true });
   await flush();
   assert.equal(params(win).get('scope'), null, 'the default scope must not pin ?scope=city');
@@ -288,7 +287,7 @@ test('back to a different tab of the same city does not reload the city', async 
   assert.equal(cityLoads(), before, 'a tab-only back navigation reloaded the city');
 });
 
-// solvent-streets-youz: the browser tab names the city in view: the one the
+// The browser tab names the city in view: the one the
 // selector opens on, then whichever city is selected.
 test('the tab title follows the selected city', async () => {
   const { win, $, flush } = load({ data: fullData });
@@ -304,7 +303,7 @@ test('the tab title follows the selected city', async () => {
   assert.equal($('#panel h2').textContent, gamma);
 });
 
-// solvent-streets-mw80: one shared empty state. The city-scoped tabs give way
+// One shared empty state. The city-scoped tabs give way
 // to "No cities match ... Clear filters", the URL names no city (so a reload
 // keeps the filters, as /play does), and Clear filters restores the view.
 test('no matching city shows the no-match panel; clearing restores the city', async () => {

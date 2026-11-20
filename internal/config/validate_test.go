@@ -89,13 +89,13 @@ func TestForecastConfig_Validate_AcceptsOK(t *testing.T) {
 	}
 }
 
-// TestConfig_Validate_HexEdgeNonNegative locks in byob-input-validation.2:
+// TestConfig_Validate_HexEdgeNonNegative:
 // a negative hex_edge_m at any layer is rejected, and the failure chains
 // to ErrInvalidConfig so the cmdutil boundary can map it to FlagError.
 // Zero is explicitly accepted because HexEdge() falls back to default.
 //
-// solvent-streets-rbv7 widened it to the MinHexEdgeM floor: rejecting only
-// negatives left `hex_edge_m = 1` accepted everywhere, and cell count grows as
+// The floor is MinHexEdgeM, not zero: rejecting only negatives would leave
+// `hex_edge_m = 1` accepted everywhere, and cell count grows as
 // 1/edge², so that typo OOM-kills compute with no diagnostic. The valid subtest
 // is the load-bearing half -- it pins that 0 (meaning "unset") and the floor
 // itself stay accepted, so the new gate cannot creep into rejecting a config
@@ -109,7 +109,7 @@ func TestConfig_Validate_HexEdgeNonNegative(t *testing.T) {
 		"per-city negative": {
 			Cities: []CityConfig{{Name: "Oakland", Overpass: true, HexEdgeM: -1}},
 		},
-		// solvent-streets-rbv7: positive but below MinHexEdgeM. Cell count
+		// Positive but below MinHexEdgeM. Cell count
 		// grows as 1/edge², so a mistyped decimal point here is an OOM kill
 		// mid-compute with no diagnostic. Rejected at both layers.
 		"top-level below floor": {
@@ -162,7 +162,7 @@ func TestConfig_Validate_HexEdgeNonNegative(t *testing.T) {
 	}
 }
 
-// TestConfig_Validate_DisplayUnits locks in solvent-streets-dfm5: an unknown
+// TestConfig_Validate_DisplayUnits: an unknown
 // display.units is rejected up front (chaining to ErrInvalidConfig) rather than
 // silently resolving to imperial via ParseSystem's default. Empty is allowed
 // (means "use the default"), and the canonical/normalized spellings pass.
@@ -423,7 +423,7 @@ func TestLoad_CacheTTL(t *testing.T) {
 // decodes into OverpassConfig.URL, an omitted table leaves it empty (the
 // factory then uses ingest.DefaultOverpassURL), and an endpoint that is not
 // https, names an IP, carries credentials, a query or a fragment, or is not an
-// /interpreter path is rejected at load (solvent-streets-ern4.18).
+// /interpreter path is rejected at load.
 func TestLoad_OverpassURL(t *testing.T) {
 	const city = "\n[[cities]]\nname = \"Oakland, CA\"\noverpass = true\n"
 	table := func(u string) string { return "[overpass]\nurl = \"" + u + "\"\n" + city }
@@ -634,7 +634,7 @@ func TestConfig_Validate_DataSource(t *testing.T) {
 	}
 }
 
-// TestParseConfig_RejectsUnknownKeys locks in byob-input-validation.2:
+// TestParseConfig_RejectsUnknownKeys:
 // a typo in a top-level table, scalar field, per-city override, or
 // cost tier must fail at load time rather than silently unmarshal to
 // the zero value. The error chains to ErrInvalidConfig so the cmdutil

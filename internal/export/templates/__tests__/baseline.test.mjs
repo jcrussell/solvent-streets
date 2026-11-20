@@ -1,4 +1,4 @@
-// Which scenario is "the baseline" (solvent-streets-lu32.33): Financials,
+// Which scenario is "the baseline": Financials,
 // Materials and Compare all pick it by findBaseline, so a set that does not
 // list the baseline first still reads the baseline everywhere. And the Play
 // legend is drawn from the colours the Play map paints with.

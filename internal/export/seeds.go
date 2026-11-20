@@ -64,8 +64,7 @@ type ForecastSeedJSON struct {
 	// MaterialTiers ships the per-tier physical material intensities (asphalt
 	// mix mass + binder fraction per m^2) behind each scenario year's materials
 	// in scenarios.json, for the Materials tab's intensity table. Each tier
-	// carries its own PCI band; it need not match a CostTiers band or label
-	// (solvent-streets-ern4.25).
+	// carries its own PCI band; it need not match a CostTiers band or label.
 	MaterialTiers []MaterialTierSeed `json:"material_tiers,omitempty"`
 	// BarrelsPerTonBinder is the crude-oil-equivalent barrels per tonne of
 	// asphalt binder (forecast.BarrelsPerTonBinder), which the Materials tab
@@ -99,7 +98,6 @@ type ForecastSeedJSON struct {
 	// and three flat-zero charts, which is the right answer for a network that
 	// consumes no bitumen. omitempty would elide that real 0 and the tab's
 	// note would describe a concrete-only city as all asphalt.
-	// solvent-streets-ujji.
 	AsphaltAreaShare     float64 `json:"asphalt_area_share"`
 	CityAsphaltAreaShare float64 `json:"city_asphalt_area_share"`
 }

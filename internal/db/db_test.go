@@ -393,7 +393,7 @@ func TestEnsureCityIdempotent(t *testing.T) {
 	}
 }
 
-// TestEnsureCityRefreshesName pins the solvent-streets-a2z8.3 fix: when a
+// TestEnsureCityRefreshesName: when a
 // display name changes but slugifies to the same value (e.g. a punctuation or
 // capitalization edit), re-running EnsureCity must refresh the stored name in
 // place rather than keeping the stale one, while preserving the row id.
@@ -429,7 +429,7 @@ func TestEnsureCityRefreshesName(t *testing.T) {
 	}
 }
 
-// TestEnsureCityDistinctByConfigID pins the solvent-streets-zqul fix:
+// TestEnsureCityDistinctByConfigID:
 // two configs that share a city slug (e.g. both define "Austin, TX")
 // must resolve to distinct city ids when they have distinct config_ids,
 // so re-ingest under one config does not clobber features written under
@@ -487,8 +487,8 @@ func TestEnsureCityRejectsEmptyConfigID(t *testing.T) {
 }
 
 // TestEnsureCityCollapsesPathSpellings is the end-to-end intent: load
-// the same pvmt.toml from two cwd / path-spelling combinations (the
-// gensite-vs-pvmt-all scenario from solvent-streets-kevc) and confirm
+// the same pvmt.toml from two cwd / path-spelling combinations (as
+// `make site` and `pvmt all` do) and confirm
 // both reach the same cities row.
 func TestEnsureCityCollapsesPathSpellings(t *testing.T) {
 	ctx := context.Background()

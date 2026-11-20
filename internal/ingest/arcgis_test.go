@@ -354,7 +354,7 @@ func TestFetch_PreservesEndpointQueryString(t *testing.T) {
 }
 
 // TestFetch_MetadataRequestPreservesEndpointQueryString is the companion for
-// the layer-metadata request added by solvent-streets-ofbo. It is derived from
+// the layer-metadata request. It is derived from
 // the endpoint by trimming /query, so it must carry the same credentials —
 // otherwise a token-gated layer answers 499 for the metadata, completeness
 // becomes unverifiable, and the fail-closed default turns a working ingest
@@ -490,7 +490,7 @@ func TestFetch_PaginationExceededTransferLimit(t *testing.T) {
 	}
 }
 
-// TestFetch_PaginationFlagOmittedShortPages pins the fix for solvent-streets-9auy:
+// TestFetch_PaginationFlagOmittedShortPages:
 // a server that clamps its page size below arcgisMaxRecords AND omits
 // exceededTransferLimit entirely. The old break condition
 // `!exceeded && rawCount < arcgisMaxRecords` would stop after page 1 (100 < 5000,
@@ -586,7 +586,6 @@ func TestFetch_Pagination(t *testing.T) {
 // TestFetch_PagesOrderedByOBJECTID pins that every paged ArcGIS query
 // carries orderByFields=OBJECTID, so offset-based paging is deterministic
 // across hosted and non-hosted (map-service/enterprise) backends.
-// Regression for solvent-streets-2a7n.26.
 func TestFetch_PagesOrderedByOBJECTID(t *testing.T) {
 	var sawOrderBy []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -753,8 +752,7 @@ func TestArcGISErrorMessage(t *testing.T) {
 
 // TestFetch_RefusesLoopback pins the SSRF guard: a hostile pvmt.toml
 // pointing arcgis_url at localhost / 169.254.169.254 / RFC1918 must be
-// refused with a clear error referencing the override flag. Regression
-// for solvent-streets-di49.
+// refused with a clear error referencing the override flag.
 func TestFetch_RefusesLoopback(t *testing.T) {
 	cases := []struct {
 		name string
@@ -945,8 +943,8 @@ func TestFetch_EmptyResponse(t *testing.T) {
 // offsetIgnoringServer stands up a layer that ignores resultOffset — pre-10.3,
 // or supportsPagination:false — re-serving the same OBJECTIDs forever with no
 // exceededTransferLimit. rows is what every query returns; maxRecordCount is
-// what the layer document advertises, which is what tells the two cases in
-// solvent-streets-ofbo apart. A negative maxRecordCount omits the field.
+// what the layer document advertises, which is what tells the two
+// repeated-page cases apart. A negative maxRecordCount omits the field.
 //
 // The layer document lives at the query URL minus /query, so this needs a mux:
 // a single catch-all handler would answer the metadata request with features.
@@ -984,8 +982,8 @@ func offsetIgnoringServer(t *testing.T, rows, maxRecordCount int) (endpoint stri
 // endpoint — for a layer that answered completely in ONE request before v0.3.0.
 //
 // Restoring the old short-page break is NOT the fix: trusting a short page is
-// exactly the truncation that dropped 2000 of 5780 Livermore centerlines
-// (solvent-streets-9auy). Instead we stop when a page parses rows but adds no
+// exactly the truncation that dropped 2000 of 5780 Livermore centerlines.
+// Instead we stop when a page parses rows but adds no
 // new ids AND the layer's own maxRecordCount proves the page was not clamped.
 // Here 10 rows sit well under the advertised 100, so the layer really did
 // answer completely.
@@ -1022,7 +1020,7 @@ func TestFetch_OffsetIgnoringServerStopsCleanly(t *testing.T) {
 	}
 }
 
-// TestFetch_OffsetIgnoringServerOverOurCapSucceeds pins solvent-streets-szq9:
+// TestFetch_OffsetIgnoringServerOverOurCapSucceeds:
 // the false-refusal case that sat between the two ofbo halves below.
 //
 // Same wire signature again — offset ignored, rows repeat, no
@@ -1065,8 +1063,8 @@ func TestFetch_OffsetIgnoringServerOverOurCapSucceeds(t *testing.T) {
 	}
 }
 
-// TestFetch_OffsetIgnoringServerAtMaxRecordCountErrors is the other half of
-// solvent-streets-ofbo: the SAME wire signature as the test above — repeated
+// TestFetch_OffsetIgnoringServerAtMaxRecordCountErrors is the other half:
+// The SAME wire signature as the test above — repeated
 // rows, no exceededTransferLimit — but the page is exactly the layer's
 // maxRecordCount, so the server clamped and the rest of the layer was withheld.
 //
@@ -1185,7 +1183,7 @@ func TestFetch_RepeatedPageWithoutQuerySuffixErrors(t *testing.T) {
 	}
 }
 
-// TestRepeatedPageOutcome is the pure-logic half of solvent-streets-ofbo.
+// TestRepeatedPageOutcome is the pure-logic half of the repeated-page check.
 func TestRepeatedPageOutcome(t *testing.T) {
 	boom := errors.New("metadata unavailable")
 	for _, tt := range []struct {
@@ -1204,7 +1202,7 @@ func TestRepeatedPageOutcome(t *testing.T) {
 		// Comparing against maxRecordCount alone read these as complete and
 		// silently dropped every row past the first 5000.
 		{"full page under a larger cap is still clamped", arcgisMaxRecords, 10000, nil, pageTruncated},
-		// solvent-streets-szq9. ABOVE our own cap the server returned more rows
+		// ABOVE our own cap the server returned more rows
 		// than we asked for, proving it never applied resultRecordCount — so our
 		// cap cannot be what clamped this page, and only maxRecordCount can
 		// settle it. Reading it as truncated hard-failed ingest on layers we had
@@ -1267,7 +1265,7 @@ func TestFetch_NullGeometryPageKeepsPaging(t *testing.T) {
 	}
 }
 
-// TestFetch_RepeatedGeometryRowAmongNewNullRowsKeepsPaging (solvent-streets-cfi8):
+// TestFetch_RepeatedGeometryRowAmongNewNullRowsKeepsPaging:
 // on a server that paginates correctly but omits exceededTransferLimit, a page
 // whose only geometry row is a re-served boundary row and whose other rows are
 // new but null-geometry is not a re-served page. Treating it as one stopped
@@ -1424,7 +1422,7 @@ func TestClassifyArcGISPage(t *testing.T) {
 			rawCount: 100, newRaw: 100, exceeded: true, flagPresent: true, want: pageContinue,
 		},
 		// The Livermore truncation: a short page with no flag must NOT be
-		// trusted as the last page (solvent-streets-9auy).
+		// trusted as the last page.
 		"short page with no flag keeps paging": {
 			rawCount: 100, newRaw: 100, want: pageContinue,
 		},
@@ -1435,8 +1433,7 @@ func TestClassifyArcGISPage(t *testing.T) {
 			rawCount: 100, newRaw: 0, exceeded: true, flagPresent: true, want: pageTruncated,
 		},
 		// Rows are counted whether or not they carry geometry, so a page
-		// whose new rows are all null-geometry is still new
-		// (solvent-streets-cfi8).
+		// whose new rows are all null-geometry is still new.
 		"page of new rows keeps paging whatever their geometry": {
 			rawCount: 100, newRaw: 99, want: pageContinue,
 		},
@@ -1509,7 +1506,7 @@ func TestArcGISQuery_ConfigurableQuery(t *testing.T) {
 	}
 }
 
-// TestArcGISQuery_OutFieldsAddsIDField (solvent-streets-ngxx): OutFields that
+// TestArcGISQuery_OutFieldsAddsIDField: OutFields that
 // omit IDField still request it, so row ids come from the id field rather
 // than page positions, which would disable cross-page dedup and the
 // repeated-page check.
@@ -1638,7 +1635,7 @@ func TestCensusBlocksSource_Fetch(t *testing.T) {
 	}
 }
 
-// TestArcGISQuery_ProgressLabel (solvent-streets-t3wt): progress names the
+// TestArcGISQuery_ProgressLabel: progress names the
 // upstream the query is configured with, so census blocks read "TIGERweb:".
 func TestArcGISQuery_ProgressLabel(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

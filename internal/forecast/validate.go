@@ -169,8 +169,8 @@ func (in Inputs) validate() *InputError {
 // tierOverlap reports the first pair of cost tiers whose PCI bands overlap,
 // naming the later band in PCI order. A PCI in two bands has two prices, and
 // the dashboard refuses to run its interactive forecast on such a schedule,
-// so every forecast surface refuses it here, at config load included
-// (solvent-streets-vslt). Gaps between bands stay legal: TierIndexForPCI
+// so every forecast surface refuses it here, at config load included.
+// Gaps between bands stay legal: TierIndexForPCI
 // resolves a gap to the nearest band.
 func tierOverlap(tiers []CostTier) *InputError {
 	order := make([]int, len(tiers))

@@ -51,7 +51,7 @@ func hintForConfigError(err error) error {
 }
 
 // newPVMTTransport returns the base *http.Transport that backs every
-// outbound pvmt HTTP request, with the byob-http-client.2 timeout contract
+// outbound pvmt HTTP request, with the timeout contract
 // baked in. http.DefaultTransport covers most of these but lacks
 // ResponseHeaderTimeout, so a server that finishes the TCP/TLS handshake
 // then stalls before sending response headers can pin the connection for
@@ -108,7 +108,7 @@ func (t *hostTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 // (ingest.NoRetry). The Overpass header deadline is set above the queries'
 // own [timeout:N], so reaching it means the server is dead, not slow, and
 // each retry would cost the full deadline again: seven attempts made one
-// dead request take about 18 minutes (solvent-streets-lrnw). Shorter
+// dead request take about 18 minutes. Shorter
 // timeouts (dial, TLS handshake) end before the deadline and stay
 // retryable, as do 429/504 answers from an Overpass at capacity.
 type headerTimeoutIsFinal struct {
@@ -138,8 +138,7 @@ func newBaseTransport(overpassHost string) http.RoundTripper {
 	}
 }
 
-// httpClientFactory builds the lazy closure that backs f.HttpClient per the
-// byob-http-client.2 contract:
+// httpClientFactory builds the lazy closure that backs f.HttpClient:
 //
 //   - sync.OnceValues caches the constructed *http.Client for the process
 //     lifetime, so commands that never hit the network (e.g. --version,
@@ -148,7 +147,7 @@ func newBaseTransport(overpassHost string) http.RoundTripper {
 //     cache.NewTransport → ingest.NewTransport (UA → Retry) → newBaseTransport
 //     (newPVMTTransport, with a longer header deadline for Overpass).
 //     The disk cache wraps the ingest middleware chain so cache hits skip
-//     retries and UA stamping entirely (byob-http-client.1).
+//     retries and UA stamping entirely.
 //   - Client.Timeout is deliberately 0. A client-wide timeout kills
 //     streaming bodies mid-transfer (large Overpass exports, ArcGIS pages),
 //     and the retry transport already bounds the per-request work via
@@ -190,7 +189,7 @@ func httpClientFactory(f *cmdutil.Factory) func() (*http.Client, error) {
 			// hook REPLACES the stdlib default, so we re-add the 10-hop
 			// cap. The AllowPrivate opt-in is carried on the request
 			// context (set by ArcGISSource.Fetch, propagated across
-			// redirects). solvent-streets-a2z8.1.
+			// redirects).
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
 				if len(via) >= 10 {
 					return errors.New("stopped after 10 redirects")
@@ -299,8 +298,7 @@ func overpassURLFactory(f *cmdutil.Factory) func() (string, error) {
 	})
 }
 
-// configFactory builds the lazy closure that backs f.Config per the
-// byob-config.3 contract:
+// configFactory builds the lazy closure that backs f.Config:
 //
 //   - sync.OnceValues caches the loaded *config.Config (and any error)
 //     for the process lifetime, so commands which dereference Config
@@ -438,7 +436,7 @@ func rootDBWithClose(open func() (*db.RootStore, error)) (func() (*db.RootStore,
 func New() *cmdutil.Factory {
 	ios := iostreams.System()
 
-	// LogLevel defaults to Warn (byob-logging.3: quiet by default).
+	// LogLevel defaults to Warn (quiet by default).
 	// PersistentPreRunE on root mutates it after parsing -v / --log-level.
 	lvl := new(slog.LevelVar)
 	lvl.Set(slog.LevelWarn)

@@ -1,4 +1,4 @@
-// Play page guidance (solvent-streets-ern4.30): the Map links carry the city
+// Play page guidance: the Map links carry the city
 // and tag filters back to the dashboard, a lost game's banner names what
 // ended it, and a first-run hint says how to treat roads for the input in
 // hand.
@@ -153,7 +153,7 @@ test('play: the first treatment dismisses the hint', async () => {
   assert.equal(win.localStorage.getItem('pvmtPlayHintSeen'), '1');
 });
 
-// solvent-streets-ern4.36: the finished game's board and HUD must not linger
+// The finished game's board and HUD must not linger
 // behind the start screen after Play again.
 test('play: Play again shows a fresh board and HUD behind the start screen', async () => {
   const { $, get, win } = await startBoard();

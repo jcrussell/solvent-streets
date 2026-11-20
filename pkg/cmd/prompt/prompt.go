@@ -1,6 +1,5 @@
 // Package prompt defines the narrow Prompter interface that destructive or
-// otherwise-interactive commands depend on. Per byob-prompter.1 the
-// interface is intentionally small (five methods) so swapping the live
+// otherwise-interactive commands depend on. The interface is intentionally small (five methods) so swapping the live
 // implementation touches one file rather than every caller. The live impl
 // (live.go) is backed by charm.land/huh/v2, which shares the repo's
 // charm.land bubbletea/v2 dependency tree (huh v1.x would fork it onto
@@ -20,7 +19,7 @@ import (
 // ErrNotTTY is returned by Live methods when stdin is not a terminal.
 // Callers that have a --yes flag should short-circuit before consulting
 // the Prompter; callers without one should map this to a clear error
-// (per byob-prompter.3: "pass --yes to skip confirmation in
+// ("pass --yes to skip confirmation in
 // non-interactive environments").
 var ErrNotTTY = errors.New("no TTY available for prompting")
 

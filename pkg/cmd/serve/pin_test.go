@@ -66,7 +66,7 @@ func TestPinEntries(t *testing.T) {
 	if !entries[2].ReadsLatest() || entries[0].ReadsLatest() {
 		t.Error("only Draft City should read its latest compute")
 	}
-	// solvent-streets-u45d: the snapshot list is read with the pin.
+	// The snapshot list is read with the pin.
 	if len(entries[1].Snapshots) != 2 || entries[1].Snapshots[0].ID != 3 || entries[3].Snapshots == nil {
 		t.Errorf("Snapshots = %v / %v, want each city's list as read at startup", entries[1].Snapshots, entries[3].Snapshots)
 	}
@@ -79,7 +79,7 @@ func TestPinEntries(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Stale City: snapshot v3 was created under other settings",
-		// solvent-streets-qo1y: the picker's Latest compute is empty.
+		// The picker's Latest compute is empty.
 		"Stale City has nothing computed under the current settings",
 		"Draft City has no snapshot; serving its latest compute (not snapshotted)",
 		"Run `pvmt snapshots create <name>` to publish it",
@@ -92,7 +92,7 @@ func TestPinEntries(t *testing.T) {
 	}
 }
 
-// TestPinEntries_StaleLatestWarns (solvent-streets-4300): a latest compute
+// TestPinEntries_StaleLatestWarns: a latest compute
 // whose boundary was ingested again since is drawn on the new boundary, so
 // serve says so at startup.
 func TestPinEntries_StaleLatestWarns(t *testing.T) {

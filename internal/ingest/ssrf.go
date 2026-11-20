@@ -17,7 +17,7 @@ import (
 // HTTP client touches it. The guard rejects loopback, link-local,
 // private (RFC1918), unspecified, and multicast addresses so a hostile
 // pvmt.toml cannot steer ingest at internal services
-// (localhost, 169.254.169.254, RFC1918 ranges) — solvent-streets-di49.
+// (localhost, 169.254.169.254, RFC1918 ranges).
 //
 // It is wired into arcgis.go (per city), and into the Overpass endpoint
 // ([overpass] url / PVMT_OVERPASS_URL), which the factory's
@@ -41,7 +41,6 @@ import (
 // ValidatePublicHTTPURL on every hop's req.URL (skipping the check only
 // when the request context carries the AllowPrivate opt-in, set by
 // ArcGISSource.Fetch and propagated by the stdlib across redirects).
-// solvent-streets-a2z8.1.
 
 // allowPrivateKey carries the AllowPrivate opt-in on a request context so
 // the client-level CheckRedirect can honor self-hosted/staging endpoints
@@ -75,7 +74,6 @@ func ValidatePublicHTTPURL(ctx context.Context, urlStr string) error {
 // link-local, private, unspecified, or multicast. Defense-in-depth
 // against a shared hostile pvmt.toml steering ingest at internal
 // services (localhost, 169.254.169.254, RFC1918 ranges) —
-// solvent-streets-di49.
 //
 // Resolution happens at call time, so DNS rebinding after this check
 // can still slip past in principle. The mitigation here is per-request

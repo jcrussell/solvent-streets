@@ -1,4 +1,4 @@
-// Financials -> Advanced options cost-tier table (solvent-streets-8ade): bad
+// Financials -> Advanced options cost-tier table: bad
 // input is caught inline, in display units, before it reaches the simulator,
 // and the table reads cleanly (rounded costs, 100 for the open top bound,
 // labelled inputs).
@@ -47,8 +47,7 @@ test('a negative cost is flagged inline and never reaches the simulator', async 
 });
 
 // Invalid tiers stop the forecast, so the headline figures above still show
-// the last valid run: they are dimmed until the inputs are fixed
-// (solvent-streets-ern4.36).
+// the last valid run: they are dimmed until the inputs are fixed.
 test('the forecast figures dim while the tier inputs are invalid', async () => {
   const { win, $, flush } = await ready();
   const ids = ['solvency-headline', 'headlines', 'cohort-section', 'charts'];

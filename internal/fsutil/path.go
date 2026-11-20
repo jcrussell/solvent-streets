@@ -10,7 +10,7 @@ import (
 
 // SafePath resolves input relative to base, follows symlinks on its
 // existing prefix, and rejects paths that escape base — the strict
-// containment check from byob-input-validation.1. Use this whenever a
+// containment check. Use this whenever a
 // user-controlled path must land inside a trusted root (archive entries,
 // template includes, files served under a doc root).
 //
@@ -50,8 +50,8 @@ func SafePath(base, input string) (string, error) {
 
 // ResolveOutputDir abs-resolves the user-supplied outputDir, follows
 // symlinks on its existing prefix, and rejects sensitive locations
-// (filesystem root and the user's home directory). Mirrors
-// byob-input-validation.1 for the CLI output-dir case where the user
+// (filesystem root and the user's home directory). Mirrors the containment
+// check for the CLI output-dir case where the user
 // legitimately may name absolute targets outside the cwd.
 func ResolveOutputDir(outputDir string) (string, error) {
 	if outputDir == "" {

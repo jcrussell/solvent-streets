@@ -38,7 +38,7 @@ func drawnOrder(t *testing.T, entry CityEntry) []string {
 	return d.order
 }
 
-// TestHexMetrics_CoverExactlyTheDrawnHexes pins solvent-streets-ern4.33: a
+// TestHexMetrics_CoverExactlyTheDrawnHexes: a
 // stored metric row whose hex hexgrid.geojson does not draw — an edge sliver
 // under min_hex_area, or an id outside the clipped grid such as interior
 // water — is in neither hex-metrics.json nor meta.json's summary. The panel

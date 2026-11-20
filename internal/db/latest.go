@@ -104,7 +104,7 @@ func freezeCity(ctx context.Context, tx *sql.Tx, snapshotID int64, req SnapshotR
 	// Nothing computed is reported as such before check runs: the check
 	// refuses an empty compute too, but would describe each ingested
 	// resource as never computed, hiding that the city was computed under
-	// other settings (solvent-streets-vx0s).
+	// other settings.
 	if len(parts) == 0 {
 		return ErrNothingComputed, nil
 	}

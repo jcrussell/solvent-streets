@@ -105,7 +105,7 @@ func (t *CachingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 		// A response remembered as over the size cap is not asked for
 		// again: the caller (fetchSplitting) splits it into requests that
 		// are cached, so re-sending this one would only re-download a body
-		// to throw away (solvent-streets-vds3).
+		// to throw away.
 		// A marker from a build with a smaller cap says nothing about
 		// whether the response fits this one, so it is ignored.
 		if m, ok := readTooLarge(markerPath); ok && time.Since(m.Timestamp) < t.TTL && m.LimitBytes >= httpio.MaxResponseBodyBytes {
@@ -197,8 +197,7 @@ func firstHeaderValue(h map[string][]string, key string) string {
 // A cache entry is two files named after its key: <key>.json.gz holds the
 // gzip-compressed response body and <key>.meta its metadata. The key is a
 // sha256 in hex. Bodies are compressed because upstream JSON shrinks about
-// sixfold and a large city's responses run to hundreds of MB uncompressed
-// (solvent-streets-lv3r).
+// sixfold and a large city's responses run to hundreds of MB uncompressed.
 //
 // legacyBodyExt is the uncompressed <key>.json body written before v0.5.0.
 // The transport never reads one (that key is a miss and is re-fetched into
@@ -390,7 +389,7 @@ func (t *CachingTransport) writeCache(metaPath, bodyPath string, resp *http.Resp
 	// timestamp, new validators) with the OLD body and serve it as a
 	// fresh hit forever. Committing meta only after a successful body
 	// write means a body failure leaves the previous (consistent) pair
-	// intact and the entry simply re-fetches. (solvent-streets-2a7n.24)
+	// intact and the entry simply re-fetches.
 	compressed, err := gzipBody(body)
 	if err != nil {
 		return

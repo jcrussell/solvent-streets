@@ -119,8 +119,7 @@ func TestPrune_AgeRemovesStaleEntriesOnly(t *testing.T) {
 	}
 }
 
-// TestPrune_CancelledSweepStopsAndReportsIt pins solvent-streets-q48z.22.
-//
+// TestPrune_CancelledSweepStopsAndReportsIt:
 // Prune took no context, so `pvmt cache prune --yes` observed cancellation
 // nowhere. Worse than a slow Ctrl-C: signal.NotifyContext keeps the default
 // SIGINT disposition disabled for the whole run, so NO interrupt terminated
@@ -255,7 +254,7 @@ func TestPrune_CancelledSweepAccountsForUnsweptTemps(t *testing.T) {
 	}
 }
 
-// TestPrune_CancelledScanCreditsScannedEntries pins solvent-streets-8hi1: a
+// TestPrune_CancelledScanCreditsScannedEntries: a
 // cancel that lands in the SCAN (stat-ing a large cache dir) used to discard
 // every entry grouped so far, so runPrune printed "0 B remaining" for a cache
 // still entirely on disk. The files already scanned must be credited.
@@ -779,8 +778,8 @@ func TestParseSize(t *testing.T) {
 	}
 }
 
-// TestPrune_SweepsLegacyUncompressedBodies pins the upgrade half of
-// solvent-streets-lv3r: a pre-v0.5.0 <key>.json body is never read again, so
+// TestPrune_SweepsLegacyUncompressedBodies pins the upgrade half:
+// A pre-v0.5.0 <key>.json body is never read again, so
 // prune reclaims it (past the in-flight grace window) instead of skipping it
 // as a file it does not recognize, and leaves the gzip entry beside it alone.
 func TestPrune_SweepsLegacyUncompressedBodies(t *testing.T) {
@@ -807,7 +806,7 @@ func TestPrune_SweepsLegacyUncompressedBodies(t *testing.T) {
 	}
 }
 
-// TestPrune_TooLargeMarkerIsAnEntry (solvent-streets-vds3): a `<key>.toolarge`
+// TestPrune_TooLargeMarkerIsAnEntry: a `<key>.toolarge`
 // marker stands alone as a complete entry: never swept as an orphan, counted
 // by a dry run, and aged out like any other entry.
 func TestPrune_TooLargeMarkerIsAnEntry(t *testing.T) {

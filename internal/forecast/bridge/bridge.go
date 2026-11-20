@@ -54,14 +54,13 @@ type Input struct {
 	// scenario: the worst-first hold-steady (break-even) budget, and the
 	// insolvency year of the scenario as run. The Financials page anchors its
 	// budget slider and recomputes its headline with them, so they follow the
-	// live Initial PCI, cost multiplier and tiers (solvent-streets-i68t,
-	// solvent-streets-a6ci). Off by default: a bisection costs ~30 simulations.
+	// live Initial PCI, cost multiplier and tiers. Off by default: a bisection costs ~30 simulations.
 	Solvency bool `json:"solvency,omitempty"`
 	// Scenarios asks for the reference set (forecast.ReferenceScenarios: the
 	// do-nothing baseline and the default funding levels) over these cohorts.
 	// The Financials charts draw it when the reader maintains only part of the
-	// network, which scenarios.json (every resource) cannot answer
-	// (solvent-streets-ma98). Off by default: it costs four simulations.
+	// network, which scenarios.json (every resource) cannot answer.
+	// Off by default: it costs four simulations.
 	Scenarios bool `json:"scenarios,omitempty"`
 }
 

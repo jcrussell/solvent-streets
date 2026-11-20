@@ -14,7 +14,7 @@ import (
 
 var timeoutRe = regexp.MustCompile(`\[timeout:(\d+)\]`)
 
-// TestOverpassQueriesFitTheHeaderDeadline pins solvent-streets-e7h3: every
+// TestOverpassQueriesFitTheHeaderDeadline: every
 // Overpass query asks for exactly resource.OverpassTimeoutS of server time,
 // and the client waits longer than that for headers, so a slow query is never
 // cut off and retried.

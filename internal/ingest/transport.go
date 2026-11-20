@@ -1,4 +1,4 @@
-// Package ingest's transport layer implements the byob-http-client.1
+// Package ingest's transport layer implements the HTTP client
 // contract: pavement-data ingest reaches the network via composed
 // http.RoundTripper middlewares over http.DefaultTransport — not
 // hashicorp/go-retryablehttp, go-resty/resty, or any other opaque wrapper.
@@ -43,7 +43,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/build"
 )
 
-// NewTransport wires the byob-http-client.1 canonical middleware chain over
+// NewTransport wires the canonical middleware chain over
 // inner. Pass http.DefaultTransport (or a test stand-in) as inner.
 //
 //	UserAgent → Retry(DefaultRetryConfig) → inner
@@ -55,8 +55,7 @@ func NewTransport(inner http.RoundTripper) http.RoundTripper {
 	return UserAgentTransport(RetryTransport(inner, DefaultRetryConfig()))
 }
 
-// UserAgent returns the outbound User-Agent string in the format prescribed
-// by byob-http-client.5:
+// UserAgent returns the outbound User-Agent string in this format:
 //
 //	pvmt/<version> (<goos>; <goarch>)[ commit=<short>]
 //
@@ -90,7 +89,7 @@ type userAgentTransport struct {
 }
 
 // UserAgentTransport wraps a RoundTripper so every outbound request carries
-// the byob-http-client.5 User-Agent header. The inbound request is cloned
+// the pvmt User-Agent header. The inbound request is cloned
 // before mutation so callers' http.Request values are never modified.
 func UserAgentTransport(wrapped http.RoundTripper) http.RoundTripper {
 	return &userAgentTransport{wrapped: wrapped}
@@ -142,7 +141,7 @@ type retryNotifierKey struct{}
 
 // WithRetryNotifier returns a context whose requests report each retry the
 // transport waits for to notify, so a long ingest can say it is waiting
-// rather than look hung (solvent-streets-t3wt).
+// rather than look hung.
 func WithRetryNotifier(ctx context.Context, notify func(RetryNotice)) context.Context {
 	return context.WithValue(ctx, retryNotifierKey{}, notify)
 }
@@ -167,7 +166,7 @@ func retryReason(resp *http.Response, err error) string {
 type allowRetryKey struct{}
 
 // AllowRetry returns a context that opts non-idempotent requests (POST /
-// PATCH) into the retry transport's backoff loop per byob-http-client.3.
+// PATCH) into the retry transport's backoff loop.
 // GET / HEAD / PUT / DELETE / OPTIONS are retried by default — the
 // RFC 9110 idempotent set — and do not need the marker.
 //
@@ -202,7 +201,7 @@ func methodIsIdempotent(m string) bool {
 }
 
 // requestRetryable returns whether the request itself is eligible for
-// retry per byob-http-client.3. Two gates: (1) the method is idempotent
+// retry. Two gates: (1) the method is idempotent
 // or the caller opted in via AllowRetry, and (2) the body can be
 // replayed — nil body or a non-nil GetBody. A streaming body with no
 // GetBody is silently downgraded to a single attempt, since the stdlib
@@ -223,7 +222,7 @@ func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 
 	for attempt := 0; attempt <= t.cfg.MaxRetries; attempt++ {
 		// Clone per attempt so the caller's *http.Request is never mutated
-		// (byob-http-client.1) and so a retry's body-rewind only touches the
+		// and so a retry's body-rewind only touches the
 		// per-attempt copy.
 		attemptReq := rewoundClone(req, attempt)
 
@@ -260,7 +259,7 @@ func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 
 // rewoundClone clones req for an attempt; on retries (attempt > 0) it also
 // rewinds the body via req.GetBody so the inner transport sees a fresh
-// reader. The clone keeps the byob-http-client.1 promise that the caller's
+// reader. The clone keeps the promise that the caller's
 // *http.Request is never mutated.
 func rewoundClone(req *http.Request, attempt int) *http.Request {
 	clone := req.Clone(req.Context())
@@ -281,7 +280,7 @@ func closeBody(resp *http.Response) {
 
 // sleepCtx waits for d to elapse or ctx to be cancelled, whichever happens
 // first. Returns ctx.Err() on cancellation, nil otherwise. This is how
-// byob-http-client.1 middlewares honour the "propagate ctx.Err() from the
+// the middlewares honour the "propagate ctx.Err() from the
 // inner transport" contract during their own waits.
 func sleepCtx(ctx context.Context, d time.Duration) error {
 	if d <= 0 {
@@ -297,8 +296,8 @@ func sleepCtx(ctx context.Context, d time.Duration) error {
 	}
 }
 
-// shouldRetry classifies a response or transport error per
-// byob-http-client.3. Status allowlist: 408, 429, 500, 502, 503, 504 —
+// shouldRetry classifies a response or transport error:
+// Status allowlist: 408, 429, 500, 502, 503, 504 —
 // chosen because each is either a documented transient condition (server
 // overload, rate limit, request timeout) or a hop in front of one
 // (502/504 from a load balancer). 501 (Not Implemented), 505 (HTTP
@@ -336,7 +335,7 @@ func shouldRetry(resp *http.Response, err error) bool {
 // It is for failures whose cause a retry cannot change, such as Overpass
 // holding its response headers past the query's own server-side timeout:
 // the server is not slow then but gone, and each retry would wait out the
-// full header deadline again (solvent-streets-lrnw).
+// full header deadline again.
 func NoRetry(err error) error {
 	if err == nil {
 		return nil
@@ -382,8 +381,8 @@ func isRetryableErr(err error) bool {
 	return false
 }
 
-// backoffWait computes the wait before the next attempt per
-// byob-http-client.3: bounded exponential backoff with full jitter.
+// backoffWait computes the wait before the next attempt:
+// Bounded exponential backoff with full jitter.
 // wait ∈ [0, min(base * 2^attempt, MaxBackoff)). Retry-After (if
 // honoured and larger) overrides the jittered value but is still capped
 // by MaxBackoff so a hostile server cannot pin the client.

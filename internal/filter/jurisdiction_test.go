@@ -52,7 +52,7 @@ func TestClassifyJurisdiction(t *testing.T) {
 		{"trunk link", map[string]string{"highway": "trunk_link"}, JurisdictionState},
 		{"county operator", map[string]string{"operator": "Alameda County", "highway": "secondary"}, JurisdictionCounty},
 		{"county network", map[string]string{"network": "Alameda county roads"}, JurisdictionCounty},
-		// highway=secondary is importance, not ownership (solvent-streets-0mre):
+		// highway=secondary is importance, not ownership:
 		// Livermore's First Street, East Avenue, Airway Boulevard ... carry no
 		// ref or operator and are city arterials. Its real county roads carry
 		// a county ref.
@@ -121,7 +121,7 @@ func TestClassifyJurisdiction(t *testing.T) {
 		{"texas business state", map[string]string{"ref": "BS 6"}, JurisdictionState},
 		{"minnesota trunk highway", map[string]string{"ref": "TH 5"}, JurisdictionState},
 
-		// solvent-streets-akvx. The three cases below were previously pinned to
+		// The three cases below were previously pinned to
 		// State as the status quo, pending "a federal-ref rule" that
 		// federalRefRe now carries. Refs are the real ones from the ingested
 		// corpus: NF 61 is Angeles NF (Los Angeles / Glendale / La Cañada
@@ -148,7 +148,7 @@ func TestClassifyJurisdiction(t *testing.T) {
 		{"clark county beltway as motorway stays federal", map[string]string{"ref": "CC 215", "highway": "motorway"}, JurisdictionFederal},
 		{"township road", map[string]string{"ref": "TR 40"}, JurisdictionCounty},
 
-		// solvent-streets-qwfo: every rule in this file used to be anchored on
+		// Every rule in this file used to be anchored on
 		// a DIGIT right after the separator, so route designators that put a
 		// LETTER there, or spell the route type as a word, matched nothing and
 		// fell all the way through to City. 12851 road-like features across 55
@@ -229,7 +229,7 @@ func TestClassifyJurisdiction(t *testing.T) {
 		{"street named CO ROUTED is not a county route", map[string]string{"ref": "CO ROUTED", "highway": "residential"}, JurisdictionCity},
 		{"street named CO RDS is not a county route", map[string]string{"ref": "CO RDS", "highway": "residential"}, JurisdictionCity},
 
-		// solvent-streets-fu74: the spelled-out forms, pinned to their BUCKET
+		// The spelled-out forms, pinned to their BUCKET
 		// and not merely to "not City" -- TestRefPrefixesNeverFallToCity would
 		// still pass if a state form were routed to County.
 		//
@@ -281,7 +281,7 @@ func TestClassifyJurisdiction(t *testing.T) {
 		{"texas private road stays state", map[string]string{"ref": "PR 1836"}, JurisdictionState},
 		{"unidentified OS prefix stays state", map[string]string{"ref": "OS 15"}, JurisdictionState},
 
-		// solvent-streets-m0qa. statePostalRefRe required TWO letters, so the
+		// statePostalRefRe required TWO letters, so the
 		// route conventions that number with a SINGLE one matched nothing and
 		// fell all the way through to City -- 1648 features billing state
 		// highway to the city. Every ref below is a real corpus ref, at the
@@ -359,7 +359,7 @@ func TestIsStateRefDenyList(t *testing.T) {
 		{"US 50", false}, // federal (also caught earlier by federalRefRe)
 		{"IH 35", false}, // federal interstate (also caught by federalRefRe)
 		{"BR 1", false},  // business route
-		// solvent-streets-fu74: Part 2 widens stateExplicitRefRe, which
+		// Part 2 widens stateExplicitRefRe, which
 		// isStateRef consults first, so this is that change's direct pin.
 		// Refs are uppercased by ClassifyJurisdiction before they reach
 		// isStateRef, so this table -- like every entry above -- passes the
@@ -374,11 +374,11 @@ func TestIsStateRefDenyList(t *testing.T) {
 		// Federal spellings must NOT come back true here: federalWordRefRe
 		// claims them one rung earlier in the ladder, and a true from
 		// isStateRef would mean the ladder's order is the only thing keeping
-		// them Federal -- the fragility solvent-streets-044u warns about.
+		// them Federal -- a fragile ordering.
 		{"US HIGHWAY 12", false},
 		{"INTERSTATE 90", false},
 		{"U.S. 40", false},
-		// solvent-streets-m0qa: single-letter and lettered designators.
+		// Single-letter and lettered designators.
 		{"M 1", true},   // Michigan, MDOT
 		{"K-32", true},  // Kansas
 		{"MO W", true},  // MoDOT supplemental route
@@ -485,7 +485,7 @@ func TestFederalAndStateOperator(t *testing.T) {
 		{"department of transportation and development", false, true},
 		{"the state department of transportation", false, true},
 		// City agencies using the "<X> Department of Transportation" word
-		// order -- solvent-streets-niak. None contain "city"/"municipal", so
+		// order. None contain "city"/"municipal", so
 		// only the state-name anchoring keeps them out of the State bucket.
 		{"columbus department of transportation", false, false},
 		{"district department of transportation", false, false},
@@ -510,7 +510,7 @@ func TestFederalAndStateOperator(t *testing.T) {
 		{"los angeles county transportation department", false, false},
 		{"city of reno transportation department", false, false},
 		{"", false, false},
-		// solvent-streets-q48z.2: state DOTs named by ABBREVIATION or by a
+		// State DOTs named by ABBREVIATION or by a
 		// territory. Anchoring the qualifier on the 52 spelled-out state
 		// names alone dropped all of these into City.
 		{"nys department of transportation", false, true},
@@ -545,8 +545,7 @@ func TestFederalAndStateOperator(t *testing.T) {
 		// A state CODE at the end of a qualifier is how a CITY is
 		// disambiguated, not how a state agency is named. A suffix test would
 		// read all three as state agencies and move municipal lane area out of
-		// the City cohort -- solvent-streets-niak's direction, one
-		// abbreviation at a time. isStateQualifier requires the abbreviation
+		// the City cohort, one abbreviation at a time. isStateQualifier requires the abbreviation
 		// to be the WHOLE qualifier for exactly this reason.
 		{"charlotte nc department of transportation", false, false},
 		{"boston ma department of transportation", false, false},
@@ -627,8 +626,8 @@ func TestSummary(t *testing.T) {
 	}
 }
 
-// TestRefPrefixesNeverFallToCity is the load-bearing guard for
-// solvent-streets-akvx. ClassifyJurisdiction is consumed as a binary
+// TestRefPrefixesNeverFallToCity is the load-bearing guard:
+// ClassifyJurisdiction is consumed as a binary
 // City / not-City gate everywhere it feeds an output, so reclassifying a ref
 // among County/State/Federal cannot move a published number — but routing one
 // to City moves lane area into the city cohort and inflates AnnualNeed and
@@ -645,7 +644,7 @@ func TestRefPrefixesNeverFallToCity(t *testing.T) {
 		"I 80", "I-80", "IH 35", "US 101", "NF 61", "FR 2N72", "FS 370",
 		// County
 		"CR 12", "CH 93", "CC 215", "TR 40",
-		// County, lettered and spelled forms (solvent-streets-qwfo). These
+		// County, lettered and spelled forms. These
 		// are the 9480 features that used to fall through to City.
 		"CR S21", "CR N8", "CR G8", "CR-S6", "CTH PP", "CTH E",
 		"County Highway S21", "County Road 12",
@@ -653,7 +652,7 @@ func TestRefPrefixesNeverFallToCity(t *testing.T) {
 		// State: postal-code routes, the explicit SR/SH forms, and the
 		// non-postal prefixes deliberately left as State.
 		"CA 84", "SR 84", "OR-99E", "BW 8", "PR 1836", "OS 15",
-		// State, spelled and lettered forms (solvent-streets-qwfo). "Loop 12"
+		// State, spelled and lettered forms. "Loop 12"
 		// and "Spur 303" are the written-out twins of the SL/SS entries below,
 		// which were already State; "SR A1A" is the lettered twin of "SR 84".
 		"Loop 12", "Spur 303", "SR A1A",
@@ -663,12 +662,12 @@ func TestRefPrefixesNeverFallToCity(t *testing.T) {
 		// isStateRef and land in City, which is exactly what statePostalDeny's
 		// comment warns against.
 		"FM 1960", "RM 620", "SL 8", "SS 6", "BU 59", "BS 6", "TH 5",
-		// Single-letter and lettered-designator conventions
-		// (solvent-streets-m0qa). These are the 1729 features that used to
+		// Single-letter and lettered-designator conventions.
+		// These are the 1729 features that used to
 		// fall through to City; C-138 is County and the rest State, but the
 		// invariant this test pins is only that none of them is City.
 		"M 1", "N-64", "K-32", "L-28K", "S-29-64", "C-138", "MO W",
-		// The fully spelled-out forms (solvent-streets-fu74). Every one of
+		// The fully spelled-out forms. Every one of
 		// these measured ZERO in the 8.7M-feature corpus except "State Hwy
 		// 391" (3) and "US Route 1/9 Southbound" (1), so they are carried on
 		// domain knowledge the way the CO RD family is -- which makes this
@@ -688,7 +687,7 @@ func TestRefPrefixesNeverFallToCity(t *testing.T) {
 	}
 }
 
-// TestMunicipalTransportationDepartments pins solvent-streets-niak end to end,
+// TestMunicipalTransportationDepartments pins municipal DOTs to City end to end,
 // through ClassifyJurisdiction rather than the operator predicates alone.
 //
 // The bug: isStateOperator tested for the bare substring "department of
@@ -700,8 +699,7 @@ func TestRefPrefixesNeverFallToCity(t *testing.T) {
 // applied to one order only.
 //
 // highway=secondary is covered too. ClassifyJurisdiction used to route a
-// secondary way to County unless isCityOperator claimed it (removed in
-// solvent-streets-0mre), and these rows keep a municipal DOT's secondaries in
+// secondary way to County unless isCityOperator claimed it, and these rows keep a municipal DOT's secondaries in
 // City whatever the County rules become.
 func TestMunicipalTransportationDepartments(t *testing.T) {
 	tests := []struct {
@@ -764,8 +762,8 @@ func TestMunicipalTransportationDepartments(t *testing.T) {
 	}
 }
 
-// TestAbbreviatedStateTransportationAgencies pins solvent-streets-q48z.2 end to
-// end, through ClassifyJurisdiction rather than the operator predicates alone.
+// TestAbbreviatedStateTransportationAgencies pins abbreviated state DOTs to
+// State end to end, through ClassifyJurisdiction rather than the operator predicates alone.
 //
 // The regression: anchoring the DOT qualifier on stateNameSuffixRe -- the 52
 // spelled-out state names -- meant a state DOT named by abbreviation or by a
@@ -867,8 +865,8 @@ func TestOperatorDisclaimingADOTIsNotState(t *testing.T) {
 	}
 }
 
-// TestHistoricRefsAreNotClaimedByFederalRules pins the boundary
-// solvent-streets-fu74's federal arm must NOT cross.
+// TestHistoricRefsAreNotClaimedByFederalRules pins the boundary the spelled
+// federal arm must NOT cross.
 //
 // 1469 features in the ingested corpus carry a ref starting "US HISTORIC 66".
 // They match neither federal regex -- HISTORIC diverges from HIGHWAY at the

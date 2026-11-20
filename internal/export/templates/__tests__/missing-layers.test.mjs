@@ -1,4 +1,4 @@
-// A layer that was never ingested is not a zero (solvent-streets-56r1).
+// A layer that was never ingested is not a zero.
 // meta.json's missing_resources names it; the stats panel says the data is
 // unavailable, Compare keeps the city out of rankings that need the layer
 // (and out of their awards), and the Infrastructure Index leaves it unranked.
@@ -95,7 +95,7 @@ test('a partial layer keeps its data and says which source failed', async () => 
   assert.match(roads[0].textContent, /Partial: no OpenStreetMap data/);
 });
 
-// solvent-streets-qo1y: serve's Latest compute view after a settings change
+// Serve's Latest compute view after a settings change
 // has nothing computed; its cards say that, not that nothing was ingested.
 test('an empty latest compute says not computed, not not ingested', async () => {
   const empty = { ...metaJSON, latest_compute: true, stats: [], missing_resources: ['roads', 'parking', 'sidewalks'] };
@@ -119,7 +119,7 @@ test('a missing layer whose ingest failed says so', async () => {
   assert.match(sidewalk[0].textContent, /the last ingest from OpenStreetMap failed/);
 });
 
-// solvent-streets-a3pn: a layer every source answered empty for is not
+// A layer every source answered empty for is not
 // un-ingested: OpenStreetMap maps none there (meta.json empty_resources).
 test('a missing layer no source has says none is mapped, not not ingested', async () => {
   const emptySidewalks = { ...noSidewalks, empty_resources: { sidewalks: ['overpass'] } };

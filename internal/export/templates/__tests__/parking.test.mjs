@@ -1,4 +1,4 @@
-// Estimated parking spaces (solvent-streets-l3gz) on the dashboard: the
+// Estimated parking spaces on the dashboard: the
 // stats panel shows the count for the parking card only, Compare's metric
 // extraction reads it (0 when absent, so the leaderboard filter drops the city
 // rather than ranking it at zero), and the spaces category renders without an

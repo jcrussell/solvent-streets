@@ -1,4 +1,4 @@
-// The Materials tab under the unit toggle (solvent-streets-ern4.35): every
+// The Materials tab under the unit toggle: every
 // figure, header and rate follows the toggle, whether the tab is open when it
 // flips or is opened afterwards, and a round trip lands back where it began.
 import { test } from 'node:test';

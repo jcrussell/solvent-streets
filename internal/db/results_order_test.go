@@ -11,8 +11,8 @@ import (
 // compare.json and multi-city aggregation rely on, against real SQLite:
 // rows come back sorted by (subject, class, metric) and hex rows by hex id,
 // whatever order they were written in, so two exports of one database are
-// identical (solvent-streets-1qv7). dbtest.MockStore sorts by itself, so only
-// a real-store test catches a dropped ORDER BY (solvent-streets-rcpy).
+// identical. dbtest.MockStore sorts by itself, so only
+// a real-store test catches a dropped ORDER BY.
 func TestListMetrics_OrderedWhateverTheWriteOrder(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)

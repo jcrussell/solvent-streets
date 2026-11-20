@@ -62,8 +62,8 @@ func ParseIndexTemplate() (*template.Template, error) {
 	return ParseIndexTemplateFS(templatesFS)
 }
 
-// ParseIndexTemplateFS is the fs.FS-parametrized form of ParseIndexTemplate
-// (byob-interfaces.3). Production callers use ParseIndexTemplate, which feeds
+// ParseIndexTemplateFS is the fs.FS-parametrized form of ParseIndexTemplate.
+// Production callers use ParseIndexTemplate, which feeds
 // the embedded templatesFS; tests can pass an fstest.MapFS with synthetic
 // template content to exercise the parse wiring without touching disk or the
 // embed.

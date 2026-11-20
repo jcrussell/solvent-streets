@@ -5,7 +5,7 @@ import (
 	"fmt"
 )
 
-// Stub is a scripted Prompter for tests (byob-prompter.4). Each method
+// Stub is a scripted Prompter for tests. Each method
 // pops the head of its per-method FIFO; running out panics so a missing
 // expectation surfaces immediately instead of returning the zero value
 // and silently passing the test.

@@ -1,7 +1,7 @@
 // Overlapping data loads: switching cities while the previous city's files are
 // still in flight must leave the NEWER city on screen. loadCityData and
 // loadFinancials each bump a generation counter and bail after every await if
-// a newer load has started (solvent-streets-yvlv.22). These specs used to be
+// a newer load has started. These specs used to be
 // Go greps of app.js for the counter tokens; they now make the race happen —
 // the outgoing city's response is held until after the incoming city's lands.
 import { test } from 'node:test';

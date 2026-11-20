@@ -25,8 +25,7 @@ import (
 )
 
 // TestSnapshots_LatestComputeSwapsOnlyItsPart drives real commands against a
-// real store through the latest-compute lifecycle (epics solvent-streets-25t6
-// and solvent-streets-we5i):
+// real store through the latest-compute lifecycle:
 //
 //  1. `all compute` commits ONE update of the latest compute holding every
 //     step's part, fire coverage included, and a census part only when there
@@ -167,7 +166,7 @@ func TestSnapshots_FrozenAfterReingestAndConfigEdit(t *testing.T) {
 
 // TestSnapshotsCreate_RefusesStale: after a roads re-ingest and a roads
 // compute alone, the combined pass is stale (it read the old roads), so
-// create refuses the city and names `all compute` (solvent-streets-wcuw); once
+// create refuses the city and names `all compute`; once
 // `all compute` has run, create succeeds.
 func TestSnapshotsCreate_RefusesStale(t *testing.T) {
 	ctx := context.Background()

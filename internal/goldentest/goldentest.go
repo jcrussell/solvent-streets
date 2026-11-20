@@ -2,8 +2,7 @@
 // without ever rewriting it. There is deliberately no -update flag: on a
 // mismatch the test fails with a diff, writes the actual output under the
 // repository's gitignored bin/ directory, and prints the `cp -f` that would
-// accept it, so a person reads the diff before the golden moves
-// (byob-testing.8).
+// accept it, so a person reads the diff before the golden moves.
 package goldentest
 
 import (

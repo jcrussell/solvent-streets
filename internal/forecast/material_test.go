@@ -135,8 +135,7 @@ func TestWithMaterials(t *testing.T) {
 // and banded its own way (Los Angeles County's Good/Fair/Poor/Failed) gets
 // material demand that follows condition, so it varies across years and
 // scenarios. Matching by label sent every year of every scenario to the
-// heaviest tier: Agoura Hills at 53,655 t/yr instead of ~3,300
-// (solvent-streets-ern4.25).
+// heaviest tier: Agoura Hills at 53,655 t/yr instead of ~3,300.
 func TestWithMaterials_CustomCostTierLabels(t *testing.T) {
 	tiers := []CostTier{
 		{MinPCI: 0, MaxPCI: 25, CostPerSqM: 200, Label: "Failed"},

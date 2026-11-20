@@ -39,7 +39,7 @@ func TestCityInfoTagsJSONRoundTrip(t *testing.T) {
 
 // TestIndexConfigJSON_EmitsTags asserts the PVMT_CONFIG.cities payload — the
 // only input to app.js's client-side tag filter — carries each city's tags, and
-// omits the field for untagged cities (solvent-streets-8je6).
+// omits the field for untagged cities.
 func TestIndexConfigJSON_EmitsTags(t *testing.T) {
 	td := TemplateData{
 		Cities: []CityInfo{

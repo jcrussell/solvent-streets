@@ -8,7 +8,7 @@ import (
 	"unicode/utf8"
 )
 
-// TestIngestHistory_LatestSuccessAndFailure (solvent-streets-o831.1): the
+// TestIngestHistory_LatestSuccessAndFailure: the
 // history of each (input, source) names its newest attempt and its newest
 // success and failure, so a source that failed after succeeding reads as
 // failing while its last success is still known.

@@ -42,7 +42,7 @@ function headline(doc, label) {
 
 const dollars = (text) => parseFloat(text.replace(/[$,]/g, ''));
 
-// solvent-streets-lu32.19: the per-area need and the weighted PCI divide by
+// The per-area need and the weighted PCI divide by
 // the area the scope's dollars cover, as Compare's per-area figures do.
 test('Year-1 need per acre divides the city-scope need by the city-maintained area', async () => {
   // A city that maintains a tenth of the pavement inside its boundary: the
@@ -69,7 +69,7 @@ test('under ?scope=all the per-acre need divides by the all-jurisdiction area', 
   assert.equal(dollars(headline(doc, /^Year-1 Need per acre$/)), Math.round(want));
 });
 
-// solvent-streets-ern4.33: a per-area figure divides the forecast's dollars
+// A per-area figure divides the forecast's dollars
 // by the area they price, the maintained area (roads + parking + sidewalks
 // summed, as meta.stats and the Maintained Area card add them), never by the
 // paved footprint (meta.total_paved, the union).
@@ -104,7 +104,7 @@ test('Area-Weighted PCI weights each city by the area its PCI describes', async 
   assert.equal(headline(doc, /^Area-Weighted PCI$/), want.toFixed(0));
 });
 
-// solvent-streets-lu32.26: the resource colours are the page config's
+// The resource colours are the page config's
 // (PVMT_CONFIG.layer_colors, which also colours the map toggles), so the
 // Aggregate mix chart and Compare's stacked area chart cannot drift from them.
 test('the resource charts take their colours from the page config', async () => {
@@ -128,7 +128,7 @@ test('the resource charts take their colours from the page config', async () => 
   assert.deepEqual(Array.from(stacked.data.datasets, (d) => d.backgroundColor),['#010101', '#020202', '#030303']);
 });
 
-// solvent-streets-mea7: the two area figures carry one name each across the
+// The two area figures carry one name each across the
 // tabs, a per-area ranking shows its denominator, and the Year-1 need is not
 // called the hold-steady budget.
 test('area labels name the maintained area and the per-area denominator', async () => {

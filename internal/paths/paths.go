@@ -1,12 +1,12 @@
 // Package paths resolves the per-OS user-scoped directories that pvmt
 // reads and writes outside the project tree: Config, Cache, State, Data.
-// Resolution follows byob-runtime-directories.1's "four-directory model":
+// Resolution follows a four-directory model:
 // stdlib UserConfigDir/UserCacheDir, plus hand-rolled State and Data
 // resolvers because Go's stdlib does not expose them.
 //
 // First-use mkdir is intentionally NOT done in Resolve so that --version
 // and --help pay no filesystem cost. Callers that are about to write call
-// EnsureDir(p) first (byob-runtime-directories.2).
+// EnsureDir(p) first.
 package paths
 
 import (
@@ -110,7 +110,7 @@ func (p *Paths) HTTPCacheDir() string { return filepath.Join(p.Cache, "http") }
 // fallback to ignore a relative value into: Windows, where os.UserCacheDir
 // returns %LocalAppData% verbatim and errors only when that variable is empty,
 // and $HOME, which os.UserHomeDir returns verbatim on Unix under the same
-// rule (solvent-streets-fepb). A relative value would otherwise flow through
+// rule. A relative value would otherwise flow through
 // untouched. It takes the stdlib resolver itself so it can wrap one directly,
 // and from, the variable the resolver reads, so the error names what to fix.
 func requireAbs(from string, resolve func() (string, error)) (string, error) {

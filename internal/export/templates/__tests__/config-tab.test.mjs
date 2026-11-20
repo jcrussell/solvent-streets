@@ -1,4 +1,4 @@
-// The Config tab of a multi-city page (solvent-streets-ern4.36): it shows the
+// The Config tab of a multi-city page: it shows the
 // settings of the city in view, from that city's meta.json settings_toml, and
 // follows the city select, instead of dumping the whole combined config
 // (hundreds of kilobytes) for every city.

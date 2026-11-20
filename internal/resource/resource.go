@@ -53,7 +53,7 @@ const (
 // and ingest's boundary-relation and water queries. Overpass holds
 // the response headers until the query finishes, so the client's header
 // deadline for Overpass (ingest.OverpassHeaderTimeout) is derived from it and
-// must stay above it (solvent-streets-e7h3).
+// must stay above it.
 const OverpassTimeoutS = 120
 
 // scopeSep is the separator between bare Type and Scope suffix.

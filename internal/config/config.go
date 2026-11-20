@@ -36,14 +36,12 @@ const (
 	// example uses is 60 m (greater-boston-ma's Cambridge/Somerville), so the
 	// floor cannot reject a legitimate config, while capping a large city near
 	// ~1.5e6 cells -- slow but survivable.
-	// solvent-streets-rbv7.
 	MinHexEdgeM       = 10.0
 	DefaultInitialPCI = 85.0
 	// DefaultForecastYears is the forecast horizon when forecast.years is
 	// unset. One config has one horizon: forecast.years is top-level only, and
 	// [[include]]d files must agree with the file that includes them, so
-	// cities compared side by side are always forecast over the same years
-	// (solvent-streets-zkf2).
+	// cities compared side by side are always forecast over the same years.
 	DefaultForecastYears = 30
 	// DefaultMinHexArea is the minimum projected hex area (in square
 	// meters) below which a clipped boundary sliver is dropped from the
@@ -436,7 +434,7 @@ type CityConfig struct {
 	Facilities []FacilityConfig `toml:"facilities,omitempty"`
 
 	// AllowPrivateArcGIS opts this city's ArcGISURL out of the
-	// loopback / link-local / private-IP defense (solvent-streets-di49).
+	// loopback / link-local / private-IP defense.
 	// Required only for staging or self-hosted ArcGIS endpoints on
 	// internal networks; public ArcGIS endpoints work without it.
 	AllowPrivateArcGIS bool `toml:"allow_private_arcgis"`
@@ -477,7 +475,7 @@ type CityConfig struct {
 	// sourceServices is the [[services]] list of the config that declared this
 	// city, stamped with SourceConfigID. [[services]] are a top-level table,
 	// so the [[include]] merge would otherwise drop an included file's list
-	// and run its cities under the including file's (solvent-streets-qtue).
+	// and run its cities under the including file's.
 	// ResolvedServices reads it.
 	sourceServices []ServiceOverride
 }
@@ -727,7 +725,7 @@ func Load(path string) (*Config, error) {
 // parseConfig decodes and validates TOML bytes into a Config. Shared
 // between Load and LoadFS.
 //
-// Unknown TOML keys are rejected per byob-input-validation.2: a typo
+// Unknown TOML keys are rejected: a typo
 // in a key name would otherwise unmarshal as the zero value and
 // silently produce a degenerate config. Using toml.Decode lets us
 // inspect MetaData.Undecoded() to surface the typo at load time

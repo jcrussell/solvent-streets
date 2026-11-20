@@ -9,7 +9,7 @@ import (
 
 // Compile-time guards: constructors must return the `error` interface, not
 // *ErrHint, or a nil err comes back as a non-nil interface holding a typed
-// nil (byob-errors.5).
+// nil.
 var (
 	_ func(error, string) error         = With
 	_ func(error, string, ...any) error = Withf

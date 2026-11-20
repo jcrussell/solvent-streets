@@ -101,7 +101,7 @@ func TestForEachCity(t *testing.T) {
 	t.Run("all_cities_empty_returns_err_no_results", func(t *testing.T) {
 		// When EVERY city yields ErrNoResults, the multi-city path must return
 		// ErrNoResults (exit 3), matching the single-city path — not silently
-		// exit 0 (solvent-streets-9zc2).
+		// exit 0.
 		f, _ := newFactory([]config.CityConfig{cityA, cityB}, false, nil)
 
 		err := cmdutil.ForEachCity(context.Background(), f, func(_ *cmdutil.Factory, _ *config.CityConfig) error {
@@ -259,8 +259,7 @@ func TestCityOverride_AmbiguousMatch(t *testing.T) {
 // TestResolveConfigID pins the contract that the helper returns
 // cfg.ConfigID, not cfg.SourcePath. This is load-bearing because every
 // `pvmt all|status|snapshots` subcommand uses ResolveConfigID to key
-// the cities table; before solvent-streets-kevc's redesign the helper
-// returned SourcePath, which leaked $HOME paths into the DB and broke
+// the cities table; keying on SourcePath would leak $HOME paths into the DB and broke
 // gensite/pvmt-all collation. A regression to SourcePath would
 // reintroduce the kevc symptom without breaking any other test.
 func TestResolveConfigID(t *testing.T) {
@@ -345,8 +344,7 @@ func TestForEachCity_StopsEarly(t *testing.T) {
 	t.Run("city_returning_cancel_stops_remaining_cities", func(t *testing.T) {
 		// A ctrl+c inside a TUI step never cancels ctx (raw mode swallows
 		// SIGINT); the step just returns an error wrapping context.Canceled.
-		// That must stop the run, not move on to the next city
-		// (solvent-streets-ern4.6).
+		// That must stop the run, not move on to the next city.
 		f, _ := newCitiesFactory([]config.CityConfig{cityA, cityB, cityC}, false, nil)
 		interrupted := fmt.Errorf("interrupted: %w", context.Canceled)
 
@@ -366,7 +364,7 @@ func TestForEachCity_StopsEarly(t *testing.T) {
 	t.Run("database_open_failure_reported_once", func(t *testing.T) {
 		// The database is shared by every city, so failing to open it (here,
 		// one from an older pvmt) must fail the run once, hint intact, not once
-		// per city (solvent-streets-ern4.8).
+		// per city.
 		f, errOut := newCitiesFactory([]config.CityConfig{cityA, cityB, cityC}, false, nil)
 		openErr := hint.With(fmt.Errorf("open: %w", db.ErrIncompatibleDatabase), "move the old database aside")
 		f.RootDB = func() (*db.RootStore, error) { return nil, openErr }
@@ -438,7 +436,7 @@ func TestForEachCityRows(t *testing.T) {
 	}
 }
 
-// TestForEachCityRows_PartialFailureStillWritesRows pins solvent-streets-n5fx:
+// TestForEachCityRows_PartialFailureStillWritesRows:
 // when one city fails, the rows of the cities that succeeded are still
 // written, and the failure is still returned so the run exits non-zero.
 func TestForEachCityRows_PartialFailureStillWritesRows(t *testing.T) {
@@ -456,8 +454,7 @@ func TestForEachCityRows_PartialFailureStillWritesRows(t *testing.T) {
 			return err
 		}
 		// Every city records its row first; Beta then fails, as a
-		// compute whose commit fails after its row is recorded does
-		// (solvent-streets-af52).
+		// compute whose commit fails after its row is recorded does.
 		*rows = append(*rows, cityRow{city: city.Name})
 		if city.Name == "Beta" {
 			return boom

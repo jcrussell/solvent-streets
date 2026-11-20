@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// TestColorScheme_DisabledIsIdentity pins the core contract of byob-iostreams.2:
+// TestColorScheme_DisabledIsIdentity pins the core ColorScheme contract:
 // when colors are off, every method returns its input verbatim — no ANSI
 // escapes, no length change. Call sites can therefore wrap output in
 // cs.Red(...) etc. without guarding on IsColorEnabled.

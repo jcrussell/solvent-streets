@@ -1,4 +1,4 @@
-// The city <select> has one shape (solvent-streets-lu32.32): the city_select
+// The city <select> has one shape: the city_select
 // partial renders it on both pages, and selectors.js rebuildCitySelect
 // rebuilds the same markup when a tag filter changes. These specs read the
 // server-rendered pages before any script runs and compare them, attribute for

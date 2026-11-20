@@ -759,7 +759,7 @@ func playIdle(g *Game) int {
 	return 0
 }
 
-// TestIdlePlayerGoesInsolvent pins solvent-streets-1b8d: an idle player used
+// TestIdlePlayerGoesInsolvent: an idle player used
 // to win "You stayed solvent!" while the start screen predicted insolvency,
 // because the loss ceiling was the cost of rebuilding the whole network.
 // Insolvency is now the forecast's definition: a full treatment cycle of
@@ -779,7 +779,7 @@ func TestIdlePlayerGoesInsolvent(t *testing.T) {
 	}
 }
 
-// TestLossReason pins solvent-streets-ern4.30: a lost game names the
+// TestLossReason: a lost game names the
 // condition that ended it, so the banner can tell an idle player with a full
 // treasury that the money went unspent rather than that decay outran it.
 func TestLossReason(t *testing.T) {
@@ -849,8 +849,8 @@ func TestLossReason(t *testing.T) {
 
 // TestLiveInsolvencyMatchesProjection: at a $0 budget the pregame projection
 // and the live game, played idle at the frame-sized ticks the browser uses,
-// report insolvency in the same year, for slow and fast decay alike
-// (solvent-streets-rcpy). Whole-year ticks price each year's need at its
+// report insolvency in the same year, for slow and fast decay alike.
+// Whole-year ticks price each year's need at its
 // end-of-year condition only and can land a year early, which an earlier
 // +-1 tolerance hid; the browser never ticks that coarsely.
 func TestLiveInsolvencyMatchesProjection(t *testing.T) {

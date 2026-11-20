@@ -65,8 +65,8 @@ func TestKeepSourcesFor(t *testing.T) {
 		// the unambiguous case gc advertises, and it stays sweepable.
 		{"overpass flag on", config.CityConfig{Overpass: true}, false, []string{"overpass"}},
 		{"overpass+arcgis", config.CityConfig{Overpass: true, ArcGISURL: "https://x"}, false, []string{"overpass", "arcgis"}},
-		// overpass=false + an ArcGIS URL KEEPS overpass by default
-		// (solvent-streets-dnun). `overpass` defaults to false and older
+		// overpass=false + an ArcGIS URL KEEPS overpass by default.
+		// `overpass` defaults to false and older
 		// releases ingested overpass regardless, so a user who never touched
 		// the flag holds real data here, not orphans.
 		{"arcgis url, overpass flag off", config.CityConfig{Overpass: false, ArcGISURL: "https://x"}, false, []string{"overpass", "arcgis"}},
@@ -91,7 +91,7 @@ func TestKeepSourcesFor(t *testing.T) {
 	}
 }
 
-// TestRunGC_ArcGISOnlyKeepsOverpassByDefault pins solvent-streets-dnun: a city
+// TestRunGC_ArcGISOnlyKeepsOverpassByDefault: a city
 // with Overpass:false and an ArcGIS URL must NOT have its overpass rows swept
 // unless the user opts in.
 //
@@ -138,8 +138,7 @@ func TestRunGC_ArcGISOnlyKeepsOverpassByDefault(t *testing.T) {
 	}
 }
 
-// TestRunGC_RetainedCountFailureIsNotFatal pins solvent-streets-q48z.21.
-//
+// TestRunGC_RetainedCountFailureIsNotFatal:
 // retainedOverpassRows issues a SECOND GCScan purely to derive the cosmetic
 // "kept (overpass off)" line. scanCities used to wrap its error as `scan %s`
 // and return it, so a query that feeds nothing but an informational message
@@ -359,7 +358,7 @@ func TestRunGC_YesSweeps(t *testing.T) {
 	}
 }
 
-// TestRunGC_NoTTYWithoutYesIsFlagError pins byob-prompter.3: with orphans
+// TestRunGC_NoTTYWithoutYesIsFlagError: with orphans
 // to collect, no TTY, and no --yes, gc refuses with a --yes hint and never
 // sweeps.
 func TestRunGC_NoTTYWithoutYesIsFlagError(t *testing.T) {

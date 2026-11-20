@@ -26,7 +26,7 @@ import (
 )
 
 // TestJS drives the executing JavaScript tests for
-// internal/export/templates/app.js (solvent-streets-azdu / e2xk).
+// internal/export/templates/app.js.
 //
 // It lives on the Go side rather than being a bare `node --test` because the
 // DOM those tests need comes from index.html.tmpl, which is a Go template. The
@@ -80,8 +80,7 @@ const jsFixtureBoundary = `{"type":"Polygon","coordinates":[[[-122.3,37.7],[-122
 // a 20-year horizon (not the 30-year default, so a label that hardcodes the
 // default instead of reading horizon_years fails) and the canonical worst-tier label
 // "reconstruction", which the tier-colour specs pin to the default palette.
-// Materials no longer depend on it: material tiers follow PCI, not labels
-// (solvent-streets-ern4.25).
+// Materials no longer depend on it: material tiers follow PCI, not labels.
 //
 // The tier PRICES are deliberately not restated here: relabelling a clone keeps
 // this config following the fixture's, where copying the literal would let the
@@ -107,8 +106,8 @@ func jsFixtureEntry(t *testing.T) CityEntry {
 	t.Helper()
 	entry := fixtureEntry(t)
 	// Cite the default PCI explicitly: the numbers are those of an unset one,
-	// but the fixture city's initial_pci_source is "file", not "default"
-	// (solvent-streets-ern4.24), so only the specs about that flag see it.
+	// but the fixture city's initial_pci_source is "file", not "default",
+	// so only the specs about that flag see it.
 	entry.Config = &config.Config{Forecast: config.ForecastConfig{InitialPCI: config.DefaultInitialPCI}}
 	store, ok := entry.Store.(*dbtest.MockStore)
 	if !ok {
@@ -135,13 +134,13 @@ func jsFixtureEntry(t *testing.T) CityEntry {
 		{ID: jsFixtureStationID, Name: "Station 9", Source: "osm", Lon: -122.25, Lat: 37.75},
 	}}
 	// Real ids of the fixture's drawn grid: hex-metrics.json and meta.metrics
-	// cover only the hexes hexgrid.geojson draws (solvent-streets-ern4.33).
+	// cover only the hexes hexgrid.geojson draws.
 	h := drawnHexIDs(t, entry, 3)
 	store.HexMetrics = append(store.HexMetrics,
 		db.HexMetric{HexID: h[0], Metric: services.MetricFire, Value: 300, Ref: jsFixtureStationID},
 		db.HexMetric{HexID: h[1], Metric: services.MetricFire, Value: 700, Ref: jsFixtureStationID},
 		// On the network but reached by no station: no value, counted
-		// against the within-threshold share (solvent-streets-8x0f).
+		// against the within-threshold share.
 		db.HexMetric{HexID: h[2], Metric: services.MetricFire, Subject: services.SubjectUnreachable})
 	store.HexMetrics = append(store.HexMetrics, results.HexCoverageRows(resource.TypeRoads,
 		[]results.HexCoverage{{HexID: h[0], Area: 1}, {HexID: h[1], Area: 1}})...)

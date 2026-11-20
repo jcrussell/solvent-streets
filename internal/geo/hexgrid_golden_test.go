@@ -396,7 +396,7 @@ func TestClipHexesToBoundary_CoincidentEdge(t *testing.T) {
 // as a malformed GeometryCollection. We assert the retained geometry is a clean
 // Polygon with the correct area. (On v0.59.0 the overlay ops no longer error on a
 // mixed-dimension operand; this guards the geometry stays polygonal, not against
-// a panic.) Regression guard for the normalization behind solvent-streets-i3ih.
+// a panic.)
 func TestClipHexesToBoundary_MixedDimRetainsPolygonal(t *testing.T) {
 	// Boundary is the lower rectangle [0,400]x[0,200]. The hex is the upper
 	// rectangle [0,400]x[200,400] with a tab dropping to y=100 over x[200,400].

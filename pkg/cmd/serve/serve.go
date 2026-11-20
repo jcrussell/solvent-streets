@@ -81,7 +81,7 @@ must cover every configured city; the page's snapshot picker shows any other.`,
 	return cmd
 }
 
-// Validate runs at the Options boundary per byob-input-validation.5:
+// Validate runs at the Options boundary:
 // reject obviously-wrong --port values before opening the database or
 // binding a listener. Port 0 is rejected even though net/http treats it
 // as "pick a free one" because callers want a predictable address.
@@ -239,8 +239,7 @@ func pinNamed(ctx context.Context, entries []exportpkg.CityEntry, name string, e
 
 // warnStaleLatest warns when a part of entry's latest compute read inputs
 // ingested again since. Its view is drawn on the current boundary, so after a
-// boundary re-ingest its map and its totals disagree until a recompute
-// (solvent-streets-4300).
+// boundary re-ingest its map and its totals disagree until a recompute.
 func warnStaleLatest(ctx context.Context, entry exportpkg.CityEntry, errOut io.Writer) error {
 	if len(entry.Latest) == 0 {
 		return nil

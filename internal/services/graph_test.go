@@ -507,7 +507,7 @@ func TestBuildGraph_ClosedWaysLeftOut(t *testing.T) {
 	}
 }
 
-// TestComputeCoverage_ClippedHexRoutesFromItsPart pins solvent-streets-e414:
+// TestComputeCoverage_ClippedHexRoutesFromItsPart:
 // a hex clipped to the boundary whose lattice centre fell outside is routed
 // from a point on what remains of it, not from the centre. Here the centre
 // sits beside the street 250 m along from the station, while the clipped
@@ -533,7 +533,7 @@ func TestComputeCoverage_ClippedHexRoutesFromItsPart(t *testing.T) {
 	}
 }
 
-// TestComputeCoverage_UnreachableHexesAreListed pins solvent-streets-8x0f: a
+// TestComputeCoverage_UnreachableHexesAreListed: a
 // hex beside a road no station reaches is listed as unreachable (not
 // dropped like a hex off the network), and with no station snapped every
 // hex on the network is.

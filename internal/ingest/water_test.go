@@ -1325,7 +1325,7 @@ func TestParseWaterResponse_DegenerateRingDoesNotCrash(t *testing.T) {
 // chain is silently dropped. This is correct when water-on-right
 // points outside the bbox; it is wrong when water points inside (the
 // long CCW arc would be needed). The current pipeline does not
-// distinguish these cases — see solvent-streets-85nn for the gap.
+// distinguish these cases.
 func TestCloseCoastlineChain_SameEdgeEndpointsDropped(t *testing.T) {
 	bbox := [4]float64{0, 0, 1, 1}
 	chain := [][2]float64{{0.2, 0}, {0.8, 0}} // both on south edge
@@ -1363,7 +1363,7 @@ func TestCloseCoastlineChain_EndpointAtBBoxCorner(t *testing.T) {
 // the relation members — outer A here. OSM convention prefers the
 // smallest containing outer, but this pipeline does not implement that
 // because real natural=water relations very rarely nest outers; the
-// brittleness is documented in solvent-streets-85nn.
+// rule is brittle there.
 func TestPolygonsFromRelation_NestedOuterFirstMatchWins(t *testing.T) {
 	// Outer A: 0..10 square. Outer B: 2..6 square, fully inside A.
 	// Inner I: 3..5 square, fully inside B (and inside A).
@@ -1661,9 +1661,8 @@ func ringsEquivalent(a, b [][2]float64) bool {
 	return reflect.DeepEqual(a, b)
 }
 
-// TestPolygonsFromRelation_InnerFallsThroughRejectedOuter pins the
-// solvent-streets-sqlo fix. Before the fix, an inner ring contained by
-// a rejected outer was silently dropped along with the outer because
+// TestPolygonsFromRelation_InnerFallsThroughRejectedOuter pins that an
+// inner ring contained by a rejected outer is not silently dropped along with the outer because
 // the filter ran after inner-ring assignment. Now the outer-ring filter
 // runs inside relationToPolygons before inner assignment, so the inner
 // falls through to the next accepted outer that contains its first
@@ -1791,8 +1790,8 @@ func shoreRoads(extra ...[2]float64) LandProbes {
 	return LandProbes{Points: pts, MaxHits: waterLandHitAllowance(len(pts)), Dense: true}
 }
 
-// TestAssembleWater_LakeLargerThanBBoxAcceptedWithRoadProbes pins
-// solvent-streets-z3si: a lake far larger than the city's bbox (Lake
+// TestAssembleWater_LakeLargerThanBBoxAcceptedWithRoadProbes pins:
+// A lake far larger than the city's bbox (Lake
 // Champlain is 15 times Burlington's) is real water when none of the
 // city's roads lie in it, so with road probes the bbox-area cap does not
 // apply, and the subtract removes the lake's part of the city.
@@ -1894,7 +1893,7 @@ func denseProbes(pts [][2]float64) LandProbes {
 	return LandProbes{Points: pts, MaxHits: waterLandHitAllowance(len(pts)), Dense: true}
 }
 
-// TestAssembleWater_IslandCityStripsSurroundingSea pins solvent-streets-gu2k
+// TestAssembleWater_IslandCityStripsSurroundingSea pins the island-city case
 // (Alameda): when the only coastline in the bbox is an island's closed CCW
 // ring, everything in the bbox off the island is sea. With road probes on
 // the island, the sea around it is water, so the boundary is stripped to
@@ -2057,7 +2056,7 @@ func stripRatioCtx(ctx context.Context, t *testing.T, body string, probes LandPr
 }
 
 // TestAssembleWater_IslandAcrossTheBBoxEdgeIsItsOwnFace is the review's
-// case for the coastline faces (solvent-streets-aot4): a mainland west of a
+// case for the coastline faces: a mainland west of a
 // coast at x = 0.3 with 400 road probes, and an island at x 0.6–0.8, y
 // 0.7–1.3 that crosses the bbox's north edge, so its coastline is an open
 // sub-chain rather than a closed island. The island is a face of its own

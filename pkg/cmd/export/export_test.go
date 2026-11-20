@@ -60,7 +60,7 @@ func TestNewCmdExport_Defaults(t *testing.T) {
 	}
 }
 
-// TestOptions_Validate_EmptyOutputDir locks in byob-input-validation.5:
+// TestOptions_Validate_EmptyOutputDir:
 // an empty --output value fails at the Options boundary, not deep inside
 // the exporter, and surfaces as *cmdutil.FlagError so the top-level
 // runner maps it to exit code 2.
@@ -76,7 +76,7 @@ func TestOptions_Validate_EmptyOutputDir(t *testing.T) {
 	}
 }
 
-// TestOptions_Validate_SensitiveLocations locks in the byob-input-validation.5
+// TestOptions_Validate_SensitiveLocations locks in the
 // rejection of paths that would erase user data on --clean (the filesystem
 // root and the user's home directory). The fsutil.ResolveOutputDir helper
 // owns this list; this test pins the integration through Options.Validate.

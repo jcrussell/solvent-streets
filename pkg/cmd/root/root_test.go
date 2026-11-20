@@ -29,7 +29,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// TestFlagParseErrorWrappedAsFlagError guards byob-errors.4: pflag's
+// TestFlagParseErrorWrappedAsFlagError: pflag's
 // flag-parse errors must come back through cobra as *cmdutil.FlagError so
 // the top-level runner can map them to exit code 2 rather than the
 // generic exit 1. Without SetFlagErrorFunc on root, an unknown flag is
@@ -156,7 +156,7 @@ func TestUnitsPrecedence_FlagBeatsEnvBeatsFile(t *testing.T) {
 	}
 }
 
-// TestLogLevelFlag_RejectsBadValueAtParseTime guards byob-command-shape.7:
+// TestLogLevelFlag_RejectsBadValueAtParseTime:
 // because --log-level is now a pflag.Value, an unknown level fails at flag
 // parse with a *cmdutil.FlagError (mapped to exit 2 by the top-level
 // runner) instead of silently degrading to Warn inside applyLogLevel.
@@ -233,7 +233,7 @@ func TestApplyLogLevel_Precedence(t *testing.T) {
 	}
 }
 
-// TestCommandGroups_AllSubcommandsGrouped locks in byob-command-shape.3:
+// TestCommandGroups_AllSubcommandsGrouped:
 // every leaf subcommand the root owns must have a GroupID that matches one
 // of root's declared groups, so `pvmt --help` keeps grouping commands
 // semantically instead of listing them under "Additional Commands". Cobra's
@@ -313,7 +313,7 @@ func TestWarnInvalidEnv_BadValuesEmitWarning(t *testing.T) {
 		{"valid years silent", map[string]string{"PVMT_FORECAST_YEARS": "10"}, ""},
 		{"unparseable hex edge", map[string]string{"PVMT_HEX_EDGE_M": "wide"}, "not a valid number"},
 		{"negative hex edge", map[string]string{"PVMT_HEX_EDGE_M": "-5"}, "must be >="},
-		// solvent-streets-rbv7: a positive-but-tiny edge is the decimal-point
+		// A positive-but-tiny edge is the decimal-point
 		// typo that OOMs mid-compute, so it must warn like any other dropped
 		// value -- hexEdgeFromEnv refuses it, and silence here would break the
 		// silence-implies-honored contract above.
@@ -371,7 +371,7 @@ func TestWarnInvalidEnv_BadValuesEmitWarning(t *testing.T) {
 	}
 }
 
-// TestMiddlewareChain_DoesNotDereferenceConfig guards byob-config.3 at the
+// TestMiddlewareChain_DoesNotDereferenceConfig guards lazy config at the
 // place it is easiest to break: the chain runs for every non-exempt command,
 // so one middleware calling f.Config() makes config discovery eager for all of
 // them — `pvmt cache prune` would walk the filesystem and parse the whole
@@ -428,7 +428,7 @@ func withMiddlewares(t *testing.T, ms ...middleware) {
 	middlewares = ms
 }
 
-// TestPersistentPreRunE_Wired guards byob-command-shape.5: the root command
+// TestPersistentPreRunE_Wired: the root command
 // must install a PersistentPreRunE so the documented cobra execution order
 // (root.PersistentPreRunE → cmd.RunE) holds. Subcommands rely on this to
 // receive a logger bound to their command path and to inherit any cross-
@@ -531,8 +531,8 @@ func TestSkipMiddleware_ExemptCommands(t *testing.T) {
 }
 
 // TestRoot_CacheGroupRegistered pins the `pvmt cache prune` wiring. The
-// command exists so users can reclaim the unbounded HTTP cache
-// (solvent-streets-b136); an unregistered group would leave the eviction
+// command exists so users can reclaim the unbounded HTTP cache;
+// an unregistered group would leave the eviction
 // code unreachable while every unit test still passed.
 func TestRoot_CacheGroupRegistered(t *testing.T) {
 	cmd := NewCmdRoot(testFactory())
@@ -550,7 +550,7 @@ func TestRoot_CacheGroupRegistered(t *testing.T) {
 	}
 }
 
-// TestCompletion_DefaultSubcommandEnabled guards byob-command-shape.4: the
+// TestCompletion_DefaultSubcommandEnabled: the
 // auto-generated `completion <shell>` subcommand must stay wired so users
 // can `eval "$(pvmt completion bash)"` without us hand-writing scripts.
 // A future change that flips CompletionOptions.DisableDefaultCmd would
@@ -641,8 +641,7 @@ func TestCompletion_BashOutputIsValidShellSyntax(t *testing.T) {
 // register a completion func, so tab-completing `pvmt --units <TAB>`
 // offers metric/imperial instead of filenames. Without these registrations
 // the completion script still ships but flag values aren't suggested,
-// which is the user-facing half of the contract byob-command-shape.4
-// promises.
+// which is the user-facing half of the completion contract.
 func TestCompletion_FlagsHaveCompletions(t *testing.T) {
 	f := testFactory()
 	cmd := NewCmdRoot(f)
@@ -798,7 +797,7 @@ func TestJSONTagsSnakeCase(t *testing.T) {
 	}
 }
 
-// TestEveryRunnableCommandDeclaresArgs pins solvent-streets-135f: a runnable
+// TestEveryRunnableCommandDeclaresArgs: a runnable
 // command with no Args rule silently ignores stray positional arguments, so
 // `pvmt services compute oakland` ran on the configured city, not Oakland.
 // Every runnable command must say what it accepts (cobra.NoArgs for most).

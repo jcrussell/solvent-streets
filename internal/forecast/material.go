@@ -11,7 +11,7 @@ import "math"
 // A material tier is chosen by condition, never by a cost tier's label: a
 // city may name and band its cost tiers however its pavement program does
 // (Good/Fair/Poor/Failed), but the treatment a road at PCI 55 gets, and so
-// the asphalt it takes, does not follow the name (solvent-streets-ern4.25).
+// the asphalt it takes, does not follow the name.
 type MaterialTier struct {
 	Label       string  `json:"label"`          // treatment name shown in the Materials tab
 	MinPCI      float64 `json:"min_pci"`        // inclusive lower bound of the band

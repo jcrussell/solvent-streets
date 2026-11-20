@@ -1,4 +1,4 @@
-// compare.json (solvent-streets-l0qo): Compare and Aggregate load one
+// compare.json: Compare and Aggregate load one
 // site-level rollup instead of four files per city, and render exactly what
 // the per-city files would have given them. `pvmt serve` has no rollup, so a
 // 404 falls back to the per-city files without an error banner.

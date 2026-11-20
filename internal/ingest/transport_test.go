@@ -24,7 +24,7 @@ func testRetryConfig(maxRetries int) RetryConfig {
 	return RetryConfig{MaxRetries: maxRetries, MaxBackoff: 30 * time.Second}
 }
 
-// seqServer is the byob-http-client.4 replacement for gock/httpmock-style
+// seqServer is the replacement for gock/httpmock-style
 // fakes: a real httptest.Server runs in a goroutine and serves real HTTP
 // over loopback, so the test exercises the full RoundTripper + net/http
 // chain instead of a monkey-patched fake. Requests are served from the
@@ -121,7 +121,7 @@ func (s *seqServer) Bodies() []string {
 	return out
 }
 
-// TestFormatUserAgent_ContractFormat locks in the byob-http-client.5 User-Agent
+// TestFormatUserAgent_ContractFormat locks in the User-Agent
 // format. The contract is an exact-shape match — substring checks would let a
 // future refactor drop the parentheses or reorder tokens silently. Drives
 // formatUserAgent directly so sync.OnceValue caching does not interfere.
@@ -210,7 +210,7 @@ func TestUserAgentTransport_SetsHeader(t *testing.T) {
 }
 
 // TestUserAgentTransport_SetsHeaderOnEveryRequest locks in the
-// "middleware applies to every request" half of byob-http-client.5. A future
+// "middleware applies to every request" half of the User-Agent contract. A future
 // refactor that switches to lazy / first-only header application would break
 // rate-limit fairness on multi-request workflows (Overpass, ArcGIS pages).
 func TestUserAgentTransport_SetsHeaderOnEveryRequest(t *testing.T) {
@@ -298,7 +298,7 @@ func TestRetryTransport_RetriesOn500(t *testing.T) {
 	}
 }
 
-// TestRetryTransport_NotifiesEachRetry (solvent-streets-t3wt): a context
+// TestRetryTransport_NotifiesEachRetry: a context
 // carrying a retry notifier hears of each retry before its wait, with the
 // upstream, the attempt and the cause.
 func TestRetryTransport_NotifiesEachRetry(t *testing.T) {
@@ -391,7 +391,7 @@ func TestRetryTransport_ReturnsLastResponseOnExhaustion(t *testing.T) {
 }
 
 // TestRetryTransport_DoesNotMutateCallerRequest locks in the
-// byob-http-client.1 clone-before-mutate contract. The retry transport
+// clone-before-mutate contract. The retry transport
 // previously rebound req.Body on retries (via req.GetBody), mutating the
 // caller's *http.Request. Cloning per attempt keeps the original untouched.
 func TestRetryTransport_DoesNotMutateCallerRequest(t *testing.T) {
@@ -428,7 +428,7 @@ func TestRetryTransport_DoesNotMutateCallerRequest(t *testing.T) {
 }
 
 // TestRetryTransport_RespectsContextCancellation locks in the
-// byob-http-client.1 ctx-propagation contract. A long Retry-After or backoff
+// ctx-propagation contract. A long Retry-After or backoff
 // must not strand the caller — cancelling the request context returns
 // promptly with ctx.Err() instead of waiting out the full sleep.
 func TestRetryTransport_RespectsContextCancellation(t *testing.T) {
@@ -501,7 +501,7 @@ func TestSleepCtx_ReturnsAfterDuration(t *testing.T) {
 	}
 }
 
-// TestShouldRetry_StatusMatrix locks in the byob-http-client.3 status-code
+// TestShouldRetry_StatusMatrix locks in the status-code
 // allowlist. 408 / 429 / 500 / 502 / 503 / 504 retry; 400 / 401 / 404 / 405
 // (client errors), 425 (Too Early — semantics-specific opt-in), 501 (Not
 // Implemented), 505 (HTTP Version Not Supported), and 2xx do not. The
@@ -601,7 +601,7 @@ func (e *erroringRT) RoundTrip(_ *http.Request) (*http.Response, error) {
 }
 
 // TestRetryTransport_RetriesOnRetryableTransportErr drives a full RoundTrip
-// loop with ECONNRESET so the byob-http-client.3 error-allowlist branch
+// loop with ECONNRESET so the error-allowlist branch
 // actually runs through the retry transport, not just the classifier. A
 // regression that classifies the error correctly but skips the retry
 // (e.g. a missing call to shouldRetry on the err path) will fail here.
@@ -664,7 +664,7 @@ func TestRetryTransport_IdempotentMethodsRetryByDefault(t *testing.T) {
 }
 
 // TestRetryTransport_PostNotRetriedByDefault locks in the
-// byob-http-client.3 POST-opt-in contract. A naive "retry every 5xx" loop
+// POST-opt-in contract. A naive "retry every 5xx" loop
 // would silently re-issue a write; the contract says POST/PATCH retries
 // only with AllowRetry on the ctx.
 func TestRetryTransport_PostNotRetriedByDefault(t *testing.T) {
@@ -742,8 +742,7 @@ func (u *unreplayableBody) Close() error               { return nil }
 // gate: even with AllowRetry and an otherwise-retryable response, a
 // non-nil Body with GetBody==nil must NOT retry because the body has
 // already been consumed and the second attempt would send an empty
-// request. Silently dropping retry is the correct behaviour per the
-// byob-http-client.3 design notes.
+// request. Silently dropping retry is the correct behaviour.
 func TestRetryTransport_NoRetryWhenBodyUnreplayable(t *testing.T) {
 	srv := newSeqServer(t,
 		seqResponse{status: 500, body: "error"},
@@ -835,7 +834,7 @@ func TestParseRetryAfter_Seconds(t *testing.T) {
 }
 
 // TestParseRetryAfter_HTTPDate locks in the RFC 7231 HTTP-date branch. A
-// seconds-only parser silently dropped this form before byob-http-client.3
+// seconds-only parser would silently drop this form
 // — a server that pinned its Retry-After to a timestamp would have its
 // rate-limit hint ignored.
 func TestParseRetryAfter_HTTPDate(t *testing.T) {
@@ -867,7 +866,7 @@ func TestParseRetryAfter_HTTPDate(t *testing.T) {
 // and asserts every draw lands in [0, exp) for the attempt's exp window.
 // Full jitter is a contract piece — a "constant" backoff (e.g. just
 // base * 2^attempt with no jitter) would synchronise retry waves across
-// clients and is exactly what byob-http-client.3 forbids.
+// clients, which full jitter exists to prevent.
 func TestBackoffWait_FullJitterInRange(t *testing.T) {
 	cfg := RetryConfig{MaxRetries: 4, MaxBackoff: 60 * time.Second}
 	tr := &retryTransport{cfg: cfg}
@@ -921,7 +920,7 @@ func TestBackoffWait_RetryAfterIgnoredWhenDisabled(t *testing.T) {
 }
 
 // TestRetryTransport_NoMathRandImport guards against a regression to the
-// pre-byob-http-client.3 jitter source. math/rand needs explicit seeding
+// old math/rand jitter source. math/rand needs explicit seeding
 // (otherwise identical sequences across invocations); math/rand/v2 is
 // auto-seeded. A future "let's simplify" import of math/rand would
 // silently lose the seeding fix.
@@ -955,7 +954,7 @@ func TestAllowRetry_ContextKeyIsUnreachableFromOutside(t *testing.T) {
 }
 
 // TestNewTransport_ChainAppliesUserAgentAndRetries pins NewTransport to the
-// canonical byob-http-client.1 chain by observing both effects in one call:
+// canonical middleware chain by observing both effects in one call:
 // every attempt reaches the inner transport with the User-Agent header set,
 // and a 500 triggers a retry. A future refactor that drops either layer
 // (or reorders them so UA sits inside a retry that never fires on the first
@@ -986,7 +985,7 @@ func TestNewTransport_ChainAppliesUserAgentAndRetries(t *testing.T) {
 	}
 }
 
-// TestNoRetry_IsFinalButKeepsTheCause pins the solvent-streets-lrnw marker:
+// TestNoRetry_IsFinalButKeepsTheCause pins the NoRetry marker:
 // a NoRetry-wrapped timeout is not retried, yet still unwraps to the
 // original error.
 func TestNoRetry_IsFinalButKeepsTheCause(t *testing.T) {
@@ -1010,7 +1009,7 @@ func TestNoRetry_IsFinalButKeepsTheCause(t *testing.T) {
 // factory uses to pick the Overpass transport when no endpoint is configured)
 // to the default endpoint, and pins that endpoint's exact string: the HTTP
 // cache key hashes the request URL, so any change to it (even a trailing
-// slash) would orphan every cached Overpass response (solvent-streets-ern4.18).
+// slash) would orphan every cached Overpass response.
 func TestDefaultOverpassHost_MatchesEndpoint(t *testing.T) {
 	if DefaultOverpassURL != "https://overpass-api.de/api/interpreter" {
 		t.Errorf("DefaultOverpassURL = %q; changing it misses every cached Overpass response", DefaultOverpassURL)

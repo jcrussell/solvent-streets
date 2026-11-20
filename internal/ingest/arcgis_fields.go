@@ -7,7 +7,7 @@ import (
 )
 
 // Agency centerline layers carry no OSM tags, so a row with no highway tag of
-// its own gets one derived from its functional class (solvent-streets-stue).
+// its own gets one derived from its functional class.
 // Without it every ArcGIS segment was a residential, city-owned street: the
 // cohort default of forecast.NormalizeClass and the bottom of
 // filter.ClassifyJurisdiction. In Livermore that counted the I-580 mainline
@@ -28,8 +28,8 @@ var arcgisClassFields = []string{"CLASS", "FUNC_CLASS", "FUNCCLASS", "FUNCTIONAL
 // codes. A bare number under any other class field is not: HERE/NAVTEQ layers
 // publish FUNC_CLASS 1-5 with 5 = local, and FHWA's older two-digit codes
 // read 02 as a rural principal arterial, so treating those digits as F_SYSTEM
-// would turn local streets into collectors and arterials into state trunks
-// (solvent-streets-yd1v). Such a row stays untagged.
+// would turn local streets into collectors and arterials into state trunks.
+// Such a row stays untagged.
 const arcgisHPMSField = "F_SYSTEM"
 
 // arcgisNumericClass maps the HPMS F_SYSTEM codes (1-7).
@@ -95,8 +95,7 @@ func highwayForClass(v string, hpms bool, name string) string {
 		// says how a road works, not who owns it; mapping it to trunk
 		// (State) is right for the configured layer, whose freeways and
 		// expressways are state routes (Alameda County's SR 84), but a
-		// county expressway system would need an ownership signal
-		// (solvent-streets-hcf0).
+		// county expressway system would need an ownership signal.
 		return "trunk"
 	case strings.Contains(c, "principal arterial"):
 		return "primary"

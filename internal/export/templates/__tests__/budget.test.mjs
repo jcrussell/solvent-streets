@@ -1,5 +1,5 @@
-// The Financials budget slider (solvent-streets-i68t) and the live solvency
-// headline (solvent-streets-a6ci). The slider is dollars a year, anchored to
+// The Financials budget slider and the live solvency
+// headline. The slider is dollars a year, anchored to
 // today's cited budget and the hold-steady budget of the network it
 // simulates; the headline follows the live Initial PCI and cost multiplier.
 import { test } from 'node:test';
@@ -42,8 +42,8 @@ function drag(win, sel, value) {
   const el = win.document.querySelector(sel);
   el.value = value;
   el.dispatchEvent(new win.Event('input', { bubbles: true }));
-  // The URL is written once the input pauses (Router.replaceSoon,
-  // solvent-streets-4hzr): stand in for the pause.
+  // The URL is written once the input pauses (Router.replaceSoon): stand in
+  // for the pause.
   win.eval('Router.flushSoon()');
 }
 
@@ -118,7 +118,7 @@ test('the solvency headline follows the cost multiplier', async () => {
 
 const params = (win) => new URLSearchParams(win.location.search);
 
-// solvent-streets-5298: the range was re-sized off the budget on every input,
+// The range was re-sized off the budget on every input,
 // so a drag past the midpoint doubled max under the pointer and ran away.
 test('dragging to the top of the range does not grow it', async () => {
   const { win, $ } = await ready();
@@ -137,7 +137,7 @@ test('a ?budget= beyond the range widens it to fit', async () => {
   assert.equal(parseFloat($('#budget-slider').max) % 250, 0, 'the range grows in whole notches');
 });
 
-// solvent-streets-ern4.27: a linked budget was taken as given, and the slider
+// A linked budget was taken as given, and the slider
 // grew one notch per 25% of hold steady to fit it, so ?budget=1e15 built
 // millions of DOM nodes and froze or crashed the tab. It is clamped to ten
 // times the larger anchor (hold steady, $30M here), and the address bar says so.
@@ -156,7 +156,7 @@ test('a budget at the clamp is kept as linked', async () => {
   assert.equal(lastScenario(win).annual_budget, 10 * HOLD);
 });
 
-// solvent-streets-n2y3: the boot replaceState ran before the budget was
+// The boot replaceState ran before the budget was
 // applied and stripped ?budget= from the address bar.
 test('a linked ?budget= stays in the address bar', async () => {
   const { win } = await ready({ url: 'https://example.test/index.html?tab=financials-tab&budget=7500000' });
@@ -217,7 +217,7 @@ test('a range grown past 150% labels the ends and 100% without crowding', async 
   }
 });
 
-// solvent-streets-ern4.26: the spend tile counts only spend that buys
+// The spend tile counts only spend that buys
 // condition. When that is below budget x years, the sub-line says how much
 // was budgeted instead of calling the spend "total budget allocated".
 test('the spend tile names the budget when part of it buys nothing', async () => {

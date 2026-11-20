@@ -109,7 +109,7 @@ test('rebuildCitySelect keeps a surviving selection, else falls to the first vis
 
 // The rebuilt selector alphabetizes as cities.json does (Go's
 // TestSortCitiesByName_PlaceThenState): by place, then state, so "Bell, CA"
-// precedes "Bell Gardens, CA" (solvent-streets-ern4.36).
+// precedes "Bell Gardens, CA".
 test('byName sorts by the place before ", ST", then the state', () => {
   const { S, doc } = loadSelectors('<body><select id="city-select"></select></body>');
   const names = ['Bell Gardens, CA', 'Bellflower, CA', 'Portland, OR', 'Bell, CA', 'Portland, ME', 'Bell'];
@@ -121,8 +121,8 @@ test('byName sorts by the place before ", ST", then the state', () => {
     ['Bell', 'Bell, CA', 'Bell Gardens, CA']);
 });
 
-// Each filter offers only the values still reachable given the others
-// (solvent-streets-ern4.36): after "Bay Area", the state filter has no TX.
+// Each filter offers only the values still reachable given the others:
+// after "Bay Area", the state filter has no TX.
 test('the tag filters narrow each other as the city select is rebuilt', () => {
   const html = `<body><select id="city-select"></select>
     <select class="tag-filter" data-dim="group"><option value="">Any</option><option value="Bay Area">Bay Area</option><option value="Top 50">Top 50</option></select>

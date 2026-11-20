@@ -36,7 +36,7 @@ type Options struct {
 	Exporter     cmdutil.Exporter
 
 	// All reports every configured city (or the one --city names) as one
-	// board, a row per layer (solvent-streets-o831.2). Incomplete and Stale
+	// board, a row per layer. Incomplete and Stale
 	// keep only the rows needing an ingest, or also a compute; ExitStatus
 	// exits 1 when any row does. BoardCities lists the cities with their
 	// stores.
@@ -214,7 +214,7 @@ state, stale_inputs) to emit one row per resource.`
 
 // resolveCityFirst resolves the config and city before the database opens, as
 // the other commands do, so a missing pvmt.toml or an unknown --city says so
-// instead of reading as a database error (solvent-streets-4ftl). Either may be
+// instead of reading as a database error. Either may be
 // nil (no config).
 func resolveCityFirst(opts *Options) error {
 	if opts.Config != nil {
@@ -495,7 +495,7 @@ func printCitySummary(ctx context.Context, ios *iostreams.IOStreams, store db.St
 	}
 	totalPaved, accurate := totalPavedArea(ctx, store, rows, allResources)
 	// A combined total computed from inputs ingested again since disagrees
-	// with the rows above it (solvent-streets-wcuw): footnote it too.
+	// with the rows above it: footnote it too.
 	staleCombined := ""
 	if st, ok := view.state(string(resource.CombinedAll)); allResources && accurate && ok && st.State == coherence.StateStale {
 		staleCombined, accurate = strings.Join(st.Stale, ", "), false

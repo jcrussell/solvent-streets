@@ -92,7 +92,7 @@ overpass = true
 
 // TestCostOverhead_SurvivesIncludeFlatten: a per-city block whose ONLY field is
 // cost_overhead must not be judged "all zero" and erased by forecastIsZero at
-// merge time — the same trap that dropped growth_rate = 0 (solvent-streets-r312).
+// merge time — the same trap that dropped growth_rate = 0.
 func TestCostOverhead_SurvivesIncludeFlatten(t *testing.T) {
 	dir := t.TempDir()
 	writeTOML(t, dir, "metro/pvmt.toml", `

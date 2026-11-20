@@ -2,8 +2,8 @@
 //
 // The stats panel floats over the map: down the right edge on a wide screen,
 // docked along the bottom on a phone. A fit with a uniform 40 px padding put
-// the city's east side (or, on a phone, its south side) under the panel
-// (solvent-streets-ikmm), so the fit pads the side the panel covers.
+// the city's east side (or, on a phone, its south side) under the panel,
+// so the fit pads the side the panel covers.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { load } from './harness.mjs';
@@ -68,7 +68,7 @@ test('switching cities pads the provisional fit the same way', async () => {
 
 // San Francisco's boundary carries the Farallon Islands, 40 km out to sea:
 // part of the city and county, but framing them drew the city as a sliver at
-// the map's edge (solvent-streets-ginb). The fit frames the parts that make
+// the map's edge. The fit frames the parts that make
 // up nearly all of the area; the islands stay in the boundary and the hexes.
 test('the fit leaves out a far-off islet with a sliver of the area', async () => {
   const { bounds } = await fitAfterLoad(() => {}, [

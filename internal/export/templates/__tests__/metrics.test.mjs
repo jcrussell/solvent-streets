@@ -1,4 +1,4 @@
-// "Color by" per-hex metrics (hex-metrics.json, solvent-streets-ql2w): the
+// "Color by" per-hex metrics (hex-metrics.json): the
 // selector lists the city's metrics, choosing one swaps the paint expression
 // to discrete bands guarded against hexes without a value, redraws the legend
 // from the metric's scale, shows the points of service, rides the URL only on
@@ -73,7 +73,7 @@ test('the Color-by selector lists the available derived metrics plus each stored
   assert.equal(card.querySelector('.points-caveat'), null, 'a city with its station inside carries no caveat');
 });
 
-// solvent-streets-ern4.28: the stations row says how many serve the city
+// The stations row says how many serve the city
 // from outside it, and a city whose station list looks incomplete says so.
 test('the stations row counts outside stations, and an incomplete list carries the caveat', async () => {
   const fireSummary = metaJSON.metrics.fire_response_s;
@@ -235,7 +235,7 @@ test('Back across a city change restores the metric for the returned-to city', a
   assert.equal(h.get('hexMetric'), 'fire_response_s', 'the metric must be restored, not collapsed to coverage by the empty map mid-load');
 });
 
-// Goldens for the generic-coloring refactor (solvent-streets-59hj): the
+// Goldens for the generic-coloring refactor: the
 // coverage ramp and the fire bands must paint and label exactly as they did
 // when each had its own code path. Colours resolve to '' in jsdom (no
 // stylesheet), so the expression SHAPE and stops are what is pinned.
@@ -255,12 +255,12 @@ test('golden: coverage paint ramp and legend labels', async () => {
   }
   assert.deepEqual($$('#legend .legend-labels span').map((s) => s.textContent), ['0%', '25%', '50%', '75%', '100%']);
   // Each tick sits at its value's position, so 100% is labelled where the
-  // bar ends (solvent-streets-ern4.36), not spread past it.
+  // bar ends, not spread past it.
   assert.deepEqual($$('#legend .legend-labels span').map((s) => s.style.left), ['0%', '25%', '50%', '75%', '100%']);
 });
 
 // The coverage ramp's top two stops must read as different colours in both
-// themes, or the bar looks as if it stops at 75% (solvent-streets-ern4.36).
+// themes, or the bar looks as if it stops at 75%.
 test('coverage ramp: the 75% and 100% stops are distinct in both themes', () => {
   const theme = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'theme.html.tmpl'), 'utf8');
   const stops = (name) => [...theme.matchAll(new RegExp('--' + name + ':\\s*(#[0-9a-f]{6})', 'gi'))].map((m) => m[1]);
@@ -297,8 +297,8 @@ function goldenBandLabels(bands, fmt) {
 }
 
 // A count is shown in whole units: apportioning census blocks to hexes gives
-// fractional housing units, and "Range 0 – 6.3" read as fractional homes
-// (solvent-streets-ern4.36). Large counts still compact.
+// fractional housing units, and "Range 0 – 6.3" read as fractional homes.
+// Large counts still compact.
 test('a count metric formats its range and legend edges as whole numbers', async () => {
   const { win } = await loadWithMetrics();
   assert.equal(win.fmtLegend(6.3, 'int', true), '6');

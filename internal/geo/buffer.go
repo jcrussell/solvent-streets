@@ -76,7 +76,7 @@ func ValidatePolygon(g geom.Geometry) (geom.Geometry, error) {
 // avoidance. It is load-bearing where the result geometry is kept or exported:
 // Union/UnionMany propagate the 1-D parts into their output (a GC with a stray
 // LineString), so a clipped hex stored via clipHexToCandidates would otherwise
-// serialize as a malformed GeometryCollection feature. (solvent-streets-i3ih.)
+// serialize as a malformed GeometryCollection feature.
 func RetainPolygonal(g geom.Geometry) (geom.Geometry, error) {
 	if g.IsEmpty() {
 		return g, nil

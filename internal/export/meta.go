@@ -185,7 +185,7 @@ func bboxAttr(b [4]float64) string {
 // HeadingName is the name the page title and panel heading show before any
 // script runs: in multi-city mode the city the selector opens on (CitySelect's
 // selected option), else ProjectName. The pages then keep it in step with the
-// selected city (solvent-streets-youz).
+// selected city.
 func (d TemplateData) HeadingName() string {
 	if opt, ok := d.selectedCity(); ok {
 		return opt.Name
@@ -460,7 +460,7 @@ type MetaJSON struct {
 	// city's compute had no features for (or never computed): a layer whose
 	// ingest failed or never ran, not a real zero. The dashboard says the
 	// data is unavailable and keeps the city out of rankings that need the
-	// layer; check-site lists such cities (solvent-streets-56r1). Omitted when
+	// layer; check-site lists such cities. Omitted when
 	// every resource has data, and on a multi-city page's own meta.
 	MissingResources []string `json:"missing_resources,omitempty"`
 	// IngestFailures maps a resource to the configured sources whose newest
@@ -469,7 +469,7 @@ type MetaJSON struct {
 	// resource also in MissingResources failed outright; one with data is
 	// partial (Albany: OpenStreetMap roads failed, ArcGIS answered). The
 	// dashboard marks a partial layer and ranks the city like one missing
-	// it; check-site warns (solvent-streets-56r1). Read from the city's
+	// it; check-site warns. Read from the city's
 	// ingest history at export time. Omitted when no source is failing.
 	IngestFailures map[string][]string `json:"ingest_failures,omitempty"`
 	// EmptyResources maps each resource in MissingResources that every
@@ -477,7 +477,7 @@ type MetaJSON struct {
 	// maps none there (a small town with no sidewalks in OpenStreetMap), so a
 	// re-ingest cannot fill it. The dashboard says none is mapped and
 	// check-site does not ask for a re-ingest; the layer stays missing, out
-	// of rankings, since no data is not a measured zero (solvent-streets-a3pn).
+	// of rankings, since no data is not a measured zero.
 	// Read from the city's ingest history at export time. Omitted when none.
 	EmptyResources map[string][]string `json:"empty_resources,omitempty"`
 	// SettingsTOML is the settings the city's figures are computed under
@@ -755,7 +755,7 @@ func dataStamp(ctx context.Context, entry CityEntry, snapshotID int64) (stamp, e
 			}
 		}
 		// An empty latest compute has no date: it was never computed, and
-		// today's date would claim it was (solvent-streets-qo1y).
+		// today's date would claim it was.
 		st := stamp{latest: true}
 		if !newest.IsZero() {
 			st.date = newest.Format(time.DateOnly)

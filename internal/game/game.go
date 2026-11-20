@@ -110,7 +110,7 @@ type hexState struct {
 	paintedClosed bool
 }
 
-// Game holds all sim state. Returned as a concrete *Game (byob-interfaces.2).
+// Game holds all sim state. Returned as a concrete *Game.
 type Game struct {
 	hexes []hexState
 	// hexByID indexes hexes by id for treatOne's per-brush-hex lookup; a linear

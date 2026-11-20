@@ -432,7 +432,7 @@ func TestRetainPolygonal(t *testing.T) {
 }
 
 // TestRetainPolygonal_NormalizesMixedDimIntersectionResult pins the
-// transform RetainPolygonal must do for the solvent-streets-i3ih fix:
+// transform RetainPolygonal must do:
 // Intersection of two polygons that share a boundary segment outside
 // their 2-D overlap can return a mixed-dimension GeometryCollection
 // (a polygon for the overlap plus a LineString for the shared edge —

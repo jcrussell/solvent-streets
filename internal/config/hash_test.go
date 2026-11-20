@@ -58,7 +58,7 @@ func TestCityHash_Format(t *testing.T) {
 	}
 }
 
-// TestCityHash_ComputeEpochMovesEveryHash (solvent-streets-mfjb): a code change
+// TestCityHash_ComputeEpochMovesEveryHash: a code change
 // that alters stored results is invisible to every setting, so the epoch is
 // part of the key and bumping it invalidates every city's snapshots.
 func TestCityHash_ComputeEpochMovesEveryHash(t *testing.T) {
@@ -101,8 +101,8 @@ func TestCityHash_DeterministicInMemory(t *testing.T) {
 	}
 }
 
-// TestCityHash_FormattingEditsDoNotMove is the bug this hash exists to fix
-// (solvent-streets-ern4.12): a comment, whitespace or key-order edit used to
+// TestCityHash_FormattingEditsDoNotMove is the bug this hash exists to fix:
+// a comment, whitespace or key-order edit used to
 // change the raw-bytes hash, so the next single-resource compute committed a
 // partial snapshot under a new hash and export published the city without
 // coverage, census or the combined total.
@@ -152,7 +152,7 @@ func TestCityHash_EditOneCityMovesOnlyThatCity(t *testing.T) {
 	}
 }
 
-// TestCityHash_ForecastEditsDoNotMove (solvent-streets-ern4.16): no forecast is
+// TestCityHash_ForecastEditsDoNotMove: no forecast is
 // stored — export, serve, `pvmt forecast` and the site simulate it on demand
 // from stored cohort stats — so no [forecast] setting, at any layer or through
 // PVMT_FORECAST_*, invalidates any city's snapshots.
@@ -246,7 +246,7 @@ func TestCityHash_DownstreamDefaultsAreHashedAsStated(t *testing.T) {
 	}
 }
 
-// TestCityHash_EnvOverridesMoveTheHash (solvent-streets-ern4.15): an env
+// TestCityHash_EnvOverridesMoveTheHash: an env
 // override that changes stored results must change the key, or its results
 // would be read back as the file's. (PVMT_FORECAST_* changes no stored result;
 // see TestCityHash_ForecastEditsDoNotMove.)
@@ -398,7 +398,7 @@ func TestCityHash_IncludedForecastBackfillKeepsSourceHash(t *testing.T) {
 	}
 }
 
-// TestCityHash_IncludedServicesFollowTheSource pins solvent-streets-qtue: an
+// TestCityHash_IncludedServicesFollowTheSource: an
 // [[include]]d city runs under its declaring file's [[services]], so it hashes
 // as its source does and reads the source's coverage, instead of the merge
 // dropping the leaf's turnout and resolving registry defaults.

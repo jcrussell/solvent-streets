@@ -63,7 +63,7 @@ CREATE TABLE IF NOT EXISTS features (
     PRIMARY KEY (city_id, resource_type, id)
 ) WITHOUT ROWID;
 
--- INPUTS (solvent-streets-we5i). city_inputs holds one digest per stored
+-- INPUTS. city_inputs holds one digest per stored
 -- input a producer reads: each features resource_type ('roads',
 -- 'facility-fire', 'layer-census-blocks', ...) and 'boundary'. The digest is
 -- a sha256 over the stored rows of that input in a stable order, '' when
@@ -88,7 +88,7 @@ CREATE TABLE IF NOT EXISTS city_inputs (
     PRIMARY KEY (city_id, input)
 );
 
--- INGEST ATTEMPTS (solvent-streets-o831.1). One row per source an ingest
+-- INGEST ATTEMPTS. One row per source an ingest
 -- asked, whatever came back: input is a city_inputs key ('boundary' or a
 -- features resource_type), source the upstream ('overpass', 'arcgis',
 -- 'tigerweb', 'nominatim', 'overpass-relation'). outcome is 'ok' (rows
@@ -111,7 +111,7 @@ CREATE TABLE IF NOT EXISTS ingest_attempts (
 );
 CREATE INDEX IF NOT EXISTS idx_ingest_attempts_key ON ingest_attempts(city_id, input, source, id);
 
--- RUNS, the WORKING STATE and SNAPSHOTS (solvent-streets-25t6, -we5i).
+-- RUNS, the WORKING STATE and SNAPSHOTS.
 --
 -- A run is one producer's output for one city, immutable once written:
 -- producer names the part it fills ("roads", "parking", "sidewalks",
@@ -166,7 +166,7 @@ CREATE TABLE IF NOT EXISTS run_facilities (
 
 -- compute_epoch is the config.ComputeEpoch of the binary that committed the
 -- part. A hash from an older epoch can never be produced again, so gc treats
--- its latest compute as superseded and sweeps its runs (solvent-streets-e26d);
+-- its latest compute as superseded and sweeps its runs;
 -- another config's hash, from the same epoch, is kept.
 CREATE TABLE IF NOT EXISTS working_parts (
     city_id INTEGER NOT NULL REFERENCES cities(id),
@@ -190,7 +190,7 @@ CREATE TABLE IF NOT EXISTS snapshot_boundaries (
 ) STRICT;
 
 -- A snapshot is a named, immutable tag over every configured city, like a
--- git tag (solvent-streets-ern4.23): `pvmt snapshots create v0.5.0` freezes
+-- git tag: `pvmt snapshots create v0.5.0` freezes
 -- each city's latest compute in one transaction, or nothing. snapshots is the
 -- tag; compute_epoch is the config.ComputeEpoch of the binary that created
 -- it. created_at orders nothing: "newest" is the highest id (created_at has
@@ -236,7 +236,7 @@ CREATE TABLE IF NOT EXISTS snapshot_parts (
 -- "Is this run still referenced by any snapshot?" (delete / gc).
 CREATE INDEX IF NOT EXISTS idx_snapshot_parts_run ON snapshot_parts(run_id);
 
--- RESULTS (solvent-streets-0dkz). Every result is a named measure written by
+-- RESULTS. Every result is a named measure written by
 -- one run, in long format so a new producer adds metric keys, not tables.
 -- Rows carry no id, city_id or timestamp: the run owns all three (readers
 -- join runs.computed_at; a city's rows are its runs' rows). Deleting a run

@@ -21,7 +21,7 @@ const minCoverageCorpus = 10
 // below which a city's resource is WARNed as a likely mapping gap. At 10%
 // the 407-city release site flags about 12 parking and 21 sidewalk layers,
 // mostly LA County cities where OpenStreetMap barely maps lots or
-// sidewalks (solvent-streets-ern4.35).
+// sidewalks.
 const lowCoverageFraction = 0.10
 
 // checkCoverage WARNs on a resource whose paved area per resident is far

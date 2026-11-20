@@ -52,7 +52,7 @@
         // URL state router: city, tab, tags, scope, snapshot. DOM is the source
         // of truth; the router serializes DOM → URL and applies URL → DOM via
         // the same selectX helpers the event handlers use. The snapshot slot
-        // is reserved for the snapshot-picker (solvent-streets-pv8). `tags` is
+        // is reserved for the snapshot-picker. `tags` is
         // a {dimension: configTag} map in state and repeated ?tag=dim:value
         // params in the URL (PvmtSelectors.parseTags/urlTags); it serializes on
         // every tab because the filters narrow the city selector everywhere.
@@ -97,14 +97,14 @@
                 // panel replaces the city tabs), so the URL names none. A
                 // reload of ?tag=<unsatisfiable> then lands on the same empty
                 // state, as /play does, instead of a ?city= that wins and
-                // silently drops the filters (solvent-streets-mw80).
+                // silently drops the filters.
                 return {
                     city:     sel ? (sel.value || null) : null,
                     tab:      tabBtn ? tabBtn.dataset.tab : null,
                     tags:     PvmtSelectors.readFilters(),
                     // City-only is the default and is left out of the URL,
                     // like the metric and budget defaults: only ?scope=all
-                    // is ever written (solvent-streets-ern4.36).
+                    // is ever written.
                     scope:    (scopeVis && scopeBtn && scopeBtn.dataset.scope !== 'city') ? scopeBtn.dataset.scope : null,
                     snapshot: snapEl ? snapEl.value : null,
                     metric:   (onMap && hexMetric !== DEFAULT_METRIC) ? hexMetric : null,
@@ -147,7 +147,7 @@
             // event (the Financials sliders and tier inputs): it records the
             // state now but writes it once the input pauses, since Safari
             // throws SecurityError after ~100 replaceState calls in a short
-            // window (solvent-streets-4hzr). push writes a pending state to
+            // window. push writes a pending state to
             // the entry it leaves first; replace and popstate drop it. The
             // sliders also flush on release and the page on pagehide, so the
             // only edit a Back can drop is one still being dragged.
@@ -190,7 +190,7 @@
         // can read/write it before the map state block runs.
         let currentScope = 'city';
 
-        // Financials budget state (solvent-streets-i68t), declared here for the
+        // Financials budget state, declared here for the
         // same reason: Router.current serializes it. budgetDollars is the
         // interactive forecast's annual budget in dollars. Until the reader
         // moves the slider (budgetUserSet) it tracks the default — today's cited
@@ -198,12 +198,12 @@
         // arrives first; after that it stays put while Initial PCI, the cost
         // multiplier and the tiers move. budgetCity names the city the state
         // belongs to: resetBudget settles it on boot, a city switch and
-        // back/forward (solvent-streets-n2y3).
+        // back/forward.
         let budgetDollars = 0;
         let budgetUserSet = false;
         let budgetCity = null;
 
-        // What the interactive forecast maintains (solvent-streets-ma98): a
+        // What the interactive forecast maintains: a
         // subset of the resource types, in MAINTAIN_TYPES order. The default is
         // streets only — the network the solvency headline, the cited "Today"
         // budget (a street budget) and Play all describe. ?maintain= carries any
@@ -246,7 +246,7 @@
             return a.length === b.length && a.every((t, i) => t === b[i]);
         }
 
-        // The Financials model settings the URL carries (solvent-streets-ern4.31):
+        // The Financials model settings the URL carries:
         // ?strategy=, ?pci= (Initial PCI), ?cost= (the cost multiplier) and
         // ?tiers= (the cost tiers as min-max:$/sq m, comma-separated, e.g.
         // 0-40:150,40-70:50,70-101:5; metric whatever the display units). Each
@@ -392,8 +392,8 @@
         // syncNoMatchState shows the one shared empty state when the tag
         // filters match no city: the city-scoped tabs (Map, Financials,
         // Materials, Compare, Aggregate) are replaced by "No cities match
-        // <filters> — Clear filters" instead of a stale city or empty charts
-        // (solvent-streets-mw80). Run after every selector rebuild and tab
+        // <filters> — Clear filters" instead of a stale city or empty charts.
+        // Run after every selector rebuild and tab
         // change.
         function syncNoMatchState() {
             const sel = selectById('city-select');
@@ -479,7 +479,7 @@
             // address bar. loadFinancials applies the model once the seed lands.
             // Router.current writes them only on Financials, so they are read
             // only there too: elsewhere they would apply settings the address
-            // bar no longer shows (solvent-streets-oalt).
+            // bar no longer shows.
             const fin = queryEl('.tab-btn.active')?.dataset.tab === 'financials-tab' ? init : {};
             resetBudget(fin.budget);
             maintained = parseMaintain(fin.maintain) || DEFAULT_MAINTAIN.slice();
@@ -519,7 +519,7 @@
             queryAll('#scope-toggle button').forEach(b =>
                 b.classList.toggle('active', b.dataset.scope === currentScope));
             // Compare renders once per scope; an entry in another scope needs
-            // it re-rendered, as selectScope does (solvent-streets-aeia).
+            // it re-rendered, as selectScope does.
             if (currentScope !== scopeBefore) compareLoaded = false;
             // Only fire selectCity when the city actually changed. selectCity
             // resets the snapshot picker (snapshots are per-city), so calling it
@@ -564,7 +564,7 @@
             // loadCityData has just reset hexMetrics and will honour (or fall
             // back from) hexMetric once the reloaded files arrive — so set the
             // key directly, as the deep-link path does; selectHexMetric would
-            // see an empty map and collapse to coverage (solvent-streets-a1ud).
+            // see an empty map and collapse to coverage.
             // Only an entry with the same data in view repaints in place.
             const targetMetric = s.metric || DEFAULT_METRIC;
             if (cityChanged || snapshotChanged) hexMetric = targetMetric;
@@ -573,7 +573,7 @@
             // and model settings (Router.current), so another tab's entry for
             // the same city says nothing about them: keep the ones in force,
             // or Financials -> Map -> About -> Back -> Financials would reset
-            // them to the seed (solvent-streets-uzft). A city change has reset
+            // them to the seed. A city change has reset
             // them in selectCity already.
             const tabNow = queryEl('.tab-btn.active');
             if (!cityChanged && !(tabNow && tabNow.dataset.tab === 'financials-tab')) return;
@@ -639,7 +639,7 @@
             if (!list || list.scrollWidth <= list.clientWidth) return;
             const left = btn.offsetLeft - list.offsetLeft;
             if (left < list.scrollLeft || left + btn.offsetWidth > list.scrollLeft + list.clientWidth) {
-                // Clear of the phone strip's 28 px left fade (solvent-streets-eaqn).
+                // Clear of the phone strip's 28 px left fade.
                 list.scrollLeft = Math.max(0, left - 32);
             }
         }
@@ -824,7 +824,7 @@
         // panel floats over the map, down the right edge on a wide screen and
         // docked along the bottom on a phone, so the side it covers is padded
         // by how far the panel reaches in from it; a uniform padding put the
-        // city's east side under the panel (solvent-streets-ikmm). The panel
+        // city's east side under the panel. The panel
         // hugs whichever side costs the smaller strip of map. A panel with no
         // box (the Map tab hidden) or one that would leave too little map
         // keeps the plain padding, since MapLibre refuses a fit that cannot
@@ -916,8 +916,7 @@
         // missingLayers is meta.json's missing_resources: the resources the
         // city's compute had no features for (an ingest that failed or never
         // ran). They are not zeros, so the page says the data is unavailable
-        // and leaves the city out of rankings that need them
-        // (solvent-streets-56r1).
+        // and leaves the city out of rankings that need them.
         /** @param {any} meta @returns {string[]} */
         function missingLayers(meta) {
             return (meta && Array.isArray(meta.missing_resources)) ? meta.missing_resources : [];
@@ -1110,9 +1109,9 @@
             missing.forEach(rt => {
                 // An empty latest compute (a settings change before the
                 // recompute) has every layer missing: it is not computed,
-                // not un-ingested (solvent-streets-qo1y).
+                // not un-ingested.
                 // A layer every source answered empty for is mapped by none
-                // of them, not un-ingested (solvent-streets-a3pn).
+                // of them, not un-ingested.
                 const uncomputed = meta.latest_compute && (meta.stats || []).length === 0;
                 const why = failures[rt] ? 'the last ingest from ' + sourceNames(failures[rt]) + ' failed'
                     : empty[rt] ? 'none mapped in ' + sourceNames(empty[rt])
@@ -1162,7 +1161,7 @@
         // pointsRows is a metric card's points-of-service rows: how many
         // points (fire: stations) are some hex's nearest, how many of those
         // are outside the city, and the exporter's caveat when the list looks
-        // incomplete (meta.metrics[].points_caveat, solvent-streets-ern4.28).
+        // incomplete (meta.metrics[].points_caveat).
         /** @param {any} s @returns {string} */
         function pointsRows(s) {
             let html = '';
@@ -1272,7 +1271,7 @@
                 const meta = await loadJSON(dataURL(prefix, 'meta.json'));
                 if (gen !== cityLoadGen) return; // a newer load superseded us
                 // Without its meta.json, nothing of the previous city's date,
-                // badge, stats or settings may stay on screen (solvent-streets-06q4).
+                // badge, stats or settings may stay on screen.
                 const subtitleEl = document.querySelector('#panel .subtitle');
                 if (subtitleEl) {
                     subtitleEl.textContent = 'Pavement & Parking Analysis' +
@@ -2101,8 +2100,7 @@
 
         // setCityHeading names the shown city in the panel heading and the
         // browser tab, so tabs, bookmarks, history and link previews follow
-        // the selected city rather than the first one in the config
-        // (solvent-streets-youz).
+        // the selected city rather than the first one in the config.
         function setCityHeading(name) {
             if (!name) return;
             document.querySelector('#panel h2').textContent = name;
@@ -2175,7 +2173,7 @@
         // (?snapshot=latest) is the latest compute, snapshotted or not.
         const LATEST_COMPUTE_LABEL = 'Latest compute (not snapshotted)';
         // Bumped per call, so a list arriving for a city already left is
-        // dropped instead of replacing the new city's (solvent-streets-9cnm).
+        // dropped instead of replacing the new city's.
         let snapshotListGen = 0;
         /** @param {string} slug @param {string|null} [want] snapshot to select once the list lands */
         async function loadSnapshots(slug, want) {
@@ -2360,8 +2358,8 @@
         }
         // shortSeriesNote is the inline flag for a city whose figure at the
         // horizon is its last forecast year instead (HTML; '' for most cities).
-        // The two area figures the site shows, named the same everywhere
-        // (solvent-streets-mea7): the paved footprint counts the ground once
+        // The two area figures the site shows, named the same everywhere:
+        // the paved footprint counts the ground once
         // where a sidewalk or lot meets a road; the maintained area sums the
         // resources the forecast prices, so a sidewalk beside a road counts in
         // both.
@@ -2967,7 +2965,7 @@
         // one treatment-cycle slice of the asphalt area, and the material tier
         // whose PCI band holds the year's network-blended condition picks the
         // intensity (material_tier; not the cost tier's label, which a city
-        // names its own way, solvent-streets-ern4.25). That tier is
+        // names its own way). That tier is
         // coarser than the per-cohort interpolated dollar model, so these
         // figures track the scenario's condition trajectory rather than
         // reconciling with annual_need. The headline uses the best-funded
@@ -3056,7 +3054,7 @@
             var section = document.getElementById('materials-tier-section');
             var tbody = document.querySelector('#materials-tier-table tbody');
             if (!tiers || tiers.length === 0) { section.style.display = 'none'; return; }
-            // Headers and cells follow the unit system (solvent-streets-ern4.35).
+            // Headers and cells follow the unit system.
             var metric = UNIT_SYSTEM === 'metric';
             document.getElementById('materials-mix-th').textContent = 'Mix (' + intensityUnit() + ')';
             document.getElementById('materials-binder-th').textContent = 'Binder (' + intensityUnit() + ')';
@@ -3067,7 +3065,7 @@
                 var oilPer1000 = t.per_1000_sqm.oil_barrels;
                 var dot = '<span style="display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;background:' +
                     tierColor(t.label) + '"></span>';
-                // Material tiers are chosen by condition (solvent-streets-ern4.25),
+                // Material tiers are chosen by condition,
                 // so the row names its PCI band; the top band's exclusive 101 reads 100.
                 var band = (typeof t.min_pci === 'number' && typeof t.max_pci === 'number')
                     ? ' <span style="color:var(--text-muted)">PCI ' + t.min_pci + '–' + Math.min(100, t.max_pci) + '</span>' : '';
@@ -3324,7 +3322,7 @@
             if (c) return c.name;
             if (typeof CITIES !== 'undefined' && CITIES.length > 0) return CITIES[0].name;
             // Single-city pages have no CITIES; the loaded meta.json names the
-            // city (solvent-streets-qtjh). The last resort is read mid-sentence
+            // city. The last resort is read mid-sentence
             // ("At current funding, this city's ..."), so it is lower case.
             if (lastCityMeta && lastCityMeta.project_name) return lastCityMeta.project_name;
             return 'this city';
@@ -3463,8 +3461,7 @@
             }
 
             // Compare and Aggregate read currentScope through extractMetrics,
-            // so they follow the toggle as they follow units and tag filters
-            // (solvent-streets-aeia).
+            // so they follow the toggle as they follow units and tag filters.
             rerenderTagScopedTabs();
 
             // Materials is per-city like Financials, so it must follow the scope
@@ -3634,8 +3631,7 @@
         // slider makes. Like the overhead slider it always goes through
         // seedRangeInput, which restores the shipped track: a seed with no
         // usable initial_pci falls back to the markup default (seededPCI)
-        // rather than keeping the previous city's track and value
-        // (solvent-streets-vc7u).
+        // rather than keeping the previous city's track and value.
         function syncPCISliderFromSeed() {
             const slider = inputById('pci-slider');
             if (!slider) return;
@@ -3696,7 +3692,7 @@
         // same PCI. Invalid fields are marked and the reasons shown next to
         // the table, in the units on screen; it returns false so the sim is
         // not run on them, and a bad value never surfaces as the page-level
-        // error banner (solvent-streets-8ade).
+        // error banner.
         function validateTierInputs() {
             const errs = [];
             const ranges = [];
@@ -3766,7 +3762,7 @@
                 // The shown cost is rounded to cents; the sim reads data-sqm, so
                 // rounding never moves the numbers. The open top bound (max_pci
                 // 101, an internal sentinel so PCI 100 falls inside) shows as 100
-                // and reads back as the seed's own top (solvent-streets-8ade).
+                // and reads back as the seed's own top.
                 const costDisplay = costPerAreaToDisplay(t.cost_per_sqm);
                 const name = esc(t.label || 'Tier ' + (i+1));
                 row.innerHTML =
@@ -3825,7 +3821,7 @@
         const MAINTAIN_SHORT = { roads: 'streets', parking: 'lots', sidewalks: 'sidewalks' };
 
         // cohortType is a seed cohort's resource type, which the export emits on
-        // every CohortSeed (solvent-streets-i55x) so no page has to guess it from
+        // every CohortSeed so no page has to guess it from
         // the class name.
         /** @param {{resource_type: string}} c */
         function cohortType(c) {
@@ -4114,7 +4110,7 @@
         }
 
         // liveSolvency recomputes the roads-only solvency headline at the live
-        // settings (solvent-streets-a6ci): the same cohorts, horizon and budget
+        // settings: the same cohorts, horizon and budget
         // forecast.json's roads entry used, so it reproduces the exported figures
         // at the seeded settings and follows Initial PCI, the cost multiplier and
         // the tiers when they move. null when there is no roads forecast.
@@ -4196,7 +4192,7 @@
             const base = hold > 0 ? hold : (today > 0 ? today : Math.max(budgetDollars, 1));
             // Grow past 150% only for a budget beyond it, to the next notch. The
             // 1% slack absorbs the tidy rounding at the top end, so a drag to the
-            // end can't widen the range under the pointer (solvent-streets-5298).
+            // end can't widen the range under the pointer.
             const need = Math.max(BUDGET_TOP_PCT, today / base, budgetDollars / base);
             const top = Math.ceil(need / BUDGET_NOTCH_PCT - 0.01) * BUDGET_NOTCH_PCT;
             budgetScale = { base: base, top: top };
@@ -4290,8 +4286,8 @@
         // updateSummaryCards fills the headline tiles. budget is the annual
         // budget the result ran at (0 for the static baseline). The spend tile
         // counts only spend that buys condition, which is below budget x years
-        // once a class has more money than it can use
-        // (solvent-streets-ern4.26), so the sub-line names the budget too.
+        // once a class has more money than it can use,
+        // so the sub-line names the budget too.
         function updateSummaryCards(result, budget) {
             // Read at the horizon the tiles are labelled with (applyHorizonLabels).
             const horizon = financialsHorizon();
@@ -4459,7 +4455,7 @@
         // loadAllCityData resolves every city's Compare/Aggregate inputs
         // ({slug, name, meta, scenarios, seed, forecast}). A static export ships
         // them in one rollup, compare.json, holding just the slice of each data
-        // file those tabs read (solvent-streets-l0qo); a city missing from it
+        // file those tabs read; a city missing from it
         // reads as missing files, with no banner. `pvmt serve` has no rollup, so
         // a 404 (or a version this page does not know) falls back to fetching
         // the four files per city.
@@ -4674,7 +4670,7 @@
 
         // defaultPCIMark flags a city whose condition is the default PCI
         // because its config cites no survey (forecast.json's
-        // initial_pci_source "default", solvent-streets-ern4.24): its
+        // initial_pci_source "default"): its
         // hold-steady budget and solvency score rest on an assumed starting
         // condition.
         const DEFAULT_PCI_NOTE = 'Condition assumed: no cited pavement survey, so the forecast starts at the default PCI';
@@ -4903,11 +4899,11 @@
             function assignRanks(list) { list.forEach(function(m, i) { m.rank = i + 1; }); return list; }
 
             // A medal needs a field: with fewer than two ranked cities the one
-            // city would take gold by default (solvent-streets-3ij1), so
+            // city would take gold by default, so
             // opts.ranked is passed false then and no medal is drawn. A medal
             // also needs a score of at least opts.medalMin, where one is set:
             // a city funded at a few percent of hold steady is not on a podium,
-            // whatever its place (solvent-streets-ern4.34). A ranked card
+            // whatever its place. A ranked card
             // without a medal shows its rank.
             function scoreCard(m, opts) {
                 var podium = opts.ranked && m.rank <= 3 && (opts.medalMin == null || opts.value >= opts.medalMin);
@@ -5030,7 +5026,7 @@
                 // Medals run down the board and stop at the first city under
                 // the floor: a board sorted by something other than the
                 // score (insolvency year) must not show a silver without a
-                // gold (solvent-streets-4nlz).
+                // gold.
                 var medalRows = sorted.length;
                 if (cat.medalIf) {
                     var firstFail = sorted.findIndex(function(m) { return !cat.medalIf(m); });
@@ -5274,7 +5270,7 @@
                 aggCard('Maintained Area', fmtNum(totalNetwork) + ' ' + unit, 'Roads + parking + sidewalks, all owners, across ' + allMetrics.length + ' cities'),
                 aggCard('Paved Share', totalCityArea > 0 ? (totalPaved / totalCityArea * 100).toFixed(1) + '%' : '—', 'Paved (union) area vs. municipal area'),
                 // baselineYears[0] is year 1, after one year's decay from the
-                // configured starting PCI, so say so (solvent-streets-3ij1).
+                // configured starting PCI, so say so.
                 aggCard('Area-Weighted PCI', weightedPCI === null ? '—' : weightedPCI.toFixed(0), 'Year-1 condition, after one year of decay with no spend'),
                 aggCard('Year-1 Maintenance Need', hasFc ? fmtMoney(regionYear1) : '—', 'Treating what is due in year 1, backlog included; the hold-steady budget is on Financials'),
                 aggCard(horizon + 'Deferred Backlog', hasFc ? fmtMoney(regionBacklog) : '—', hasFc ? 'Unfunded need accumulated by year ' + horizonYears : 'No forecast data in this region'),

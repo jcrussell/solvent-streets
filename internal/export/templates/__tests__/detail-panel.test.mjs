@@ -2,8 +2,7 @@
 // replaces #stats with a breakdown and a close button that restores the city
 // summary. A resource toggle, scope switch or units switch must leave the
 // open panel working — still closable, describing what the map now shows —
-// and closing it must land on a summary that reflects the same change
-// (solvent-streets-ern4.4).
+// and closing it must land on a summary that reflects the same change.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { load } from './harness.mjs';
@@ -135,7 +134,7 @@ test('the region panel stays open and closable after a resource toggle and follo
   assert.ok(h.$('#stats .region-detail'), 'the drag did not open the region panel');
   assert.equal(statValue(h, 'Est. year-1 cost'), '$21.0K');
   // One name for the metric: the panel row reads as the "Color by" option
-  // does (solvent-streets-ern4.36).
+  // does.
   assert.equal(h.win.PVMT_CONFIG.hex_metrics.find((m) => m.key === 'est_cost_usd').label, 'Est. year-1 cost');
 
   untick(h, 'parking');

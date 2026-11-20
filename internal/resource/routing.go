@@ -99,7 +99,7 @@ out geom;`, OverpassTimeoutS, routingRoadsFilter, bbox[0], bbox[1], bbox[2], bbo
 // pavement filter fetches over that bbox with every class this one selects,
 // so the ring is all the services graph needs from here: without the
 // difference about half of Livermore's routing-roads download repeated its
-// roads (solvent-streets-530m).
+// roads.
 func (*RoutingRoads) OverpassQueryExcluding(bbox, exclude [4]float64) string {
 	return fmt.Sprintf(`[out:json][timeout:%d];
 (

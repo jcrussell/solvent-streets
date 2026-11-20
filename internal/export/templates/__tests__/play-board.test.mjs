@@ -1,6 +1,6 @@
 // Play page board boot (game.js boot()): once the WASM is up and the map has
 // loaded, the board is built from the city's own files. These replace Go greps
-// of game.js for the wiring (solvent-streets-yvlv.16): the board must seed from
+// of game.js for the wiring: the board must seed from
 // the PER-CITY forecast_seed.json in preference to the region-wide seed
 // embedded in the page, and fit the map to the board rather than the region.
 // The engine is never called here; game.js only reaches it on Start.
@@ -74,7 +74,7 @@ test('play: the map is fitted to the board, not left on the region', async () =>
   assert.deepEqual(last, want, 'the last fit was not to the board');
 });
 
-// solvent-streets-lu32.22: the start screen opens at the cited street budget,
+// The start screen opens at the cited street budget,
 // else at the roads hold-steady budget, as the Financials slider does.
 const roadsForecast = forecastJSON.find((f) => f.resource_type === 'roads');
 
@@ -133,7 +133,7 @@ test('play: a hexgrid of another format is refused', async () => {
   assert.match(doc.body.textContent, /unsupported hexgrid format/);
 });
 
-// solvent-streets-wr4t: MapLibre fires 'load' only once every first-view
+// MapLibre fires 'load' only once every first-view
 // basemap tile has settled, so a tile server that errors or never answers
 // held "Loading board…" up for good. The board needs only the style.
 test('play: the board boots on style readiness when the basemap tiles never load', async () => {

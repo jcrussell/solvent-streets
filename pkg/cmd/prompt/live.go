@@ -16,7 +16,7 @@ import (
 // returning ErrNotTTY; callers should short-circuit on --yes before
 // calling Confirm rather than mapping ErrNotTTY to a fallback default —
 // silently confirming because stdin happened not to be a TTY is exactly
-// the failure mode byob-prompter.3 is meant to prevent.
+// the failure mode the prompter exists to prevent.
 func NewLive(io *iostreams.IOStreams) Prompter { return &live{io: io} }
 
 type live struct{ io *iostreams.IOStreams }
