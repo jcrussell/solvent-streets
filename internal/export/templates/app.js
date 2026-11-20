@@ -908,6 +908,11 @@
         function fmtNum(n) {
             return Math.round(n).toLocaleString();
         }
+        // fmtNum1 is fmtNum to one decimal place, thousands separated like it.
+        /** @param {number} n */
+        function fmtNum1(n) {
+            return n.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+        }
 
         // Escape config-sourced strings (city names, cost-tier labels) before
         // concatenating them into innerHTML. html/template's JS-string escaping at
@@ -1098,9 +1103,9 @@
             if (meta.city_area && meta.city_area > 0) {
                 statsHTML +=
                     '<div class="stat-card summary-card"><h3>City Summary</h3>' +
-                    '<div class="stat-row"><span class="stat-label">City Area (' + areaLargeUnit() + ')</span><span class="stat-value">' + toAreaLarge(meta.city_area).toFixed(1) + '</span></div>' +
+                    '<div class="stat-row"><span class="stat-label">City Area (' + areaLargeUnit() + ')</span><span class="stat-value">' + fmtNum1(toAreaLarge(meta.city_area)) + '</span></div>' +
                     '<div class="stat-row"><span class="stat-label">City Area (' + areaVeryLargeUnit() + ')</span><span class="stat-value">' + toAreaVeryLarge(meta.city_area).toFixed(2) + '</span></div>' +
-                    '<div class="stat-row"><span class="stat-label" title="' + PAVED_FOOTPRINT_TIP + '">Paved Footprint (' + areaLargeUnit() + ')</span><span class="stat-value">' + toAreaLarge(meta.total_paved || 0).toFixed(1) + '</span></div>' +
+                    '<div class="stat-row"><span class="stat-label" title="' + PAVED_FOOTPRINT_TIP + '">Paved Footprint (' + areaLargeUnit() + ')</span><span class="stat-value">' + fmtNum1(toAreaLarge(meta.total_paved || 0)) + '</span></div>' +
                     '<div class="stat-row"><span class="stat-label">% Paved</span><span class="stat-value">' + ((meta.paved_share || 0) * 100).toFixed(1) + '%</span></div>' +
                     (missing.length > 0 ? '<div class="stat-row stat-note">Excludes ' + esc(missing.join(', ')) + ' (no data)</div>' : '') +
                     (partial.length > 0 ? '<div class="stat-row stat-note">Partial: ' + esc(partial.join(', ')) + ' (a source failed)</div>' : '') +
@@ -1125,7 +1130,7 @@
                 const areaLargeVal = toAreaLarge(s.total_area);
                 statsHTML +=
                     '<div class="stat-card"><h3>' + s.resource_type + '</h3>' +
-                    '<div class="stat-row"><span class="stat-label">Area (' + areaLargeUnit() + ')</span><span class="stat-value">' + areaLargeVal.toFixed(1) + '</span></div>' +
+                    '<div class="stat-row"><span class="stat-label">Area (' + areaLargeUnit() + ')</span><span class="stat-value">' + fmtNum1(areaLargeVal) + '</span></div>' +
                     '<div class="stat-row"><span class="stat-label">Area (' + areaVeryLargeUnit() + ')</span><span class="stat-value">' + toAreaVeryLarge(s.total_area).toFixed(2) + '</span></div>' +
                     // Parking only: a unitless count, so no units conversion.
                     (s.estimated_spaces > 0 ? '<div class="stat-row"><span class="stat-label">Est. Spaces</span><span class="stat-value">' + s.estimated_spaces.toLocaleString() + '</span></div>' : '') +
@@ -2073,7 +2078,7 @@
                     '<div class="stat-card summary-card">' +
                     '<h3>Selected Region<button class="close-btn" id="close-region" type="button" aria-label="Close region selection">&times;</button></h3>' +
                     '<div class="stat-row"><span class="stat-label">Hexes selected</span><span class="stat-value">' + fmtNum(count) + '</span></div>' +
-                    '<div class="stat-row"><span class="stat-label">Total Area (' + areaLargeUnit() + ')</span><span class="stat-value">' + toAreaLarge(sumArea).toFixed(1) + '</span></div>' +
+                    '<div class="stat-row"><span class="stat-label">Total Area (' + areaLargeUnit() + ')</span><span class="stat-value">' + fmtNum1(toAreaLarge(sumArea)) + '</span></div>' +
                     '<div class="stat-row"><span class="stat-label">% Covered (area-weighted)</span><span class="stat-value">' + wPct.toFixed(1) + '%</span></div>' +
                     '<div class="stat-row"><span class="stat-label">Est. year-1 cost</span><span class="stat-value">' + fmtMoney(sumCost) + '</span></div>' +
                     '</div></div>';
@@ -2713,7 +2718,7 @@
                 const tr = document.createElement('tr');
                 tr.innerHTML =
                     '<td style="text-transform:capitalize">' + c.classification + '</td>' +
-                    '<td class="number">' + areaLargeVal.toFixed(1) + '</td>' +
+                    '<td class="number">' + fmtNum1(areaLargeVal) + '</td>' +
                     '<td class="number">' + c.area_pct.toFixed(1) + '%</td>' +
                     '<td class="number">' + c.decay_rate.toFixed(4) + '</td>' +
                     '<td class="number"><span class="pci-badge ' + cls + '">' + pci.toFixed(0) + '</span></td>' +
@@ -2728,7 +2733,7 @@
             totTr.className = 'total-row';
             totTr.innerHTML =
                 '<td>Total</td>' +
-                '<td class="number">' + totalAreaLarge.toFixed(1) + '</td>' +
+                '<td class="number">' + fmtNum1(totalAreaLarge) + '</td>' +
                 '<td class="number">100%</td>' +
                 '<td></td><td></td>' +
                 '<td class="number">' + fmtMoney(totalSpend, { full: true }) + '</td>' +
@@ -2992,8 +2997,18 @@
         // Metric tonnes by default; US short tons under imperial display (barrels
         // are unit-neutral). Mirrors the UNIT_SYSTEM branch in the area helpers.
         function fmtMass(tonnes) {
-            if (UNIT_SYSTEM === 'metric') return fmtNum(tonnes) + ' t';
-            return fmtNum(tonnes * 1000 / 907.18474) + ' tons';
+            return fmtDisplayMass(massToDisplay(tonnes));
+        }
+        // massToDisplay converts tonnes to the display mass unit, so a chart
+        // plots display units and its axis ticks land on round numbers.
+        /** @param {number} tonnes */
+        function massToDisplay(tonnes) {
+            return UNIT_SYSTEM === 'metric' ? tonnes : tonnes / TONNES_PER_SHORT_TON;
+        }
+        // fmtDisplayMass formats a mass already in display units.
+        /** @param {number} v */
+        function fmtDisplayMass(v) {
+            return fmtNum(v) + (UNIT_SYSTEM === 'metric' ? ' t' : ' tons');
         }
         function fmtBarrels(bbl) {
             return fmtNum(bbl) + ' bbl';
@@ -3190,7 +3205,15 @@
             renderMaterialTierTable(tiers);
 
             var labels = bestSeries.map(function(r) { return 'Year ' + r.year; });
-            var massAxis = function() { return { title: { display: true, text: UNIT_SYSTEM === 'metric' ? 'Tonnes' : 'Tons' }, ticks: { callback: function(v) { return fmtMass(v); } } }; };
+            // The series are plotted in display mass units (massToDisplay), so
+            // the axis ticks are round in tons as well as tonnes.
+            var massAxis = function() { return { title: { display: true, text: UNIT_SYSTEM === 'metric' ? 'Tonnes' : 'Tons' }, ticks: { callback: function(v) { return fmtDisplayMass(v); } } }; };
+            // The do-nothing line plots the material the decaying network would
+            // need, not material anyone spends, so its label says so.
+            var baselineScenario = findBaseline(scenarios);
+            var materialsLabel = function(s) {
+                return s === baselineScenario ? s.scenario.label + ' (material need)' : s.scenario.label;
+            };
 
             // 1. Annual asphalt mix by funding level.
             (function() {
@@ -3203,8 +3226,8 @@
                         labels: labels,
                         datasets: fundingScenarios.map(function(s, i) {
                             return {
-                                label: s.scenario.label,
-                                data: seriesByName[s.scenario.name].map(function(r) { return r.mixTonnes; }),
+                                label: materialsLabel(s),
+                                data: seriesByName[s.scenario.name].map(function(r) { return massToDisplay(r.mixTonnes); }),
                                 borderColor: COLORS[i % COLORS.length],
                                 backgroundColor: 'transparent',
                                 tension: 0.3,
@@ -3212,7 +3235,7 @@
                             };
                         })
                     },
-                    options: { responsive: true, interaction: { mode: 'index', intersect: false }, scales: { y: massAxis() }, plugins: { legend: { position: 'bottom' }, tooltip: { callbacks: { label: function(ctx) { return ctx.dataset.label + ': ' + fmtMass(ctx.parsed.y); } } } } }
+                    options: { responsive: true, interaction: { mode: 'index', intersect: false }, scales: { y: massAxis() }, plugins: { legend: { position: 'bottom' }, tooltip: { callbacks: { label: function(ctx) { return ctx.dataset.label + ': ' + fmtDisplayMass(ctx.parsed.y); } } } } }
                 }));
             })();
 
@@ -3227,8 +3250,8 @@
                         labels: labels,
                         datasets: fundingScenarios.map(function(s, i) {
                             return {
-                                label: s.scenario.label,
-                                data: seriesByName[s.scenario.name].map(function(r) { return r.binderTonnes; }),
+                                label: materialsLabel(s),
+                                data: seriesByName[s.scenario.name].map(function(r) { return massToDisplay(r.binderTonnes); }),
                                 borderColor: COLORS[i % COLORS.length],
                                 backgroundColor: 'transparent',
                                 tension: 0.3,
@@ -3236,7 +3259,7 @@
                             };
                         })
                     },
-                    options: { responsive: true, interaction: { mode: 'index', intersect: false }, scales: { y: massAxis() }, plugins: { legend: { position: 'bottom' }, tooltip: { callbacks: { label: function(ctx) { return ctx.dataset.label + ': ' + fmtMass(ctx.parsed.y) + ' · ' + fmtBarrels(seriesByName[fundingScenarios[ctx.datasetIndex].scenario.name][ctx.dataIndex].oilBarrels); } } } } }
+                    options: { responsive: true, interaction: { mode: 'index', intersect: false }, scales: { y: massAxis() }, plugins: { legend: { position: 'bottom' }, tooltip: { callbacks: { label: function(ctx) { return ctx.dataset.label + ': ' + fmtDisplayMass(ctx.parsed.y) + ' · ' + fmtBarrels(seriesByName[fundingScenarios[ctx.datasetIndex].scenario.name][ctx.dataIndex].oilBarrels); } } } } }
                 }));
             })();
 
@@ -3255,7 +3278,7 @@
                         labels: series.map(function(r) { return 'Year ' + r.year; }),
                         datasets: [{
                             label: 'Asphalt Mix',
-                            data: series.map(function(r) { return r.mixTonnes; }),
+                            data: series.map(function(r) { return massToDisplay(r.mixTonnes); }),
                             backgroundColor: series.map(function(r) { return tierColor(r.tier); })
                         }]
                     },
@@ -3265,7 +3288,7 @@
                         plugins: {
                             verticalCrosshair: false,
                             legend: { display: true, position: 'bottom', labels: { generateLabels: tierLegendLabels } },
-                            tooltip: { callbacks: { label: function(ctx) { return fmtMass(ctx.parsed.y); } } }
+                            tooltip: { callbacks: { label: function(ctx) { return fmtDisplayMass(ctx.parsed.y); } } }
                         }
                     }
                 }));

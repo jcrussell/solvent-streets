@@ -108,7 +108,8 @@ test('Financials and Materials plot whatever scenarios the set describes', async
   await flush(12);
   const mix = win.__charts.find((c) => c.config.type === 'line');
   assert.ok(mix, 'Materials drew no funding-level chart');
-  assert.deepEqual(mix.data.datasets.map((d) => d.label), all);
+  // The baseline's line plots the material its decay would need, and says so.
+  assert.deepEqual(mix.data.datasets.map((d) => d.label), [all[0] + ' (material need)', ...all.slice(1)]);
 });
 
 // ---- Play ---------------------------------------------------------------

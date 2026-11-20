@@ -361,6 +361,8 @@
 
         /* Cohort breakdown */
         .cohort-section { margin-bottom: 32px; }
+        /* The Materials note sits between the headline cards and the tier table. */
+        .materials-note { margin: 0 0 24px; font-size: 13px; line-height: 1.5; color: var(--text-muted); }
         .cohort-section > h3 { font-size: 15px; margin-bottom: 12px; color: var(--text); }
         .cohort-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 14px; }
         .cohort-table th { text-align: left; padding: 8px 12px; border-bottom: 2px solid var(--border); color: var(--text-muted); font-weight: 600; cursor: pointer; user-select: none; }
@@ -799,7 +801,7 @@
         </div>
         {{end}}
         <div class="gear-row" id="gear-scope-row" hidden>
-            <span class="gear-label">Roads</span>
+            <span class="gear-label" title="Which roads, parking and sidewalks the figures cover: those the city maintains, or every jurisdiction's">Jurisdiction</span>
             <div class="jurisdiction-toggle" id="scope-toggle">
                 <button class="active" data-scope="city">City Only</button>
                 <button data-scope="all">All</button>
