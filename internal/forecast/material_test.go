@@ -159,3 +159,24 @@ func TestWithMaterials_CustomCostTierLabels(t *testing.T) {
 		t.Errorf("year 30: Do Nothing and Full Funding take the same mix (%v t)", none.Years[29].Materials.MixTonnes)
 	}
 }
+
+// TestWithMaterials_TierFollowsShownPCI: the site shows PCI as a whole
+// number, so a year at 69.995 shows "70" and takes the preventive tier whose
+// band starts there, and one at 69.4 shows "69" and stays rehab.
+func TestWithMaterials_TierFollowsShownPCI(t *testing.T) {
+	in := ScenarioResult{Years: []ScenarioYear{
+		{Year: 1, Area: 1000, PCI: 69.995},
+		{Year: 2, Area: 1000, PCI: 69.4},
+	}}
+	got := WithMaterials(in, DefaultMaterialTiers, 1, 1)
+	if tier := got.Years[0].MaterialTier; tier != TierPreventive {
+		t.Errorf("PCI 69.995 (shown as 70): tier %q, want %q", tier, TierPreventive)
+	}
+	prev, _ := MaterialTierForPCI(DefaultMaterialTiers, 70)
+	if want := MaterialsForArea(1000, prev); *got.Years[0].Materials != want {
+		t.Errorf("PCI 69.995: materials %+v, want the preventive %+v", *got.Years[0].Materials, want)
+	}
+	if tier := got.Years[1].MaterialTier; tier != TierRehab {
+		t.Errorf("PCI 69.4 (shown as 69): tier %q, want %q", tier, TierRehab)
+	}
+}

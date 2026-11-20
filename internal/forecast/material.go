@@ -107,13 +107,14 @@ func MaterialsForArea(area float64, t MaterialTier) MaterialQuantities {
 // WithMaterials returns r with every year's Materials filled in: the demand to
 // retreat that year's share of the network. Each year area/cycleYears is
 // treated (the eligible fraction the cost model bills), asphaltShare of it is
-// asphalt, and the year's blended PCI picks the material tier
-// (MaterialTierForPCI). r's own Years slice is left untouched.
+// asphalt, and the year's blended PCI, rounded to the whole number the site
+// shows, picks the material tier (MaterialTierForPCI): a year shown at PCI 70
+// is in the band that starts at 70. r's own Years slice is left untouched.
 func WithMaterials(r ScenarioResult, tiers []MaterialTier, cycleYears, asphaltShare float64) ScenarioResult {
 	cycle := ResolveCycleYears(cycleYears)
 	years := make([]ScenarioYear, len(r.Years))
 	for i, y := range r.Years {
-		tier, _ := MaterialTierForPCI(tiers, y.PCI)
+		tier, _ := MaterialTierForPCI(tiers, math.Round(y.PCI))
 		q := MaterialsForArea(y.Area*asphaltShare/cycle, tier)
 		y.Materials = &q
 		y.MaterialTier = tier.Label
