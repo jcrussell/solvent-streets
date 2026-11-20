@@ -3,9 +3,12 @@ package db
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -1063,5 +1066,44 @@ func TestMigrateFS_RejectsDuplicateVersions(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "duplicate migration version") {
 		t.Errorf("error = %v, want it to name the duplicate version", err)
+	}
+}
+
+// releasedMigrations is the sha256 of every migration a release has shipped,
+// for the schema generation they belong to. Released migrations are
+// immutable: a database records a migration's version once and never runs
+// that file again, so an edit to a shipped file reaches no existing
+// database. Add a new migration's hash here in the release that ships it.
+// Rewriting a shipped file is a squash (CONTRIBUTING.md, "Schema changes"):
+// bump schemaGeneration and re-pin the files for the new generation in the
+// same commit.
+var releasedMigrations = struct {
+	generation int
+	files      map[string]string
+}{
+	generation: 1,
+	files: map[string]string{
+		"001_init.sql": "110c17059e81e8b26d93167844354826a482bd63b7c040c3181ac710ed7d2f6a",
+	},
+}
+
+func TestReleasedMigrations_Unchanged(t *testing.T) {
+	if schemaGeneration != releasedMigrations.generation {
+		t.Fatalf("schemaGeneration = %d but releasedMigrations pins generation %d: a squash re-pins every shipped file for the new generation",
+			schemaGeneration, releasedMigrations.generation)
+	}
+	for name, want := range releasedMigrations.files {
+		data, err := fs.ReadFile(migrationsFS, "migrations/"+name)
+		if err != nil {
+			t.Errorf("%s: %v (a shipped migration is never removed or renamed)", name, err)
+			continue
+		}
+		// A checkout that converts line endings must not read as an edit.
+		sum := sha256.Sum256(bytes.ReplaceAll(data, []byte("\r\n"), []byte("\n")))
+		if got := hex.EncodeToString(sum[:]); got != want {
+			t.Errorf("%s changed (sha256 %s, released %s). Released migrations are immutable: "+
+				"add a new numbered migration instead, or squash with a schemaGeneration bump (CONTRIBUTING.md, \"Schema changes\")",
+				name, got, want)
+		}
 	}
 }

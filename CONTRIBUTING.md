@@ -99,17 +99,20 @@ bump in the commit body.
 
 ## Schema changes
 
-`internal/db/migrations/001_init.sql` is frozen: it is the v0.5.0 baseline and
-is never edited again. Every schema change is an additive numbered migration
-in the same directory (`002_*.sql`, `003_*.sql`, ...). `migrateFS`
+Released migrations are immutable. `internal/db/migrations/001_init.sql` is
+the v0.5.0 baseline, and every schema change is a new numbered migration in
+the same directory (`002_*.sql`, `003_*.sql`, ...). `migrateFS`
 (`internal/db/migrations.go`) applies the ones a database has not recorded in
 `schema_version`, in numeric order, each in its own transaction. A migration
 must carry an existing database forward: add tables, columns and indexes,
 and backfill them in the same file. Bump the expected version in
 `TestColdMigration_SchemaShape` and describe the change in
-[architecture.md](docs/architecture.md#database). Rewriting 001 instead is a
-squash, a breaking change: it needs a `schemaGeneration` bump and a `!`
-commit, and every user's database is rebuilt.
+[architecture.md](docs/architecture.md#database). Rewriting a shipped
+migration instead is a squash, a breaking change: it needs a
+`schemaGeneration` bump and a `!` commit, and every user's database is
+rebuilt. `TestReleasedMigrations_Unchanged` pins each shipped migration's
+hash to the generation; add a migration's hash there in the release that
+ships it.
 
 ## Commit messages
 

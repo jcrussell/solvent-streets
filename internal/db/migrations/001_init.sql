@@ -9,18 +9,19 @@
 -- non-empty database whose PRAGMA user_version is not schemaGeneration
 -- (migrations.go) with ErrIncompatibleDatabase.
 --
--- FROZEN. This file is the v0.5.0 baseline and is never edited again.
--- Generation 1 is the v0.5.0 baseline; databases built from pre-release
--- revisions of this file are unsupported and must be rebuilt.
+-- Released migrations are immutable, and this file is the v0.5.0 baseline
+-- (generation 1). Databases built from pre-release revisions of it are
+-- unsupported and must be rebuilt.
 --
 -- Rules:
---   * Every schema change from now on is an additive numbered migration
---     (002_*.sql, 003_*.sql, ...), applied in order within the current
---     generation by migrateFS (migrations.go). See CONTRIBUTING.md, "Schema
---     changes".
---   * A squash (rewriting this file) is a deliberate breaking change: bump
---     schemaGeneration in the same commit, and mark that commit breaking ("!"
---     in the subject).
+--   * Every schema change is a new numbered migration (002_*.sql,
+--     003_*.sql, ...), applied in order within the current generation by
+--     migrateFS (migrations.go). See CONTRIBUTING.md, "Schema changes".
+--   * Rewriting a shipped migration, this one included, is a squash: a
+--     deliberate breaking change that bumps schemaGeneration in the same
+--     commit, marked breaking ("!" in the subject).
+--     TestReleasedMigrations_Unchanged pins each shipped file's hash to the
+--     generation.
 --
 -- Timestamps (every *_at column) are INTEGER unix seconds, UTC, written by Go
 -- (internal/db/timestamps.go): no DEFAULT, so a statement that forgets one

@@ -16,11 +16,12 @@ import (
 // schemaGeneration identifies the schema 001_init.sql creates, stamped into
 // the database as PRAGMA user_version. Numbered migrations evolve a database
 // WITHIN a generation; a new generation is a deliberate squash of the
-// migration files (a breaking change). 001_init.sql is frozen: every schema
-// change is an additive numbered migration (002_*.sql onward) that migrateFS
-// applies. A squash would edit 001 in place and must bump this, because
-// databases from the previous generation already record schema_version 1 and
-// would otherwise skip the edited file and run on the old schema. Generation 0
+// migration files (a breaking change). Released migrations are immutable:
+// 001_init.sql is the v0.5.0 baseline, and every schema change is a new
+// numbered migration (002_*.sql onward) that migrateFS applies. Rewriting a
+// shipped migration is a squash and must bump this, because databases from
+// the previous generation already record its version and would otherwise
+// skip the rewritten file and run on the old schema. Generation 0
 // is every database created before generations existed (v0.4.1 and earlier).
 // Generation 1 is the v0.5.0 baseline; databases built from pre-release
 // revisions of 001_init.sql are unsupported and must be rebuilt.

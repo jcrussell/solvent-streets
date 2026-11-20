@@ -475,11 +475,11 @@ Deleting a snapshot deletes its `snapshot_cities` and `snapshot_parts` rows by
 
 `001_init.sql` creates the schema, and `checkGeneration`
 (`internal/db/migrations.go`) stamps a fresh database's `PRAGMA user_version`
-with `schemaGeneration`. `001_init.sql` is frozen as the v0.5.0 baseline:
-every schema change is an additive numbered migration (`002_*.sql`, ...) that
-`migrateFS` applies within the generation (see
-[CONTRIBUTING.md](../CONTRIBUTING.md#schema-changes)). A squash would bump the
-generation, and pvmt refuses a database from any other generation rather than
+with `schemaGeneration`. Released migrations are immutable: `001_init.sql`
+is the v0.5.0 baseline, and every schema change is a new numbered migration
+(`002_*.sql`, ...) that `migrateFS` applies within the generation (see
+[CONTRIBUTING.md](../CONTRIBUTING.md#schema-changes)). Rewriting a shipped
+migration is a squash, which bumps the generation, and pvmt refuses a database from any other generation rather than
 converting it (see [troubleshooting](troubleshooting.md#incompatible-database)).
 
 ## Runs and snapshots
