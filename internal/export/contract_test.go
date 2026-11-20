@@ -4,17 +4,23 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"math"
+	"os"
+	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/BurntSushi/toml"
 
+	httpcache "github.com/jcrussell/solvent-streets/internal/cache"
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/export/exporttest"
 	"github.com/jcrussell/solvent-streets/internal/forecast"
+	"github.com/jcrussell/solvent-streets/internal/services"
 )
 
 // The export's JSON artifacts are pinned here by contract, not by bytes:
@@ -503,7 +509,7 @@ func TestCityResolvedTOML_OneCity(t *testing.T) {
 		},
 	}
 	out := CityResolvedTOML(cfg, cfg.Cities[1], 150)
-	for _, want := range []string{`name = "Fine City, CA"`, "hex_edge_m = 150.0", "decay_rate = 0.088", "current_budget = 4.2e+06", `units = "imperial"`} {
+	for _, want := range []string{`name = "Fine City, CA"`, "hex_edge_m = 150.0", "decay_rate = 0.088", "current_budget = 4200000.0", `units = "imperial"`} {
 		if !strings.Contains(out, want) {
 			t.Errorf("city settings lack %q:\n%s", want, out)
 		}
@@ -591,5 +597,102 @@ func TestCityResolvedTOML_ShowsEffectiveForecast(t *testing.T) {
 	}
 	if cfg.Cities[0].Forecast != nil || cfg.Forecast.CostTiers != nil || cfg.Forecast.DecayRate != 0 {
 		t.Error("resolving the Config tab wrote defaults into the live config")
+	}
+}
+
+// TestResolvedTOML_ShowsWhatTheModelRunsOn: the resolved view prints the
+// settings a reader can reproduce a figure from. Large floats read as plain
+// decimals, not 4.85e+06; a city's forecast block carries no horizon (a
+// top-level setting it cannot override); the cache TTL is the one ingest
+// uses, not 0s; every service shows the turnout and threshold its coverage
+// is computed with; and each city says whether it takes part in census.
+func TestResolvedTOML_ShowsWhatTheModelRunsOn(t *testing.T) {
+	turnout := 30.0
+	cfg := &config.Config{
+		Forecast: config.ForecastConfig{CurrentBudget: 4_850_000},
+		Services: []config.ServiceOverride{{Name: "fire", TurnoutS: &turnout}},
+		Cities:   []config.CityConfig{{Name: "Somewhere, CA", Forecast: &config.ForecastConfig{CurrentBudget: 1.25e7}}},
+	}
+	out := ResolvedTOML(cfg)
+	for _, want := range []string{"current_budget = 4850000.0", "current_budget = 12500000.0", "census = true",
+		`ttl = "` + httpcache.DefaultTTL.String() + `"`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("resolved config lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "e+") {
+		t.Errorf("resolved config prints a float in exponent form:\n%s", out)
+	}
+	var view struct {
+		Forecast config.ForecastConfig
+		Services []config.ServiceOverride
+		Cities   []config.CityConfig
+	}
+	md, err := toml.Decode(out, &view)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Forecast.Years == 0 {
+		t.Errorf("the top-level horizon is missing:\n%s", out)
+	}
+	if md.IsDefined("cities", "forecast", "years") {
+		t.Errorf("a city's forecast block carries a years key:\n%s", out)
+	}
+	// Only the configured override is a [[services]] entry: an explicit
+	// value is hashed, so a default printed as one would change the hash of
+	// a config pasted back from this view. The values in force are comments.
+	fire := services.Registry["fire"]
+	if len(view.Services) != 1 || view.Services[0].Name != "fire" ||
+		view.Services[0].TurnoutS == nil || *view.Services[0].TurnoutS != 30 || view.Services[0].TravelThresholdS != nil {
+		t.Errorf("services = %+v; want only the configured fire turnout of 30", view.Services)
+	}
+	inForce := fmt.Sprintf("#   fire: turnout_s = 30, travel_threshold_s = %g", fire.TravelThresholdS)
+	if !strings.Contains(out, inForce) {
+		t.Errorf("resolved config lacks the comment %q:\n%s", inForce, out)
+	}
+	if city := CityResolvedTOML(cfg, cfg.Cities[0], 0); !strings.Contains(city, "turnout_s = 30.0") || !strings.Contains(city, inForce) {
+		t.Errorf("one city's settings lack its services:\n%s", city)
+	}
+	if cfg.Cache.TTL != 0 || cfg.Cities[0].Census != nil || len(cfg.Services) != 1 || cfg.Services[0].TravelThresholdS != nil {
+		t.Error("resolving the config view wrote defaults into the live config")
+	}
+}
+
+// TestResolvedTOML_RoundTripKeepsTheHash: the resolved view reads back as a
+// config with the same compute hash for every city, so pasting `pvmt config
+// show` into pvmt.toml neither invalidates stored results nor freezes
+// today's defaults into hashed settings.
+func TestResolvedTOML_RoundTripKeepsTheHash(t *testing.T) {
+	withOverride := fstest.MapFS{"pvmt.toml": {Data: []byte(`
+[[services]]
+name = "fire"
+turnout_s = 30.0
+
+[[cities]]
+name = "Livermore, CA"
+overpass = true
+`)}}
+	for _, dir := range []string{"livermore-ca", "denver-metro-co", "inline config with a [[services]] override"} {
+		var fsys fs.FS = withOverride
+		if !strings.Contains(dir, " ") {
+			fsys = os.DirFS(filepath.Join("..", "..", "examples", dir))
+		}
+		cfg, err := config.LoadFS(fsys, "pvmt.toml")
+		if err != nil {
+			t.Fatalf("%s: %v", dir, err)
+		}
+		out := ResolvedTOML(cfg)
+		back, err := config.LoadFS(fstest.MapFS{"pvmt.toml": {Data: []byte(out)}}, "pvmt.toml")
+		if err != nil {
+			t.Fatalf("%s: the resolved view does not load: %v\n%s", dir, err, out)
+		}
+		if len(back.Cities) != len(cfg.Cities) {
+			t.Fatalf("%s: %d cities read back, want %d", dir, len(back.Cities), len(cfg.Cities))
+		}
+		for i := range cfg.Cities {
+			if got, want := back.CityHash(&back.Cities[i]), cfg.CityHash(&cfg.Cities[i]); got != want {
+				t.Errorf("%s: %s hash %s after a round trip, want %s", dir, cfg.Cities[i].Name, got, want)
+			}
+		}
 	}
 }

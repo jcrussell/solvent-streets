@@ -17,10 +17,12 @@ import (
 
 	"github.com/BurntSushi/toml"
 
+	httpcache "github.com/jcrussell/solvent-streets/internal/cache"
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/forecast"
 	"github.com/jcrussell/solvent-streets/internal/fsutil"
 	"github.com/jcrussell/solvent-streets/internal/geo"
+	"github.com/jcrussell/solvent-streets/internal/services"
 )
 
 // --- Exporter (static site generation) ---
@@ -461,7 +463,7 @@ func ResolvedTOML(cfg *config.Config) string { return ResolvedTOMLWithEdges(cfg,
 // the edge the config has now.
 func ResolvedTOMLWithEdges(cfg *config.Config, hexEdges map[string]float64) string {
 	resolved := resolvedConfig(cfg, hexEdges)
-	return encodeResolvedTOML(resolved)
+	return encodeResolvedTOML(resolved) + serviceDefaultsComment(cfg.Services)
 }
 
 // CityResolvedTOML returns the settings one city's figures are computed
@@ -484,9 +486,25 @@ func CityResolvedTOML(cfg *config.Config, city config.CityConfig, hexEdge float6
 		} `toml:"display"`
 		Services []config.ServiceOverride `toml:"services,omitempty"`
 		Cities   []config.CityConfig      `toml:"cities"`
-	}{Services: resolved.Services, Cities: resolved.Cities}
+	}{Services: cfg.ResolvedServices(&city), Cities: resolved.Cities}
 	view.Display.Units = resolved.Display.Units
-	return encodeResolvedTOML(view)
+	return encodeResolvedTOML(view) + serviceDefaultsComment(view.Services)
+}
+
+// serviceDefaultsComment lists, as TOML comments, the coverage parameters
+// every registered service runs with under overrides: the registry default
+// unless overrides set it. They are comments, not [[services]] entries,
+// because an explicit value is a hashed setting (Config.CityHash): pasting the
+// view back into pvmt.toml must leave the config, and every city's hash, as
+// it was, and must not freeze today's registry defaults into it.
+func serviceDefaultsComment(overrides []config.ServiceOverride) string {
+	var b strings.Builder
+	b.WriteString("\n# Service coverage in force ([[services]] overrides above, registry defaults otherwise):\n")
+	for _, name := range services.Names() {
+		spec := services.Resolve(services.Registry[name], overrides)
+		fmt.Fprintf(&b, "#   %s: turnout_s = %g, travel_threshold_s = %g\n", name, spec.TurnoutS, spec.TravelThresholdS)
+	}
+	return b.String()
 }
 
 // encodeResolvedTOML encodes a resolved config view for the Config tab.
@@ -496,7 +514,30 @@ func encodeResolvedTOML(v any) string {
 	if err := enc.Encode(v); err != nil {
 		return "# error encoding config"
 	}
-	return stripZeroCurrentBudget(buf.String())
+	return plainFloats(stripZeroCurrentBudget(buf.String()))
+}
+
+// plainFloats rewrites the floats BurntSushi encodes in exponent form
+// (`current_budget = 4.85e+06`; it formats with 'g') as plain decimals, so
+// the published settings read as the numbers a config would hold.
+func plainFloats(s string) string {
+	lines := strings.Split(s, "\n")
+	for i, ln := range lines {
+		key, val, ok := strings.Cut(ln, " = ")
+		if !ok || !strings.ContainsAny(val, "eE") || strings.ContainsAny(val, "\"'[{") {
+			continue
+		}
+		f, err := strconv.ParseFloat(strings.TrimSpace(val), 64)
+		if err != nil {
+			continue
+		}
+		plain := strconv.FormatFloat(f, 'f', -1, 64)
+		if !strings.Contains(plain, ".") {
+			plain += ".0"
+		}
+		lines[i] = key + " = " + plain
+	}
+	return strings.Join(lines, "\n")
 }
 
 // resolvedConfig is cfg with every default filled in, as the Config tab shows
@@ -530,6 +571,9 @@ func resolvedConfig(cfg *config.Config, hexEdges map[string]float64) config.Conf
 	resolved.Export.BoundarySimplifyM = cfg.BoundarySimplifyM()
 	config.NormalizeForecast(&resolved.Forecast)
 	effectiveForecast(&resolved.Forecast)
+	if resolved.Cache.TTL <= 0 {
+		resolved.Cache.TTL = httpcache.DefaultTTL
+	}
 
 	// Per-city calibration: with [[include]] the top-level grid/forecast are
 	// empty and each city carries its own flattened hex_edge/forecast/tags
@@ -553,7 +597,12 @@ func resolvedConfig(cfg *config.Config, hexEdges map[string]float64) config.Conf
 			// resolved default.
 			cities[i].MinHexArea = cfg.ResolvedMinHexArea(&cities[i])
 			effectiveForecast(&rf)
+			// The horizon is a top-level setting; a city's block does not
+			// carry one.
+			rf.Years = 0
 			cities[i].Forecast = &rf
+			census := cities[i].CensusEnabled()
+			cities[i].Census = &census
 		}
 		resolved.Cities = cities
 	}

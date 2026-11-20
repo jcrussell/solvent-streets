@@ -265,11 +265,11 @@ func (c *Config) BoundarySimplifyM() float64 {
 }
 
 type ForecastConfig struct {
-	InitialPCI float64       `toml:"initial_pci"` // starting PCI (1-100); 0 means "use default 85"
-	DecayRate  float64       `toml:"decay_rate"`  // PCI decay k-value, 0 = use class defaults
-	GrowthRate float64       `toml:"growth_rate"` // annual pavement growth rate (0.01 = 1%)
-	Years      int           `toml:"years"`       // forecast horizon, default 30; top-level only
-	CostTiers  []CostTierCfg `toml:"cost_tiers"`  // custom cost tiers
+	InitialPCI float64       `toml:"initial_pci"`    // starting PCI (1-100); 0 means "use default 85"
+	DecayRate  float64       `toml:"decay_rate"`     // PCI decay k-value, 0 = use class defaults
+	GrowthRate float64       `toml:"growth_rate"`    // annual pavement growth rate (0.01 = 1%)
+	Years      int           `toml:"years,omitzero"` // forecast horizon, default 30; top-level only
+	CostTiers  []CostTierCfg `toml:"cost_tiers"`     // custom cost tiers
 	// TreatmentCycleYears is the pavement treatment cycle N: the model schedules
 	// ~1/N of the network for treatment each year, so annual need = full-network
 	// cost / N. 0 = use forecast.DefaultTreatmentCycleYears (~12); the default is
