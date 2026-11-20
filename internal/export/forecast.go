@@ -27,22 +27,66 @@ func ConvertCostTiers(fc *config.ForecastConfig) []forecast.CostTier {
 	return tiers
 }
 
-// BuildCohortsForResource builds forecast cohorts for a resource type from the store.
-// Falls back to a single cohort if no cohort split exists. A non-nil error is
-// a real DB failure, not "no rows" — results.LoadCohorts returns an empty
-// slice with nil error when there are no matching rows.
-func BuildCohortsForResource(ctx context.Context, rt resource.Source, area float64, store db.Store, fc *config.ForecastConfig) ([]forecast.Cohort, error) {
-	t := rt.Type()
-	stats, err := results.LoadCohorts(ctx, store, t)
-	if err != nil {
-		return nil, fmt.Errorf("listing cohort stats for %s: %w", t, err)
-	}
-	return buildCohortsFromStats(t, area, stats, fc), nil
+// ForecastScopeCity and ForecastScopeAll name the pavement a forecast covers,
+// as scenarios.json keys its scopes: city-maintained, or every jurisdiction.
+const (
+	ForecastScopeCity = "city"
+	ForecastScopeAll  = "all"
+)
+
+// ScopedCohorts is what one resource is forecast over in a scope: its area
+// and cohorts. Computed is false when the resource has no compute result.
+type ScopedCohorts struct {
+	Area     float64
+	Cohorts  []forecast.Cohort
+	Computed bool
 }
 
-// buildCohortsFromStats is the pure shaping kernel of
-// BuildCohortsForResource — takes pre-fetched stats instead of a Store
-// so callers that batched the DB lookup don't refetch per resource type.
+// BuildScopedCohorts returns every resource's cohorts in the scope the
+// dashboard's headline forecasts (BuildForecastsForCity): city-maintained
+// (resource.ScopeCity) when the city has any city-scope cohorts, every
+// jurisdiction otherwise, or every jurisdiction whenever all is set. The
+// scope it used comes back as ForecastScopeCity or ForecastScopeAll. A resource the city maintains
+// none of has no city-scope cohorts, as on the dashboard. A non-nil error is
+// a real DB failure.
+func BuildScopedCohorts(ctx context.Context, store db.Store, fc *config.ForecastConfig, all bool) (map[resource.Type]ScopedCohorts, string, error) {
+	types := make([]resource.Type, 0, 2*len(resource.All))
+	for _, rt := range resource.All {
+		types = append(types, rt.Type(), rt.Type().With(resource.ScopeCity))
+	}
+	totals, cohortStats, err := results.Load(ctx, store, types)
+	if err != nil {
+		return nil, "", fmt.Errorf("loading compute results: %w", err)
+	}
+	scope := ForecastScopeAll
+	if !all && cityHasScope(cohortStats) {
+		scope = ForecastScopeCity
+	}
+	out := make(map[resource.Type]ScopedCohorts, len(resource.All))
+	for _, rt := range resource.All {
+		t := rt.Type()
+		total, ok := totals[t]
+		if !ok {
+			out[t] = ScopedCohorts{}
+			continue
+		}
+		if scope == ForecastScopeCity {
+			cityT := t.With(resource.ScopeCity)
+			out[t] = ScopedCohorts{
+				Area:     totals[cityT].Area,
+				Cohorts:  forecast.CohortsFromInputs(cohortInputs(cohortStats[cityT]), fc.InitialPCI, fc.DecayRate),
+				Computed: true,
+			}
+			continue
+		}
+		out[t] = ScopedCohorts{Area: total.Area, Cohorts: buildCohortsFromStats(t, total.Area, cohortStats[t], fc), Computed: true}
+	}
+	return out, scope, nil
+}
+
+// buildCohortsFromStats builds a resource's all-jurisdiction cohorts from its
+// stored cohort stats, falling back to one cohort of its whole area when it
+// has no class split.
 func buildCohortsFromStats(t resource.Type, area float64, stats []results.Cohort, fc *config.ForecastConfig) []forecast.Cohort {
 	inputs := cohortInputs(stats)
 	if len(inputs) == 0 {

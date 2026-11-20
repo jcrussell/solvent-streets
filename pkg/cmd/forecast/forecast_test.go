@@ -189,7 +189,7 @@ func TestRenderBaselineTable_AreaPctSumsTo100UnderGrowth(t *testing.T) {
 	}
 
 	ios, _, out, _ := iostreams.Test()
-	err := renderBaselineTable(ios, resource.ByType(resource.TypeRoads), year0Area, 75,
+	err := renderBaselineTable(ios, resource.ByType(resource.TypeRoads), "all", year0Area, 75,
 		baseline, 0, years, units.Metric)
 	if err != nil {
 		t.Fatalf("renderBaselineTable: %v", err)

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"math"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/jcrussell/solvent-streets/internal/config"
@@ -68,8 +69,16 @@ func countRows(t *testing.T, path string) (runs, snapshots int) {
 }
 
 // runForecastJSON runs `pvmt forecast --json ...` for city against store and
-// returns the decoded rows.
-func runForecastJSON(t *testing.T, cfg *config.Config, city *config.CityConfig, store db.Store) []map[string]any {
+// returns the decoded rows. extra are more flags.
+func runForecastJSON(t *testing.T, cfg *config.Config, city *config.CityConfig, store db.Store, extra ...string) []map[string]any {
+	t.Helper()
+	rows, _ := runForecastJSONStderr(t, cfg, city, store, extra...)
+	return rows
+}
+
+// runForecastJSONStderr is runForecastJSON that also returns what the
+// command wrote to stderr.
+func runForecastJSONStderr(t *testing.T, cfg *config.Config, city *config.CityConfig, store db.Store, extra ...string) ([]map[string]any, string) {
 	t.Helper()
 	ios, _, stdout, stderr := iostreams.Test()
 	f := &cmdutil.Factory{
@@ -82,7 +91,7 @@ func runForecastJSON(t *testing.T, cfg *config.Config, city *config.CityConfig, 
 	}
 	cmd := NewCmdForecast(f, nil)
 	cmd.SilenceErrors, cmd.SilenceUsage = true, true
-	cmd.SetArgs([]string{"--json", "city,resource_type,year,pci,area,annual_need,cost_tier"})
+	cmd.SetArgs(append([]string{"--json", "city,scope,resource_type,year,pci,area,annual_need,cost_tier"}, extra...))
 	if err := cmd.ExecuteContext(context.Background()); err != nil {
 		t.Fatalf("forecast: %v\nstderr:\n%s", err, stderr.String())
 	}
@@ -90,7 +99,7 @@ func runForecastJSON(t *testing.T, cfg *config.Config, city *config.CityConfig, 
 	if err := json.Unmarshal(stdout.Bytes(), &rows); err != nil {
 		t.Fatalf("decode --json output: %v\n%s", err, stdout.String())
 	}
-	return rows
+	return rows, stderr.String()
 }
 
 // TestForecast_SimulatesFromStoredCohortsAndWritesNothing pins `pvmt
@@ -159,5 +168,89 @@ func TestForecast_ForecastEditNeedsNoRecompute(t *testing.T) {
 	// growth_rate 0.02 now applies: the area grows past the stored 100000.
 	if area, _ := rows[2]["area"].(float64); area <= 100_000 {
 		t.Errorf("year 3 area = %v, want the stored area grown by the edited growth_rate", rows[2]["area"])
+	}
+}
+
+// TestForecast_DefaultsToTheCityMaintainedScope: like the dashboard's
+// headline, pvmt forecast covers the pavement the city maintains when the
+// city has city-scope results, and --scope all covers every jurisdiction.
+// Each --json row names the scope it covers.
+func TestForecast_DefaultsToTheCityMaintainedScope(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "pvmt.db")
+	cfg := &config.Config{
+		ConfigID: "test",
+		Forecast: config.ForecastConfig{Years: 3},
+		Cities:   []config.CityConfig{{Name: "Test City", Overpass: true}},
+	}
+	city := &cfg.Cities[0]
+	store := seedComputedCity(t, path, cfg, city)
+
+	// Add the city-maintained view: the city maintains 30,000 of the 100,000 m².
+	hash := cfg.CityHash(city)
+	run, err := store.CreateRun(ctx, string(resource.TypeRoads)+"-city", hash, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rtCity := resource.TypeRoads.With(resource.ScopeCity)
+	rows := append(results.TotalRows(rtCity, results.Totals{Area: 30_000, Features: 1}),
+		results.CohortRows(rtCity, []results.Cohort{{Class: "residential", Area: 30_000, Features: 1}})...)
+	if err := store.SaveCityMetrics(ctx, run.ID, rows); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CommitLatest(ctx, hash, config.ComputeEpoch, map[string]int64{string(resource.TypeRoads) + "-city": run.ID}); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct {
+		flags []string
+		scope string
+		area  float64
+	}{
+		{nil, "city", 30_000},
+		{[]string{"--scope", "city"}, "city", 30_000},
+		{[]string{"--scope", "all"}, "all", 100_000},
+	} {
+		got := runForecastJSON(t, cfg, city, store, tc.flags...)
+		if len(got) != 3 {
+			t.Fatalf("%v: got %d rows, want 3: %v", tc.flags, len(got), got)
+		}
+		for _, r := range got {
+			if area, _ := r["area"].(float64); r["scope"] != tc.scope || math.Abs(area-tc.area) > 1e-6 {
+				t.Errorf("%v: row %v, want scope %q over %v m²", tc.flags, r, tc.scope, tc.area)
+			}
+		}
+	}
+}
+
+// TestForecast_NoCityScopeFallsBackToEveryJurisdiction: a city with no
+// city-maintained results computed is forecast over every jurisdiction, as
+// the dashboard does, and the command says so rather than silently changing
+// what the figures cover.
+func TestForecast_NoCityScopeFallsBackToEveryJurisdiction(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "pvmt.db")
+	cfg := &config.Config{
+		ConfigID: "test",
+		Forecast: config.ForecastConfig{Years: 3},
+		Cities:   []config.CityConfig{{Name: "Test City", Overpass: true}},
+	}
+	city := &cfg.Cities[0]
+	store := seedComputedCity(t, path, cfg, city) // all-jurisdiction rows only
+
+	rows, stderr := runForecastJSONStderr(t, cfg, city, store)
+	if len(rows) != 3 {
+		t.Fatalf("got %d rows, want 3: %v", len(rows), rows)
+	}
+	for _, r := range rows {
+		if area, _ := r["area"].(float64); r["scope"] != "all" || math.Abs(area-100_000) > 1e-6 {
+			t.Errorf("row %v, want scope all over the stored 100000 m²", r)
+		}
+	}
+	if !strings.Contains(stderr, "No city-maintained pavement is computed for this city, so the forecast covers every jurisdiction") {
+		t.Errorf("no note that the forecast fell back to every jurisdiction; stderr:\n%s", stderr)
+	}
+	// Asked for every jurisdiction, there is nothing to say.
+	if _, stderr := runForecastJSONStderr(t, cfg, city, store, "--scope", "all"); strings.Contains(stderr, "No city-maintained") {
+		t.Errorf("--scope all printed the fallback note:\n%s", stderr)
 	}
 }

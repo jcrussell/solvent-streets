@@ -10,7 +10,6 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/export"
 	fcpkg "github.com/jcrussell/solvent-streets/internal/forecast"
 	"github.com/jcrussell/solvent-streets/internal/resource"
-	"github.com/jcrussell/solvent-streets/internal/results"
 	"github.com/jcrussell/solvent-streets/internal/units"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
@@ -25,17 +24,22 @@ type Options struct {
 	CurrentCity func() (*config.CityConfig, error)
 	UnitSystem  func() units.System
 	Scenarios   bool
-	Exporter    cmdutil.Exporter
-	rows        *[]forecastRow // multi-city accumulator; nil for single-pass JSON
+	// Scope is "city" (the default: city-maintained pavement when the city
+	// has any, as the dashboard's headline) or "all" (every jurisdiction).
+	Scope    string
+	Exporter cmdutil.Exporter
+	rows     *[]forecastRow // multi-city accumulator; nil for single-pass JSON
 }
 
-var forecastFields = []string{"city", "resource_type", "year", "pci", "area", "annual_need", "cost_tier"}
+var forecastFields = []string{"city", "scope", "resource_type", "year", "pci", "area", "annual_need", "cost_tier"}
 
 // forecastRow is one simulated baseline year of one resource, the unit of
 // the --json output. City is the city slug, so multi-city output stays
-// distinguishable.
+// distinguishable. Scope is the pavement the forecast covers: "city"
+// (city-maintained) or "all" (every jurisdiction).
 type forecastRow struct {
 	City         string
+	Scope        string
 	ResourceType resource.Type
 	Year         int
 	PCI          float64
@@ -52,6 +56,8 @@ func (r forecastRow) ExportData(fields []string) map[string]any {
 		switch f {
 		case "city":
 			out[f] = r.City
+		case "scope":
+			out[f] = r.Scope
 		case "resource_type":
 			out[f] = string(r.ResourceType)
 		case "year":
@@ -84,22 +90,30 @@ func NewCmdForecast(f *cmdutil.Factory, runF func(context.Context, *Options) err
 		Short: "Project pavement deterioration and maintenance costs",
 		Long: `Project PCI decay and maintenance costs over the [forecast] horizon.
 
-The forecast is simulated each time from the city's current snapshot (its
-compute results and cohort stats) under the current [forecast] settings, over
-every jurisdiction's pavement: the dashboard's "All" view, not its headline,
-which covers city-maintained pavement when the city has any. Nothing is
-stored and no snapshot is committed, and [forecast] settings are not part of
-the snapshot hash, so a forecast edit takes effect here without a recompute.
-A city with nothing computed under its current settings exits 3.`,
+The forecast is simulated each time from the city's latest compute (its
+compute results and cohort stats) under the current [forecast] settings.
+By default it covers the pavement the city maintains, as the dashboard's
+headline does, when the city has any city-maintained pavement computed, and
+every jurisdiction's otherwise. --scope all forecasts every jurisdiction's
+pavement, the dashboard's "All" view. Nothing is stored and no snapshot is
+committed, and [forecast] settings are not part of the snapshot hash, so a
+forecast edit takes effect here without a recompute. A city with nothing
+computed under its current settings exits 3.`,
 		Example: `  # Run baseline + scenario comparisons for every configured city
   pvmt forecast
 
   # Skip scenario comparisons (baseline only)
   pvmt forecast --scenarios=false
 
+  # Every jurisdiction's pavement, not only what the city maintains
+  pvmt forecast --scope all
+
   # Emit machine-readable JSON instead of the formatted table
   pvmt forecast --json city,year,pci,annual_need`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if opts.Scope != export.ForecastScopeCity && opts.Scope != export.ForecastScopeAll {
+				return cmdutil.FlagErrorf("--scope must be city or all, got %q", opts.Scope)
+			}
 			if runF != nil {
 				return runF(cmd.Context(), opts)
 			}
@@ -108,6 +122,7 @@ A city with nothing computed under its current settings exits 3.`,
 	}
 
 	cmd.Flags().BoolVar(&opts.Scenarios, "scenarios", true, "Run scenario comparisons")
+	cmd.Flags().StringVar(&opts.Scope, "scope", export.ForecastScopeCity, "Pavement to forecast: city (city-maintained, when the city has any) or all (every jurisdiction)")
 	cmdutil.AddJSONFlags(cmd, &opts.Exporter, forecastFields)
 
 	return cmd
@@ -115,7 +130,7 @@ A city with nothing computed under its current settings exits 3.`,
 
 // simulateResource runs rt's baseline (do-nothing) forecast and returns its
 // per-year rows, total deferred cost, and the baseline itself.
-func simulateResource(city string, rt resource.Source, cohorts []fcpkg.Cohort, years int, params *fcpkg.Params) ([]forecastRow, float64, fcpkg.ScenarioResult) {
+func simulateResource(city, scope string, rt resource.Source, cohorts []fcpkg.Cohort, years int, params *fcpkg.Params) ([]forecastRow, float64, fcpkg.ScenarioResult) {
 	baseline := fcpkg.SimulateBaseline(cohorts, years, params)
 	// Collapse the per-band sub-cohort summaries back to one row per
 	// classification for the cohort-breakdown table.
@@ -127,6 +142,7 @@ func simulateResource(city string, rt resource.Source, cohorts []fcpkg.Cohort, y
 		totalDeferredCost += y.AnnualNeed
 		rows = append(rows, forecastRow{
 			City:         city,
+			Scope:        scope,
 			ResourceType: rt.Type(),
 			Year:         y.Year,
 			PCI:          y.PCI,
@@ -138,9 +154,9 @@ func simulateResource(city string, rt resource.Source, cohorts []fcpkg.Cohort, y
 	return rows, totalDeferredCost, baseline
 }
 
-func renderBaselineTable(ios *iostreams.IOStreams, rt resource.Source, area, currentPCI float64,
+func renderBaselineTable(ios *iostreams.IOStreams, rt resource.Source, scope string, area, currentPCI float64,
 	baseline fcpkg.ScenarioResult, totalDeferredCost float64, years int, sys units.System) error {
-	fmt.Fprintf(ios.Out, "=== %s ===\n", rt.Type())
+	fmt.Fprintf(ios.Out, "=== %s (%s) ===\n", rt.Type(), scopeLabel(scope))
 	fmt.Fprintf(ios.Out, "  Current area: %s (%s)\n", units.FormatArea(area, sys), units.FormatAreaLarge(area, sys))
 	fmt.Fprintf(ios.Out, "  Initial PCI: %.0f\n\n", currentPCI)
 
@@ -194,6 +210,14 @@ func renderBaselineTable(ios *iostreams.IOStreams, rt resource.Source, area, cur
 		fmt.Fprintln(ios.Out)
 	}
 	return nil
+}
+
+// scopeLabel names a forecast scope in the table headings.
+func scopeLabel(scope string) string {
+	if scope == export.ForecastScopeCity {
+		return "city-maintained"
+	}
+	return "all jurisdictions"
 }
 
 func renderScenarioComparisons(ios *iostreams.IOStreams, baseline fcpkg.ScenarioResult,
@@ -298,8 +322,8 @@ func runForecast(ctx context.Context, opts *Options) error {
 
 // forecastAllResources simulates every computed resource from store and
 // renders the tables (unless --json). Cohorts and cost tiers come from the
-// same builders export uses, so the CLI's figures match the site's for the
-// all-jurisdiction baseline.
+// same builders export uses (export.BuildScopedCohorts), so the CLI's figures
+// match the dashboard's for the same scope.
 func forecastAllResources(ctx context.Context, opts *Options, store db.Store, citySlug string,
 	fc *config.ForecastConfig, sys units.System) ([]forecastRow, error) {
 	ios := opts.IO
@@ -308,35 +332,34 @@ func forecastAllResources(ctx context.Context, opts *Options, store db.Store, ci
 	var all []forecastRow
 	forecasted := false
 
+	// A real DB failure (locked DB, dropped table) propagates; only a
+	// resource with no compute result is skipped below.
+	scoped, scope, err := export.BuildScopedCohorts(ctx, store, fc, opts.Scope == export.ForecastScopeAll)
+	if err != nil {
+		return nil, fmt.Errorf("forecast: %w", err)
+	}
+	if opts.Scope == export.ForecastScopeCity && scope == export.ForecastScopeAll {
+		fmt.Fprintf(ios.ErrOut, "No city-maintained pavement is computed for this city, so the forecast covers every jurisdiction.\n\n")
+	}
+
 	for _, rt := range resource.All {
 		t := rt.Type()
-		// Warn and skip only when this resource has not been computed for the
-		// city yet. Any other error (locked DB, dropped table) must propagate;
-		// folding it into the skip path would silently forecast nothing and
-		// exit 0.
-		result, ok, err := results.LoadTotal(ctx, store, t)
-		switch {
-		case err != nil:
-			return nil, fmt.Errorf("forecast %s: %w", t, err)
-		case !ok:
+		sc := scoped[t]
+		if !sc.Computed {
 			cmdutil.Warnf(ios, "no compute results for %s, skipping", t)
 			continue
 		}
-		cohorts, err := export.BuildCohortsForResource(ctx, rt, result.Area, store, fc)
-		if err != nil {
-			return nil, fmt.Errorf("forecast %s: %w", t, err)
-		}
 		params := fcpkg.NewParamsForResource(string(t), fc.GrowthRate, costTiers, fc.TreatmentCycleYears, fc.ResolvedCostOverhead())
-		rows, total, baseline := simulateResource(citySlug, rt, cohorts, years, params)
+		rows, total, baseline := simulateResource(citySlug, scope, rt, sc.Cohorts, years, params)
 		all = append(all, rows...)
 		forecasted = true
 
 		if opts.Exporter == nil {
-			if err := renderBaselineTable(ios, rt, result.Area, fc.InitialPCI, baseline, total, years, sys); err != nil {
+			if err := renderBaselineTable(ios, rt, scope, sc.Area, fc.InitialPCI, baseline, total, years, sys); err != nil {
 				return nil, err
 			}
 			if opts.Scenarios {
-				if err := renderScenarioComparisons(ios, baseline, cohorts, years, params); err != nil {
+				if err := renderScenarioComparisons(ios, baseline, sc.Cohorts, years, params); err != nil {
 					return nil, err
 				}
 			}
