@@ -25,8 +25,8 @@ type Coverage struct {
 	// there are, so the within-threshold share counts them; they carry no
 	// seconds.
 	Unreachable []string
-	// Unsnapped lists facilities farther than FacilitySnapM from any road
-	// vertex, which therefore contributed nothing; callers warn about them.
+	// Unsnapped lists facilities farther than FacilitySnapM from every road
+	// segment, which therefore contributed nothing; callers warn about them.
 	Unsnapped []int
 	// Isolated lists facilities that snapped to a road fragment of fewer than
 	// MinFacilityComponent vertices — mapped beside a driveway or apron that

@@ -5,6 +5,7 @@ import (
 	"context"
 	"math"
 	"slices"
+	"sync"
 
 	"github.com/peterstace/simplefeatures/geom"
 
@@ -38,13 +39,18 @@ type Facility struct {
 
 // Graph is a routable road network: vertices keyed by position, directed
 // edges weighted in seconds, the undirected segments those edges came from,
-// and spatial indexes over the vertices and segments for snapping.
+// and spatial indexes over the segments for snapping and, on first use, over
+// the vertices for Nearest.
 type Graph struct {
-	proj  geo.Projector
-	xs    []float64
-	ys    []float64
-	adj   [][]edge
-	index *geo.GeomIndex
+	proj geo.Projector
+	xs   []float64
+	ys   []float64
+	adj  [][]edge
+	// index is the vertex R-tree Nearest searches. Coverage snaps to
+	// segments (segIndex) and never reads it, so it is built only when
+	// Nearest is first called (indexOnce).
+	index     *geo.GeomIndex
+	indexOnce sync.Once
 	// segs are the road segments (one per consecutive vertex pair of a way)
 	// and segIndex their R-tree, so a point snaps to the nearest position
 	// along a road rather than to the nearest vertex.
@@ -220,15 +226,10 @@ func (b *graphBuilder) addLine(seq geom.Sequence, mps float64, fwd, back, motorw
 	}
 }
 
-// finish builds the vertex and segment spatial indexes and the component
-// labels and returns the graph.
+// finish builds the segment spatial index and the component labels and
+// returns the graph.
 func (b *graphBuilder) finish() *Graph {
 	g := b.g
-	pts := make([]geom.Geometry, len(g.xs))
-	for i := range g.xs {
-		pts[i] = geom.NewPoint(geom.Coordinates{X: g.xs[i], Y: g.ys[i]}).AsGeometry()
-	}
-	g.index = geo.NewGeomIndexFromGeoms(pts)
 	lines := make([]geom.Geometry, len(g.segs))
 	for i, sg := range g.segs {
 		seq := geom.NewSequence([]float64{g.xs[sg.a], g.ys[sg.a], g.xs[sg.c], g.ys[sg.c]}, geom.DimXY)
@@ -364,7 +365,14 @@ func (g *Graph) NodeCount() int { return len(g.xs) }
 // Nearest returns the vertex closest to the projected point (x, y) within
 // maxDist metres, or false when none is that close.
 func (g *Graph) Nearest(x, y, maxDist float64) (int, bool) {
-	if g.index == nil || g.index.Len() == 0 {
+	g.indexOnce.Do(func() {
+		pts := make([]geom.Geometry, len(g.xs))
+		for i := range g.xs {
+			pts[i] = geom.NewPoint(geom.Coordinates{X: g.xs[i], Y: g.ys[i]}).AsGeometry()
+		}
+		g.index = geo.NewGeomIndexFromGeoms(pts)
+	})
+	if g.index.Len() == 0 {
 		return 0, false
 	}
 	env := squareAround(x, y, maxDist)

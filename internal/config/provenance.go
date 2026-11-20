@@ -322,20 +322,6 @@ func applyDefaultForecastProv(fc *ForecastConfig, p *forecastProvenance) {
 	}
 }
 
-// Resolve returns the layered config fields with their resolved values
-// and sources. flagUnits is the --units flag ("" when unset).
-//
-// Scope: only fields with multi-layer resolution (env/flag/city/file/
-// default) are emitted — that's the diagnostic surface "--sources" is
-// actually for. Fields with single-layer resolution (forecast.decay_rate,
-// forecast.growth_rate, forecast.cost_tiers, export.*) are visible in
-// the default TOML output and would be misleading here: decay_rate and
-// cost_tiers pull their zero-value defaults from the forecast package
-// downstream of config resolution, so the value config holds for them is
-// not the effective one.
-//
-// Fields are emitted in a stable order: top-level first, then one block
-// per city containing only the fields that city explicitly overrides.
 // appendServiceFields emits the configured [[services]] overrides. Only set
 // values appear, an explicit 0 included: an unset override leaves the
 // registry default in force, and that default is a Go constant rather than a
@@ -379,6 +365,20 @@ func appendServiceList(fields []ResolvedField, services []ServiceOverride, keyPr
 	return fields
 }
 
+// Resolve returns the layered config fields with their resolved values
+// and sources. flagUnits is the --units flag ("" when unset).
+//
+// Scope: only fields with multi-layer resolution (env/flag/city/file/
+// default) are emitted — that's the diagnostic surface "--sources" is
+// actually for. Fields with single-layer resolution (forecast.decay_rate,
+// forecast.growth_rate, forecast.cost_tiers, export.*) are visible in
+// the default TOML output and would be misleading here: decay_rate and
+// cost_tiers pull their zero-value defaults from the forecast package
+// downstream of config resolution, so the value config holds for them is
+// not the effective one.
+//
+// Fields are emitted in a stable order: top-level first, then one block
+// per city containing only the fields that city explicitly overrides.
 func (c *Config) Resolve(flagUnits string) []ResolvedField {
 	fields := make([]ResolvedField, 0, 6+4*len(c.Cities))
 
