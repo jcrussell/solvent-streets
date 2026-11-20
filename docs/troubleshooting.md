@@ -302,8 +302,9 @@ were fetched from: unset the variable to re-run one of them. Other
 instances are listed on the OpenStreetMap wiki's Overpass API page. An endpoint
 refused at load (`overpass.url "..." must be ...`) names the rule it broke; one
 refused before the first fetch (`overpass endpoint ...: refusing "<host>":
-resolves to ...`) resolves to a private address, and `allow_private_arcgis`,
-which that message mentions, does not apply to it.
+resolves to ...`) resolves to a private address. `allow_private_arcgis`
+does not apply to it: the hint that names it comes only with an ArcGIS
+refusal.
 
 ## Disk usage: the HTTP cache keeps growing
 

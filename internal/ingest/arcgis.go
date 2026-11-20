@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/jcrussell/solvent-streets/internal/db"
+	"github.com/jcrussell/solvent-streets/internal/hint"
 	"github.com/jcrussell/solvent-streets/internal/httpio"
 	"github.com/jcrussell/solvent-streets/internal/logs"
 	"github.com/jcrussell/solvent-streets/internal/redact"
@@ -194,12 +195,21 @@ func (q *ArcGISQuery) idPrefix() string {
 	return q.IDPrefix
 }
 
+// allowPrivateHint hints at allow_private_arcgis when err is the SSRF
+// guard's refusal (BlockedAddressError), the one opt-out ArcGIS has.
+func allowPrivateHint(err error) error {
+	if _, ok := errors.AsType[*BlockedAddressError](err); ok {
+		return hint.With(err, "set allow_private_arcgis = true on this city if the endpoint is self-hosted on an internal network")
+	}
+	return err
+}
+
 // FetchAll pages through the layer and returns every row with geometry.
 func (q *ArcGISQuery) FetchAll(ctx context.Context, client *http.Client) ([]ArcGISRow, error) {
 	endpoint := q.Endpoint
 	if !q.AllowPrivate {
 		if err := validatePublicHTTPURL(ctx, endpoint); err != nil {
-			return nil, fmt.Errorf("arcgis endpoint: %w", redact.Error(err))
+			return nil, allowPrivateHint(fmt.Errorf("arcgis endpoint: %w", redact.Error(err)))
 		}
 	} else {
 		// Carry the opt-out on the context so the client-level
@@ -597,7 +607,7 @@ func (q *ArcGISQuery) fetchPage(ctx context.Context, client *http.Client, offset
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, nil, false, false, fmt.Errorf("arcgis request: %w", redact.Error(err))
+		return nil, nil, false, false, allowPrivateHint(fmt.Errorf("arcgis request: %w", redact.Error(err)))
 	}
 	defer func() { _ = resp.Body.Close() }()
 

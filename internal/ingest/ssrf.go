@@ -135,7 +135,29 @@ var blockedPrefixes = []netip.Prefix{
 	netip.MustParsePrefix("64:ff9b::/96"),       // RFC 6052 NAT64 well-known prefix
 }
 
-func checkPublicAddr(addr netip.Addr, host string) error {
+// BlockedAddressError is the SSRF guard's refusal: Host resolves to (or
+// connects to) Addr, which is not a public address. Kind names the range
+// ("loopback", "private", "special-use"), and Prefix is the blocked prefix
+// for a special-use address. The caller decides
+// whether an opt-out exists and hints at it: only ArcGIS has one
+// (allow_private_arcgis).
+type BlockedAddressError struct {
+	Host   string
+	Addr   netip.Addr
+	Kind   string
+	Prefix netip.Prefix
+}
+
+func (e *BlockedAddressError) Error() string {
+	if e.Prefix.IsValid() {
+		return fmt.Sprintf("refusing %q: resolves to %s %s in %s", e.Host, e.Kind, e.Addr, e.Prefix)
+	}
+	return fmt.Sprintf("refusing %q: resolves to %s %s", e.Host, e.Kind, e.Addr)
+}
+
+// blockedKind names the non-public range addr is in, and its prefix for a
+// special-use one; "" for a public address.
+func blockedKind(addr netip.Addr) (string, netip.Prefix) {
 	// Collapse IPv4-mapped IPv6 (e.g. ::ffff:10.0.0.1) to its IPv4 form FIRST
 	// so the stdlib predicates and the prefix blocklist below see the real
 	// address family — otherwise a mapped private/loopback address slips
@@ -144,21 +166,27 @@ func checkPublicAddr(addr netip.Addr, host string) error {
 
 	switch {
 	case addr.IsLoopback():
-		return fmt.Errorf("refusing %q: resolves to loopback %s (set allow_private_arcgis = true to override)", host, addr)
+		return "loopback", netip.Prefix{}
 	case addr.IsLinkLocalUnicast() || addr.IsLinkLocalMulticast():
-		return fmt.Errorf("refusing %q: resolves to link-local %s (set allow_private_arcgis = true to override)", host, addr)
+		return "link-local", netip.Prefix{}
 	case addr.IsPrivate():
-		return fmt.Errorf("refusing %q: resolves to private %s (set allow_private_arcgis = true to override)", host, addr)
+		return "private", netip.Prefix{}
 	case addr.IsUnspecified():
-		return fmt.Errorf("refusing %q: resolves to unspecified %s (set allow_private_arcgis = true to override)", host, addr)
+		return "unspecified", netip.Prefix{}
 	case addr.IsMulticast():
-		return fmt.Errorf("refusing %q: resolves to multicast %s (set allow_private_arcgis = true to override)", host, addr)
+		return "multicast", netip.Prefix{}
 	}
-
 	for _, p := range blockedPrefixes {
 		if p.Contains(addr) {
-			return fmt.Errorf("refusing %q: resolves to special-use %s in %s (set allow_private_arcgis = true to override)", host, addr, p)
+			return "special-use", p
 		}
+	}
+	return "", netip.Prefix{}
+}
+
+func checkPublicAddr(addr netip.Addr, host string) error {
+	if kind, prefix := blockedKind(addr); kind != "" {
+		return &BlockedAddressError{Host: host, Addr: addr.Unmap(), Kind: kind, Prefix: prefix}
 	}
 	return nil
 }

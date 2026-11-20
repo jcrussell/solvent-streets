@@ -1322,6 +1322,7 @@ func fetchFromSources(ctx context.Context, sources []ingestpkg.Source, client *h
 		attempt := db.IngestAttempt{Input: input, Source: src.Name(), StartedAt: started, FinishedAt: time.Now()}
 		if err != nil {
 			cmdutil.Warnf(opts.IO, "%s fetch failed: %v", src.Name(), err)
+			hint.Fprint(opts.IO.ErrOut, err)
 			failures++
 			if !errors.Is(err, context.Canceled) {
 				attempt.Outcome, attempt.Error = db.IngestFailed, err.Error()

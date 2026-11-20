@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jcrussell/solvent-streets/internal/hint"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 )
 
@@ -752,7 +753,7 @@ func TestArcGISErrorMessage(t *testing.T) {
 
 // TestFetch_RefusesLoopback pins the SSRF guard: a hostile pvmt.toml
 // pointing arcgis_url at localhost / 169.254.169.254 / RFC1918 must be
-// refused with a clear error referencing the override flag.
+// refused, with a hint naming the override flag.
 func TestFetch_RefusesLoopback(t *testing.T) {
 	cases := []struct {
 		name string
@@ -774,8 +775,9 @@ func TestFetch_RefusesLoopback(t *testing.T) {
 			if err == nil {
 				t.Fatalf("expected SSRF refusal for %s, got nil", tc.url)
 			}
-			if !strings.Contains(err.Error(), "allow_private_arcgis") {
-				t.Errorf("expected override hint in error, got: %v", err)
+			h, ok := errors.AsType[*hint.ErrHint](err)
+			if !ok || !strings.Contains(h.Hint, "allow_private_arcgis") {
+				t.Errorf("expected the allow_private_arcgis hint on %v", err)
 			}
 		})
 	}

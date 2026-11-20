@@ -55,8 +55,8 @@ func TestCheckPublicAddr(t *testing.T) {
 			if !tc.blocked && err != nil {
 				t.Errorf("expected %s to be allowed, got: %v", tc.addr, err)
 			}
-			if tc.blocked && err != nil && !strings.Contains(err.Error(), "allow_private_arcgis") {
-				t.Errorf("blocked error should mention the override flag, got: %v", err)
+			if tc.blocked && err != nil && strings.Contains(err.Error(), "allow_private_arcgis") {
+				t.Errorf("the guard's refusal names the ArcGIS-only override, got: %v", err)
 			}
 		})
 	}
