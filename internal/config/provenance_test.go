@@ -263,11 +263,11 @@ func TestResolve_EmitsExpectedFields(t *testing.T) {
 	fields := cfg.Resolve("")
 
 	want := map[string]bool{
-		"units":                      false,
-		"grid.hex_edge_m":            false,
-		"forecast.initial_pci":       false,
-		"forecast.years":             false,
-		"cities[detroit].hex_edge_m": false,
+		"display.units":                                  false,
+		"grid.hex_edge_m":                                false,
+		"forecast.initial_pci":                           false,
+		"forecast.years":                                 false,
+		"cities[detroit].hex_edge_m":                     false,
 		"cities[detroit].forecast.treatment_cycle_years": false,
 		"forecast.cost_overhead":                         false,
 	}
@@ -551,7 +551,7 @@ func TestResolve_FlagUnitsWins(t *testing.T) {
 	fields := cfg.Resolve("imperial")
 
 	for _, f := range fields {
-		if f.Key == "units" {
+		if f.Key == "display.units" {
 			if f.Value != "imperial" {
 				t.Errorf("units value = %v, want imperial", f.Value)
 			}
@@ -672,8 +672,8 @@ func TestResolve_AllLayersReachable(t *testing.T) {
 		}
 	}
 
-	if byKey["units"].Source.Kind != SourceFlag {
-		t.Errorf("units source = %v, want flag", byKey["units"].Source)
+	if byKey["display.units"].Source.Kind != SourceFlag {
+		t.Errorf("units source = %v, want flag", byKey["display.units"].Source)
 	}
 	if byKey["grid.hex_edge_m"].Source.Kind != SourceEnv {
 		t.Errorf("grid.hex_edge_m source = %v, want env", byKey["grid.hex_edge_m"].Source)

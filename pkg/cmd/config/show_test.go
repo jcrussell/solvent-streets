@@ -143,7 +143,7 @@ func TestShow_SourcesEmitsKeyValueSourceLines(t *testing.T) {
 	got := bufs.out.String()
 
 	wants := []string{
-		"units = metric (env:PVMT_UNITS)",
+		"display.units = metric (env:PVMT_UNITS)",
 		"grid.hex_edge_m = 100 (file:grid.hex_edge_m)",
 		"forecast.years = 25 (file:forecast.years)",
 		"forecast.initial_pci = 85 (default)",
@@ -164,7 +164,7 @@ func TestShow_FlagUnitsReportedAsSource(t *testing.T) {
 		t.Fatalf("execute: %v", err)
 	}
 	got := bufs.out.String()
-	if !strings.Contains(got, "units = imperial (flag:--units)") {
+	if !strings.Contains(got, "display.units = imperial (flag:--units)") {
 		t.Errorf("--units flag should be reported as source; got:\n%s", got)
 	}
 }
@@ -200,7 +200,7 @@ func TestShow_JSONEmitsArray(t *testing.T) {
 
 	var unitsRow map[string]any
 	for _, r := range rows {
-		if r["key"] == "units" {
+		if r["key"] == "display.units" {
 			unitsRow = r
 			break
 		}

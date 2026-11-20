@@ -383,7 +383,7 @@ func (c *Config) Resolve(flagUnits string) []ResolvedField {
 	fields := make([]ResolvedField, 0, 6+4*len(c.Cities))
 
 	unitsVal, unitsSrc := c.resolveUnits(flagUnits)
-	fields = append(fields, ResolvedField{Key: "units", Value: unitsVal.String(), Source: unitsSrc})
+	fields = append(fields, ResolvedField{Key: "display.units", Value: unitsVal.String(), Source: unitsSrc})
 
 	hexVal, hexSrc := c.resolveHexEdge()
 	fields = append(fields, ResolvedField{Key: "grid.hex_edge_m", Value: hexVal, Source: hexSrc})
