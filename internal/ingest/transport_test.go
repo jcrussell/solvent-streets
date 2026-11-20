@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
 	"runtime"
 	"strings"
 	"sync"
@@ -916,25 +915,6 @@ func TestBackoffWait_RetryAfterIgnoredWhenDisabled(t *testing.T) {
 	exp := time.Second // attempt=0 → exp=1s
 	if got >= exp {
 		t.Errorf("backoffWait with UseRetryAfter=false honoured Retry-After: got %v >= exp %v", got, exp)
-	}
-}
-
-// TestRetryTransport_NoMathRandImport guards against a regression to the
-// old math/rand jitter source. math/rand needs explicit seeding
-// (otherwise identical sequences across invocations); math/rand/v2 is
-// auto-seeded. A future "let's simplify" import of math/rand would
-// silently lose the seeding fix.
-func TestRetryTransport_NoMathRandImport(t *testing.T) {
-	src, err := os.ReadFile("transport.go")
-	if err != nil {
-		t.Fatalf("read transport.go: %v", err)
-	}
-	body := string(src)
-	if strings.Contains(body, `"math/rand"`) {
-		t.Error(`transport.go imports "math/rand"; byob-http-client.3 requires "math/rand/v2" for auto-seeding`)
-	}
-	if !strings.Contains(body, `"math/rand/v2"`) {
-		t.Error(`transport.go must import "math/rand/v2" for full-jitter backoff`)
 	}
 }
 

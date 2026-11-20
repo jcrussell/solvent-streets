@@ -15,6 +15,7 @@ linters:
     - bidichk
     - bodyclose
     - copyloopvar
+    - depguard
     - dupl
     - dupword
     - durationcheck
@@ -62,6 +63,15 @@ linters:
     - wastedassign
     - whitespace
   settings:
+    depguard:
+      rules:
+        main:
+          list-mode: lax
+          deny:
+            # math/rand needs explicit seeding; math/rand/v2 is auto-seeded,
+            # so retry jitter differs between invocations.
+            - pkg: "math/rand$"
+              desc: use math/rand/v2
     errcheck:
       exclude-functions:
         # Close on defers - errors rarely actionable
