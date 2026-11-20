@@ -6,13 +6,6 @@ import (
 	"testing"
 )
 
-func TestParking_Type(t *testing.T) {
-	p := &Parking{}
-	if p.Type() != TypeParking {
-		t.Errorf("expected TypeParking, got %v", p.Type())
-	}
-}
-
 func TestParking_OverpassQuery(t *testing.T) {
 	p := &Parking{}
 	q := p.OverpassQuery([4]float64{37.64, -121.84, 37.72, -121.68})

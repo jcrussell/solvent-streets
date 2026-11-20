@@ -6,16 +6,6 @@ import (
 	"testing"
 )
 
-func TestSidewalk_Type(t *testing.T) {
-	s := &Sidewalk{}
-	if s.Type() != TypeSidewalks {
-		t.Errorf("expected TypeSidewalks, got %v", s.Type())
-	}
-	if s.HasCohorts() {
-		t.Error("expected HasCohorts to be false for sidewalks")
-	}
-}
-
 func TestSidewalk_OverpassQuery(t *testing.T) {
 	s := &Sidewalk{}
 	q := s.OverpassQuery([4]float64{37.64, -121.84, 37.72, -121.68})

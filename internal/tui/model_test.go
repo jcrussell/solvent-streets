@@ -9,6 +9,10 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
+// The plain-text (non-TTY) path passes a NoopNotifier wherever a
+// PhaseNotifier is wanted.
+var _ PhaseNotifier = NoopNotifier{}
+
 // TestStepModel_CtrlCIsACancellation: raw mode
 // swallows SIGINT, so ctrl+c reaches the model as a key press and the error it
 // leaves is the only signal the caller gets. It must match context.Canceled,
@@ -113,17 +117,6 @@ func TestStepModel_WarnRingBuffer(t *testing.T) {
 	if got := len(m.warnLines); got != maxWarnLines {
 		t.Errorf("warnLines length = %d; want capped at %d", got, maxWarnLines)
 	}
-}
-
-// TestNoopNotifier_AcceptsAllCalls confirms the no-op notifier accepts
-// every PhaseNotifier method without panicking. Used by the plain-text
-// (non-TTY) code path, so any panic here would silently break --no-tui.
-func TestNoopNotifier_AcceptsAllCalls(t *testing.T) {
-	var n PhaseNotifier = NoopNotifier{}
-	n.PhaseStart(0)
-	n.PhaseDone(0, nil)
-	n.PhaseDone(0, errors.New("err"))
-	n.PhaseProgress(0, 0.5, "")
 }
 
 // TestProgressMsg_EventShape pins the JSON-free event payloads emitted

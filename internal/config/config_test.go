@@ -327,17 +327,20 @@ func TestResolvedForecast_EnvBeatsCity(t *testing.T) {
 }
 
 // TestResolvedForecast_DefaultsApplied confirms ResolvedForecast returns
-// fully-normalized fields even when file and city leave everything zero.
+// fully-normalized fields even when file and city leave everything zero, or
+// there is no city.
 // This is the invariant that lets callers read fc.InitialPCI / fc.Years
 // directly without re-checking.
 func TestResolvedForecast_DefaultsApplied(t *testing.T) {
 	cfg := &Config{Forecast: ForecastConfig{}} // all zeros
-	fc := cfg.ResolvedForecast(&CityConfig{Name: "Test"})
-	if fc.InitialPCI != DefaultInitialPCI {
-		t.Errorf("InitialPCI = %v, want %v", fc.InitialPCI, DefaultInitialPCI)
-	}
-	if fc.Years != DefaultForecastYears {
-		t.Errorf("Years = %v, want %v", fc.Years, DefaultForecastYears)
+	for name, city := range map[string]*CityConfig{"city": {Name: "Test"}, "nil city": nil} {
+		fc := cfg.ResolvedForecast(city)
+		if fc.InitialPCI != DefaultInitialPCI {
+			t.Errorf("%s: InitialPCI = %v, want %v", name, fc.InitialPCI, DefaultInitialPCI)
+		}
+		if fc.Years != DefaultForecastYears {
+			t.Errorf("%s: Years = %v, want %v", name, fc.Years, DefaultForecastYears)
+		}
 	}
 }
 
@@ -484,20 +487,6 @@ func TestResolvedForecast_NilCity(t *testing.T) {
 	}
 	if fc.InitialPCI != 70 {
 		t.Errorf("InitialPCI = %v, want 70 (top-level preserved)", fc.InitialPCI)
-	}
-}
-
-// TestResolvedForecast_NilCityAppliesDefaults is the other half of the
-// nil-city contract: with a zero top-level Forecast, the normalizer
-// must still fire so callers can read fc.InitialPCI / fc.Years directly.
-func TestResolvedForecast_NilCityAppliesDefaults(t *testing.T) {
-	cfg := &Config{Forecast: ForecastConfig{}}
-	fc := cfg.ResolvedForecast(nil)
-	if fc.InitialPCI != DefaultInitialPCI {
-		t.Errorf("InitialPCI = %v, want %v", fc.InitialPCI, DefaultInitialPCI)
-	}
-	if fc.Years != DefaultForecastYears {
-		t.Errorf("Years = %d, want %d", fc.Years, DefaultForecastYears)
 	}
 }
 

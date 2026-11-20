@@ -9,13 +9,16 @@ import (
 	"github.com/peterstace/simplefeatures/geom"
 )
 
+// TestHexGrid_Count pins the tiling of a 1 km square at a 100 m edge: the
+// lattice is deterministic, so any change to the spacing, the margin or the
+// envelope reject moves the count or the corner ids.
 func TestHexGrid_Count(t *testing.T) {
-	// 1000m x 1000m area with 100m edge hexes
 	hexes := HexGrid(0, 0, 1000, 1000, 100)
-	// With 100m edge, hex width=200m, col spacing=150m, row spacing=173m
-	// ~7 cols * ~6 rows = ~42 hexes, some clipped by envelope reject
-	if len(hexes) < 20 || len(hexes) > 80 {
-		t.Errorf("expected ~30-50 hexes for 1km^2 at 100m edge, got %d", len(hexes))
+	if len(hexes) != 56 {
+		t.Fatalf("HexGrid over 1 km² at 100 m edge = %d hexes, want 56", len(hexes))
+	}
+	if first, last := hexes[0].ID, hexes[len(hexes)-1].ID; first != "hex:0:0" || last != "hex:7:5" {
+		t.Errorf("corner ids = %s, %s; want hex:0:0, hex:7:5", first, last)
 	}
 }
 

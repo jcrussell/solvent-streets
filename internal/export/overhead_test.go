@@ -261,12 +261,16 @@ func sortedCohorts(v any) any {
 }
 
 // TestOverhead_ResolvedTOMLReportsIt: the Config tab renders ResolvedTOML, so a
-// reader can see which regime produced the dollars on the page. It must show
-// the resolved value, not the raw 0.
+// reader can see which regime produced the dollars on the page. An unset
+// cost_overhead must show the resolved default, at the top level and for the
+// city, not the raw 0.
 func TestOverhead_ResolvedTOMLReportsIt(t *testing.T) {
-	var fc config.ForecastConfig
-	config.NormalizeForecast(&fc)
-	if fc.CostOverhead != config.DefaultCostOverhead {
-		t.Errorf("normalized cost_overhead = %v, want %v", fc.CostOverhead, config.DefaultCostOverhead)
+	out := ResolvedTOML(&config.Config{Cities: []config.CityConfig{{Name: "Nowhere"}}})
+	want := fmt.Sprintf("cost_overhead = %.1f", config.DefaultCostOverhead)
+	if got := strings.Count(out, want); got != 2 {
+		t.Errorf("%q appears %d times, want 2 (top level + city):\n%s", want, got, out)
+	}
+	if strings.Contains(out, "cost_overhead = 0") {
+		t.Errorf("ResolvedTOML shows the raw unset cost_overhead:\n%s", out)
 	}
 }

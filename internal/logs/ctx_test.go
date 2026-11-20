@@ -9,9 +9,8 @@ import (
 )
 
 func TestFromReturnsDefaultWhenAbsent(t *testing.T) {
-	got := From(context.Background())
-	if got == nil {
-		t.Fatal("From returned nil; expected slog.Default")
+	if got := From(context.Background()); got != slog.Default() {
+		t.Errorf("From(empty ctx) = %p, want slog.Default() %p", got, slog.Default())
 	}
 }
 
@@ -27,7 +26,7 @@ func TestWithLoggerRoundTrip(t *testing.T) {
 
 func TestWithLoggerNilIsNoop(t *testing.T) {
 	ctx := WithLogger(context.Background(), nil)
-	if got := From(ctx); got == nil {
-		t.Fatal("From returned nil after WithLogger(nil)")
+	if got := From(ctx); got != slog.Default() {
+		t.Errorf("From after WithLogger(nil) = %p, want slog.Default() %p", got, slog.Default())
 	}
 }

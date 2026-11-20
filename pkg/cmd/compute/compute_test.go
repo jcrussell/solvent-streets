@@ -808,9 +808,10 @@ func TestRunCompute_SaveSpaceMetricsErrorFatal(t *testing.T) {
 }
 
 // TestRunCompute_CommitsOnlyItsOwnPart: a standalone resource compute
-// commits ONE snapshot swapping in exactly its own part, under the run its
-// rows were saved with. No forecast is stored or rerun: every reader
-// simulates the forecast from the compute's cohort stats on demand.
+// commits ONE update of the latest compute, swapping in exactly its own
+// part, under the run its rows were saved with. No forecast is stored or
+// rerun: every reader simulates the forecast from the compute's cohort stats
+// on demand.
 func TestRunCompute_CommitsOnlyItsOwnPart(t *testing.T) {
 	producers := map[int64]string{}
 	var next int64
@@ -845,12 +846,12 @@ func TestRunCompute_CommitsOnlyItsOwnPart(t *testing.T) {
 	}
 
 	if len(commits) != 1 {
-		t.Fatalf("expected exactly one committed snapshot, got %d: %v", len(commits), commits)
+		t.Fatalf("expected exactly one commit of the latest compute, got %d: %v", len(commits), commits)
 	}
 	parts := commits[0]
 	roadsRun := parts[string(resource.TypeRoads)]
 	if want := map[string]int64{string(resource.TypeRoads): roadsRun}; roadsRun == 0 || !maps.Equal(parts, want) {
-		t.Fatalf("snapshot parts = %v, want exactly roads", parts)
+		t.Fatalf("committed parts = %v, want exactly roads", parts)
 	}
 	if len(producers) != 1 || producers[roadsRun] != string(resource.TypeRoads) {
 		t.Errorf("runs created = %v, want only the roads run", producers)

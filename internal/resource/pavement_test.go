@@ -10,13 +10,6 @@ import (
 
 var testProj = geo.NewUTMProjector(-121.76, 37.68)
 
-func TestPavement_Type(t *testing.T) {
-	p := &Pavement{}
-	if p.Type() != TypeRoads {
-		t.Errorf("expected TypeRoads, got %v", p.Type())
-	}
-}
-
 func TestPavement_OverpassQuery(t *testing.T) {
 	p := &Pavement{}
 	q := p.OverpassQuery([4]float64{37.64, -121.84, 37.72, -121.68})

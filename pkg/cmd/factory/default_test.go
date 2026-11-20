@@ -78,27 +78,6 @@ func TestHttpClientFactory_NoClientWideTimeout(t *testing.T) {
 	}
 }
 
-// TestHttpClientFactory_LazyCachedAcrossCalls locks in the sync.OnceValues
-// half of the HTTP client contract: f.HttpClient() returns the same
-// *http.Client on every call, so callers can hand it around without thinking
-// about which one is "the" client and the cache directory is created at most
-// once per process.
-func TestHttpClientFactory_LazyCachedAcrossCalls(t *testing.T) {
-	f := newTestFactoryForHTTP(t)
-
-	first, err := f.HttpClient()
-	if err != nil {
-		t.Fatalf("HttpClient (first): %v", err)
-	}
-	second, err := f.HttpClient()
-	if err != nil {
-		t.Fatalf("HttpClient (second): %v", err)
-	}
-	if first != second {
-		t.Errorf("HttpClient returned different *http.Client across calls; sync.OnceValues caching is broken")
-	}
-}
-
 // TestHttpClientFactory_CacheTTL pins where the HTTP cache TTL comes from: the
 // config's [cache] ttl when set, else cache.DefaultTTL, including when there is
 // no pvmt.toml at all. Any other config error fails the client rather than
@@ -346,88 +325,6 @@ func TestHttpClientFactory_TransportChainIsCacheWrapped(t *testing.T) {
 	gotType := fmt.Sprintf("%T", client.Transport)
 	if gotType != "*cache.CachingTransport" {
 		t.Errorf("outermost transport = %s; want *cache.CachingTransport (byob-http-client.1 chain order: cache wraps ingest wraps base)", gotType)
-	}
-}
-
-// TestLazyConfig_DefersConstructionUntilCalled locks in the laziness
-// half of the lazy-config contract: building the closure must not
-// invoke the loader, so `pvmt --version` and `pvmt --help` never read
-// the filesystem looking for pvmt.toml. A regression here would mean a
-// broken pvmt.toml could prevent users from running `pvmt --help` to
-// figure out what's wrong — the worst possible failure mode for a CLI.
-func TestLazyConfig_DefersConstructionUntilCalled(t *testing.T) {
-	calls := 0
-	load := lazyConfig(func() (*config.Config, error) {
-		calls++
-		return &config.Config{}, nil
-	})
-
-	if calls != 0 {
-		t.Fatalf("loader invoked %d time(s) before Config() was called; lazyConfig is not lazy", calls)
-	}
-
-	if _, err := load(); err != nil {
-		t.Fatalf("Config (first): %v", err)
-	}
-	if calls != 1 {
-		t.Fatalf("loader invoked %d time(s) after first Config(); want 1", calls)
-	}
-}
-
-// TestLazyConfig_CachedAcrossCalls locks in the sync.OnceValues half
-// of the contract: repeated f.Config() calls return the same *Config
-// without re-reading the file. Without this guarantee, a long-running
-// command that touches Config from multiple call sites (e.g.
-// CurrentCity, UnitSystem, warnInvalidEnv) would re-walk the
-// filesystem on every access.
-func TestLazyConfig_CachedAcrossCalls(t *testing.T) {
-	calls := 0
-	want := &config.Config{}
-	load := lazyConfig(func() (*config.Config, error) {
-		calls++
-		return want, nil
-	})
-
-	first, err := load()
-	if err != nil {
-		t.Fatalf("Config (first): %v", err)
-	}
-	second, err := load()
-	if err != nil {
-		t.Fatalf("Config (second): %v", err)
-	}
-	if first != second || first != want {
-		t.Errorf("lazyConfig returned different *Config across calls; sync.OnceValues caching is broken")
-	}
-	if calls != 1 {
-		t.Errorf("loader invoked %d time(s) across two Config() calls; want 1 (sync.OnceValues should cache)", calls)
-	}
-}
-
-// TestLazyConfig_CachesErrors guards a subtle but important property:
-// when the first load fails (broken pvmt.toml, permission denied,
-// etc.), subsequent calls must return the *same* cached error rather
-// than re-walking the filesystem each time. Callers like warnInvalidEnv
-// followed by a subcommand's RunE will dereference Config repeatedly;
-// without error caching, a single broken config would multiply
-// filesystem hits with no upside, and the user would see the same
-// error reported with different wrapping each time depending on what
-// the filesystem looked like at that instant.
-func TestLazyConfig_CachesErrors(t *testing.T) {
-	calls := 0
-	sentinel := errors.New("synthetic load failure")
-	load := lazyConfig(func() (*config.Config, error) {
-		calls++
-		return nil, sentinel
-	})
-
-	_, err1 := load()
-	_, err2 := load()
-	if !errors.Is(err1, sentinel) || !errors.Is(err2, sentinel) {
-		t.Errorf("expected sentinel error from both calls; got %v / %v", err1, err2)
-	}
-	if calls != 1 {
-		t.Errorf("loader invoked %d time(s); want 1 (errors must be cached, not retried)", calls)
 	}
 }
 

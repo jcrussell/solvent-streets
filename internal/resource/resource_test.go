@@ -4,19 +4,20 @@ import (
 	"testing"
 )
 
-func TestAllContainsThreeTypes(t *testing.T) {
-	if len(All) != 3 {
-		t.Fatalf("expected 3 resource types, got %d", len(All))
+// TestByType: each pavement type resolves to its own Source, in the order
+// the fan-out commands visit them.
+func TestByType(t *testing.T) {
+	want := []Type{TypeRoads, TypeParking, TypeSidewalks}
+	if len(All) != len(want) {
+		t.Fatalf("All has %d sources, want %d", len(All), len(want))
 	}
-}
-
-func TestByType_Pavement(t *testing.T) {
-	rt := ByType(TypeRoads)
-	if rt == nil {
-		t.Fatal("expected non-nil for TypeRoads")
-	}
-	if _, ok := rt.(*Pavement); !ok {
-		t.Errorf("expected *Pavement, got %T", rt)
+	for i, rt := range want {
+		if All[i].Type() != rt {
+			t.Errorf("All[%d] is %q, want %q", i, All[i].Type(), rt)
+		}
+		if got := ByType(rt); got != All[i] {
+			t.Errorf("ByType(%q) = %T, want All[%d]", rt, got, i)
+		}
 	}
 }
 
