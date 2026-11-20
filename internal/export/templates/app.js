@@ -680,9 +680,11 @@
             if (tabId === 'aggregate-tab') loadAggregateData();
             if (tabId === 'materials-tab') loadMaterials();
             // The aggregate honors the region-wide scope, so re-evaluate the
-            // scope-toggle reveal whenever the active tab changes.
-            maybeRevealScopeToggle();
-            if (!opts || opts.push !== false) Router.push();
+            // scope-toggle reveal whenever the active tab changes. A push
+            // follows, which writes the revealed scope itself.
+            const push = !opts || opts.push !== false;
+            maybeRevealScopeToggle(push);
+            if (push) Router.push();
         }
         queryAll('.tab-btn').forEach(btn => {
             btn.addEventListener('click', () => selectTab(btn.dataset.tab));
@@ -3352,7 +3354,10 @@
         // Idempotent — both loaders call this after their fetches settle.
         // On the Aggregate tab the toggle is region-wide, so honor whether
         // ANY city has both scopes rather than just the selected dropdown city.
-        function maybeRevealScopeToggle() {
+        // urlFollows is set by a caller that writes the URL right after, so
+        // the reveal leaves the history entry to it.
+        /** @param {boolean} [urlFollows] */
+        function maybeRevealScopeToggle(urlFollows) {
             const haveHexCity = hexDataByScope.city && Object.keys(hexDataByScope.city).length > 0;
             const haveHexAll = hexDataByScope.all && Object.keys(hexDataByScope.all).length > 0;
             const haveScenCity = !!(scenarioData && scenarioData.city);
@@ -3364,7 +3369,13 @@
                 return el && el.classList.contains('active');
             })();
             const reveal = (haveCity && haveAll) || (aggActive && regionHasBothScopes);
-            document.getElementById('gear-scope-row').hidden = !reveal;
+            const row = document.getElementById('gear-scope-row');
+            const revealed = reveal && row.hidden;
+            row.hidden = !reveal;
+            // Router.current writes ?scope= only while the row shows, and the
+            // boot replace runs before any data reveals it, so a deep-linked
+            // ?scope=all is rewritten into the address bar once it does.
+            if (revealed && currentScope !== 'city' && !urlFollows) Router.replace();
         }
 
         // Resolve the display name of the city currently in view from

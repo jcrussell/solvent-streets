@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { load } from './harness.mjs';
-import { fullData } from './fixtures.mjs';
+import { fullData, hexgridJSON, scenariosJSON } from './fixtures.mjs';
 
 const params = (win) => new URLSearchParams(win.location.search);
 
@@ -344,4 +344,46 @@ test('a history entry whose tab is no valid selector is ignored (solvent-streets
   await flush();
   assert.deepEqual(errors, []);
   assert.equal($('.tab-btn.active').dataset.tab, 'map-tab');
+});
+
+// The boot replace runs before the city's data reveals the scope row, so a
+// deep-linked ?scope=all is written back once the row shows. The hex grid is
+// in so the default metric is available and nothing else rewrites the URL.
+test('a deep-linked ?scope=all survives the boot replace', async () => {
+  const { win, doc, fireMap, flush } = load({
+    data: { ...fullData, 'hexgrid.geojson': hexgridJSON },
+    url: 'https://example.test/index.html?city=beta-ca&scope=all',
+  });
+  await flush();
+  fireMap('load');
+  await flush(12);
+  assert.equal(doc.getElementById('gear-scope-row').hidden, false, 'the fixture data has both scopes');
+  assert.equal(doc.querySelector('#scope-toggle button.active').dataset.scope, 'all');
+  assert.equal(params(win).get('scope'), 'all', 'the deep-linked scope was dropped from the URL');
+});
+
+// A tab switch that reveals the scope row pushes one entry for the new tab
+// and leaves the one it came from alone, so Back returns to it.
+test('a tab switch that reveals the scope row keeps the previous history entry', async () => {
+  // A city with every-jurisdiction scenarios only, in a region whose other
+  // cities have both: the row stays hidden on the Map tab, the scope in view
+  // is 'all', and the Aggregate tab shows the row.
+  const data = { 'cities/beta-ca/data/scenarios.json': { all: scenariosJSON.all }, ...fullData };
+  const { win, doc, get, flush } = load({ data, url: 'https://example.test/index.html?city=beta-ca&tab=map-tab' });
+  await flush();
+  assert.equal(doc.getElementById('gear-scope-row').hidden, true, 'the row must start hidden');
+  assert.equal(get('currentScope'), 'all');
+  const before = win.history.length;
+
+  get('regionHasBothScopes = true');
+  win.selectTab('aggregate-tab');
+  await flush();
+  assert.equal(doc.getElementById('gear-scope-row').hidden, false, 'the tab switch did not reveal the row');
+  assert.equal(win.history.length, before + 1, 'want one new history entry');
+  assert.equal(params(win).get('tab'), 'aggregate-tab');
+  assert.equal(params(win).get('scope'), 'all');
+
+  win.history.back();
+  await flush();
+  assert.equal(params(win).get('tab'), 'map-tab', 'Back did not return to the Map tab');
 });
