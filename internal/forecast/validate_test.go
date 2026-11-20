@@ -214,10 +214,10 @@ func surfaceVerdicts(t *testing.T, in forecast.Inputs) map[string]bool {
 
 	// The game. It has no single decay rate and no cost overhead.
 	gcfg := game.Config{
-		Hexes:               []game.HexConfig{{ID: "a", RoadArea: 1000, K: 0.04}},
+		Hexes:               []game.HexConfig{{ID: "a", RoadsArea: 1000, DecayRate: 0.04}},
 		InitialPCI:          in.InitialPCI,
 		CostTiers:           in.CostTiers,
-		StartingBudget:      in.Budget,
+		AnnualBudget:        in.Budget,
 		HorizonYears:        in.Years,
 		TreatmentCycleYears: in.CycleYears,
 		GrowthRate:          in.GrowthRate,

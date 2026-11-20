@@ -44,7 +44,7 @@ function endBanner(state, status = 'lost') {
 }
 
 test('play: a backlog loss with the treasury untouched says it went unspent', () => {
-  const { $, $$ } = endBanner({ loss_reason: 'backlog', treasury: 8e6, budget_rate: 1e6, treatment_count: 0, year: 8.1 });
+  const { $, $$ } = endBanner({ loss_reason: 'backlog', treasury: 8e6, annual_budget: 1e6, treatment_count: 0, year: 8.1 });
   const sub = $('#banner .sub').textContent;
   assert.match(sub, /went unspent and no roads were treated/);
   assert.match(sub, /drag over the map to treat/);
@@ -54,7 +54,7 @@ test('play: a backlog loss with the treasury untouched says it went unspent', ()
 });
 
 test('play: a backlog loss with a year of budget banked says it went unspent', () => {
-  const { $ } = endBanner({ loss_reason: 'backlog', treasury: 3e6, budget_rate: 1e6, treatment_count: 40 });
+  const { $ } = endBanner({ loss_reason: 'backlog', treasury: 3e6, annual_budget: 1e6, treatment_count: 40 });
   const sub = $('#banner .sub').textContent;
   assert.match(sub, /went unspent,/);
   assert.doesNotMatch(sub, /no roads were treated/);
@@ -63,7 +63,7 @@ test('play: a backlog loss with a year of budget banked says it went unspent', (
 // Peer review: at a $0 budget there was never money to spend, so the banner
 // must not blame the player for leaving it unspent.
 test('play: a backlog loss at a $0 budget does not call $0 unspent', () => {
-  const { $ } = endBanner({ loss_reason: 'backlog', treasury: 0, budget_rate: 0, treatment_count: 0 });
+  const { $ } = endBanner({ loss_reason: 'backlog', treasury: 0, annual_budget: 0, treatment_count: 0 });
   const sub = $('#banner .sub').textContent;
   assert.doesNotMatch(sub, /unspent/);
   assert.match(sub, /outran the budget/);
@@ -80,13 +80,13 @@ test('play: the board does not take treatments behind the start overlay', () => 
 });
 
 test('play: a backlog loss with the budget spent says decay outran it', () => {
-  const { $ } = endBanner({ loss_reason: 'backlog', treasury: 2e5, budget_rate: 1e6, treatment_count: 40 });
+  const { $ } = endBanner({ loss_reason: 'backlog', treasury: 2e5, annual_budget: 1e6, treatment_count: 40 });
   assert.match($('#banner .sub').textContent, /outran the budget/);
 });
 
 test('play: PCI-floor and closure losses name their cause', () => {
-  assert.match(endBanner({ loss_reason: 'pci_floor', treasury: 0, budget_rate: 1 }).$('#banner .sub').textContent, /PCI fell below/);
-  assert.match(endBanner({ loss_reason: 'closures', treasury: 0, budget_rate: 1 }).$('#banner .sub').textContent, /closed to gravel/);
+  assert.match(endBanner({ loss_reason: 'pci_floor', treasury: 0, annual_budget: 1 }).$('#banner .sub').textContent, /PCI fell below/);
+  assert.match(endBanner({ loss_reason: 'closures', treasury: 0, annual_budget: 1 }).$('#banner .sub').textContent, /closed to gravel/);
 });
 
 // --- first-run hint ---
@@ -94,7 +94,7 @@ test('play: PCI-floor and closure losses name their cause', () => {
 const boardData = { ...fullData, 'forecast_seed.json': seedJSON, 'hexgrid.geojson': hexgridJSON };
 
 // running is a minimal live engine state for the stubbed WASM exports.
-const running = (extra = {}) => JSON.stringify({ status: 'running', year: 0, treasury: 1e6, budget_rate: 1e6, changed: [], treatment_count: 0, ...extra });
+const running = (extra = {}) => JSON.stringify({ status: 'running', year: 0, treasury: 1e6, annual_budget: 1e6, changed: [], treatment_count: 0, ...extra });
 
 // startBoard boots the board with stub engine exports and presses Start.
 async function startBoard({ coarse = false, before } = {}) {
@@ -159,7 +159,7 @@ test('play: Play again shows a fresh board and HUD behind the start screen', asy
   const { $, get, win } = await startBoard();
   let inits = 0;
   win.gameInit = () => { inits++; return running({ year: 0, deferred_backlog: 0 }); };
-  win.__end = { status: 'lost', loss_reason: 'backlog', year: 8.1, treasury: 8e6, budget_rate: 1e6, deferred_backlog: 5e6, changed: [] };
+  win.__end = { status: 'lost', loss_reason: 'backlog', year: 8.1, treasury: 8e6, annual_budget: 1e6, deferred_backlog: 5e6, changed: [] };
   get('applyState(window.__end)');
   assert.match($('#hud-year').textContent, /^8\.1/);
   $('#play-again').click();

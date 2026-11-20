@@ -44,12 +44,12 @@ const (
 
 // --- Config: the JSON contract decoded from the browser at gameInit ---
 
-// HexConfig is a single board hex: a stable id, its road footprint in m^2, and
+// HexConfig is a single board hex: a stable id, its roads area in m^2, and
 // its area-blended decay rate k (per year).
 type HexConfig struct {
-	ID       string  `json:"id"`
-	RoadArea float64 `json:"road_area"`
-	K        float64 `json:"k"`
+	ID        string  `json:"id"`
+	RoadsArea float64 `json:"roads_area"`
+	DecayRate float64 `json:"decay_rate"`
 }
 
 // CohortConfig mirrors a per-classification cohort for the macro forecast.
@@ -72,9 +72,10 @@ type Config struct {
 
 	CostTiers []forecast.CostTier `json:"cost_tiers"`
 
-	// StartingBudget is the annual funding rate ($/sim-year) that refills the
-	// treasury and drives the macro insolvency headline.
-	StartingBudget float64 `json:"starting_budget"`
+	// AnnualBudget is the annual funding rate ($/sim-year) that refills the
+	// treasury and drives the macro insolvency headline: the forecast's
+	// annual_budget.
+	AnnualBudget float64 `json:"annual_budget"`
 
 	HorizonYears float64 `json:"horizon_years"`
 
@@ -118,12 +119,12 @@ type Game struct {
 	// stay valid because the slice is never grown after New.
 	hexByID map[string]*hexState
 
-	treasury   float64
-	budgetRate float64
-	simYears   float64
-	horizon    float64
-	endless    bool   // when true, never auto-win at the horizon (sandbox)
-	status     string // "running" | "won" | "lost"
+	treasury     float64
+	annualBudget float64
+	simYears     float64
+	horizon      float64
+	endless      bool   // when true, never auto-win at the horizon (sandbox)
+	status       string // "running" | "won" | "lost"
 	// lossReason names the condition that lost the game (one of the
 	// LossXxx constants); empty unless status is "lost".
 	lossReason string
@@ -163,7 +164,7 @@ type Game struct {
 // validates, where the key differs from the forecast package's name.
 var inputNames = map[string]string{
 	forecast.FieldYears:  "horizon_years",
-	forecast.FieldBudget: "starting_budget",
+	forecast.FieldBudget: "annual_budget",
 }
 
 // forecastInputs is the macro forecast's view of cfg at the given annual
@@ -218,10 +219,10 @@ func validateConfig(cfg Config) error {
 	if !finite(cfg.PCIJitter) || cfg.PCIJitter < 0 {
 		return fmt.Errorf("game: pci_jitter must be finite and >= 0, got %g", cfg.PCIJitter)
 	}
-	if !finite(cfg.StartingBudget) {
-		return fmt.Errorf("game: starting_budget must be finite, got %g", cfg.StartingBudget)
+	if !finite(cfg.AnnualBudget) {
+		return fmt.Errorf("game: annual_budget must be finite, got %g", cfg.AnnualBudget)
 	}
-	if err := cfg.forecastInputs(noDebt(cfg.StartingBudget)).Validate(inputNames); err != nil {
+	if err := cfg.forecastInputs(noDebt(cfg.AnnualBudget)).Validate(inputNames); err != nil {
 		return fmt.Errorf("game: %w", err)
 	}
 	return validateHexes(cfg.Hexes)
@@ -234,11 +235,11 @@ func validateHexes(hexes []HexConfig) error {
 		if h.ID == "" {
 			return fmt.Errorf("game: hex %d has empty id", i)
 		}
-		if !finite(h.K) || h.K <= 0 {
-			return fmt.Errorf("game: hex %q has invalid k %g (want finite > 0)", h.ID, h.K)
+		if !finite(h.DecayRate) || h.DecayRate <= 0 {
+			return fmt.Errorf("game: hex %q has invalid decay_rate %g (want finite > 0)", h.ID, h.DecayRate)
 		}
-		if !finite(h.RoadArea) || h.RoadArea < 0 {
-			return fmt.Errorf("game: hex %q has invalid road_area %g (want finite >= 0)", h.ID, h.RoadArea)
+		if !finite(h.RoadsArea) || h.RoadsArea < 0 {
+			return fmt.Errorf("game: hex %q has invalid roads_area %g (want finite >= 0)", h.ID, h.RoadsArea)
 		}
 	}
 	return nil
@@ -257,18 +258,18 @@ func New(cfg Config) (*Game, error) {
 	tiers := make([]forecast.CostTier, len(cfg.CostTiers))
 	copy(tiers, cfg.CostTiers)
 
-	startBudget := noDebt(cfg.StartingBudget)
+	startBudget := noDebt(cfg.AnnualBudget)
 
 	g := &Game{
-		treasury:   startBudget,
-		budgetRate: startBudget,
-		horizon:    cfg.HorizonYears,
-		endless:    cfg.Endless,
-		status:     statusRunning,
-		cost:       &forecast.TieredCostProjector{Tiers: tiers},
-		tiers:      tiers,
-		initialPCI: cfg.InitialPCI,
-		cycleYears: forecast.ResolveCycleYears(cfg.TreatmentCycleYears),
+		treasury:     startBudget,
+		annualBudget: startBudget,
+		horizon:      cfg.HorizonYears,
+		endless:      cfg.Endless,
+		status:       statusRunning,
+		cost:         &forecast.TieredCostProjector{Tiers: tiers},
+		tiers:        tiers,
+		initialPCI:   cfg.InitialPCI,
+		cycleYears:   forecast.ResolveCycleYears(cfg.TreatmentCycleYears),
 	}
 
 	minCost := math.Inf(1)
@@ -286,8 +287,8 @@ func New(cfg Config) (*Game, error) {
 		pci := clampPCI(cfg.InitialPCI + jitterOffset(h.ID, cfg.PCIJitter))
 		g.hexes[i] = hexState{
 			id:          h.ID,
-			roadArea:    h.RoadArea,
-			k:           h.K,
+			roadArea:    h.RoadsArea,
+			k:           h.DecayRate,
 			pci:         pci,
 			closed:      pci <= ClosureEpsilon,
 			paintedBand: -1, // never painted -> first StateJSON emits all hexes
@@ -297,7 +298,7 @@ func New(cfg Config) (*Game, error) {
 		if _, ok := g.hexByID[h.ID]; !ok {
 			g.hexByID[h.ID] = &g.hexes[i]
 		}
-		totalArea += h.RoadArea
+		totalArea += h.RoadsArea
 	}
 	// One cycle of the board's year-1 need, priced as the forecast prices it:
 	// each hex at its PCI after one year's decay.
@@ -318,7 +319,7 @@ func New(cfg Config) (*Game, error) {
 // Tick advances sim time by dt sim-years. Each open hex decays continuously by
 // exp(-k*dt); because exp composes (prod over a year of exp(-k*dt) == exp(-k*1)),
 // repeated ticks land exactly on the annual ExponentialPCIForecaster step with no
-// drift. The treasury refills at budgetRate*dt. The board's hold-steady need
+// drift. The treasury refills at annualBudget*dt. The board's hold-steady need
 // accrues for the tick, and each completed sim-year settles its unmet need
 // (need minus the year's treatment spend, if positive) into the backlog. Hexes
 // at or below ClosureEpsilon close.
@@ -330,7 +331,7 @@ func (g *Game) Tick(dt float64) {
 		return
 	}
 	g.simYears += dt
-	g.treasury += g.budgetRate * dt
+	g.treasury += g.annualBudget * dt
 
 	for i := range g.hexes {
 		h := &g.hexes[i]
@@ -424,7 +425,7 @@ func (g *Game) treatOne(hexID, tier string) bool {
 // year (year, true) or (0, false) when the network stays solvent through the
 // horizon. cfg.Hexes is ignored, so no validation/New is required.
 func ProjectInsolvency(cfg Config) (year int, ok bool) {
-	return insolvencyFromForecast(cfg.forecastInputs(noDebt(cfg.StartingBudget)))
+	return insolvencyFromForecast(cfg.forecastInputs(noDebt(cfg.AnnualBudget)))
 }
 
 // insolvencyFromForecast is the forecast core behind ProjectInsolvency: it
@@ -558,12 +559,12 @@ type changedHex struct {
 }
 
 type stateOut struct {
-	Year       float64 `json:"year"`
-	Treasury   float64 `json:"treasury"`
-	BudgetRate float64 `json:"budget_rate"`
-	NetworkPCI float64 `json:"network_pci"`
-	Backlog    float64 `json:"deferred_backlog"`
-	Status     string  `json:"status"`
+	Year         float64 `json:"year"`
+	Treasury     float64 `json:"treasury"`
+	AnnualBudget float64 `json:"annual_budget"`
+	NetworkPCI   float64 `json:"network_pci"`
+	Backlog      float64 `json:"deferred_backlog"`
+	Status       string  `json:"status"`
 	// LossReason is the LossXxx condition that ended a lost game; omitted
 	// while the game is running or won.
 	LossReason string `json:"loss_reason,omitempty"`
@@ -583,16 +584,16 @@ type stateOut struct {
 // call returns every hex (initial paint).
 func (g *Game) StateJSON() ([]byte, error) {
 	out := stateOut{
-		Year:       g.simYears,
-		Treasury:   g.treasury,
-		BudgetRate: g.budgetRate,
-		NetworkPCI: g.networkPCI(),
-		Backlog:    g.backlog,
-		Status:     g.status,
-		LossReason: g.lossReason,
-		Spent:      g.spent,
-		Treatments: g.treatments,
-		Changed:    []changedHex{},
+		Year:         g.simYears,
+		Treasury:     g.treasury,
+		AnnualBudget: g.annualBudget,
+		NetworkPCI:   g.networkPCI(),
+		Backlog:      g.backlog,
+		Status:       g.status,
+		LossReason:   g.lossReason,
+		Spent:        g.spent,
+		Treatments:   g.treatments,
+		Changed:      []changedHex{},
 	}
 	minOpenArea := math.Inf(1)
 	for i := range g.hexes {

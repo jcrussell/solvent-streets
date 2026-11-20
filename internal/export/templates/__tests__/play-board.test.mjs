@@ -81,7 +81,7 @@ const roadsForecast = forecastJSON.find((f) => f.resource_type === 'roads');
 test('play: the start budget is the cited street budget', async () => {
   assert.ok(roadsForecast.current_budget > 0, 'fixture must cite a budget');
   const { get, $ } = await bootBoard(boardData(seedJSON));
-  assert.equal(get('gameConfig').starting_budget, roadsForecast.current_budget);
+  assert.equal(get('gameConfig').annual_budget, roadsForecast.current_budget);
   assert.equal($('#start-budget-slider').value, String(roadsForecast.current_budget));
 });
 
@@ -94,7 +94,7 @@ test('play: with no cited budget the start budget is the hold-steady budget', as
     else f.current_budget = 123_456;
   }
   const { get, $ } = await bootBoard({ ...boardData(seedJSON), 'forecast.json': forecast });
-  assert.equal(get('gameConfig').starting_budget, roadsForecast.break_even_budget);
+  assert.equal(get('gameConfig').annual_budget, roadsForecast.break_even_budget);
   assert.equal($('#start-budget-value').textContent, get('PvmtCommon.fmtMoney')(roadsForecast.break_even_budget));
 });
 
@@ -111,8 +111,8 @@ test('play: board hexes take road area and k from hexgrid', async () => {
   const got = JSON.parse(JSON.stringify(get('gameConfig').hexes));
   assert.deepEqual(got, want.map((f) => ({
     id: f.properties.id,
-    road_area: cityRoadsArea(f.properties),
-    k: f.properties.k,
+    roads_area: cityRoadsArea(f.properties),
+    decay_rate: f.properties.k,
   })));
 });
 
@@ -122,7 +122,7 @@ test('play: a road hex the map rounds to zero area keeps a positive board area',
   sliver.properties.city.roads.area = 0;
   const { get } = await bootBoard({ ...boardData(seedJSON), 'hexgrid.geojson': grid });
   const hex = get('gameConfig').hexes.find((h) => h.id === sliver.properties.id);
-  assert.equal(hex.road_area, 0.01);
+  assert.equal(hex.roads_area, 0.01);
 });
 
 test('play: a hexgrid of another format is refused', async () => {

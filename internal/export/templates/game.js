@@ -291,7 +291,7 @@
             const treated = s.treatment_count || 0;
             // Only money actually left over is "unspent": at a $0 budget there
             // was never any to spend.
-            const unspent = s.treasury > 0 && (treated === 0 || s.treasury >= s.budget_rate);
+            const unspent = s.treasury > 0 && (treated === 0 || s.treasury >= s.annual_budget);
             if (s.loss_reason === 'backlog' && unspent) {
                 return {
                     headline: 'Network insolvent.',
@@ -350,7 +350,7 @@
             stopLoop();
             applyState(initState); // changed == every hex → full repaint
             // The annual budget is chosen on the start overlay and baked into
-            // gameConfig.starting_budget, so gameInit already seeds the engine at
+            // gameConfig.annual_budget, so gameInit already seeds the engine at
             // the right rate — no post-seed budget sync needed.
             startLoop();
             return true;
@@ -524,7 +524,7 @@
 
         // wireStartOverlay binds the pre-game start screen: the horizon buttons and
         // the annual-budget slider mutate gameConfig (horizon feeds the win
-        // condition; budget is the fixed funding rate baked into starting_budget),
+        // condition; budget is the fixed funding rate baked into annual_budget),
         // and each change refreshes the projected-insolvency preview. The Start
         // button launches play. Called from boot once gameConfig exists;
         // defaultBudget is the forecast-derived rate (pickStartingBudget).
@@ -552,7 +552,7 @@
             // Annual-budget slider: 0..2x the larger of the forecast-derived default
             // and the hold-steady (break-even) budget, so a solvent budget is always
             // reachable even when today's budget is far below it. Sets
-            // gameConfig.starting_budget and refreshes the preview; there is no
+            // gameConfig.annual_budget and refreshes the preview; there is no
             // in-game budget slider.
             const slider = inputById('start-budget-slider');
             const out = document.getElementById('start-budget-value');
@@ -564,7 +564,7 @@
             out.textContent = fmtMoney(defaultBudget);
             slider.addEventListener('input', () => {
                 const rate = parseFloat(slider.value);
-                gameConfig.starting_budget = rate;
+                gameConfig.annual_budget = rate;
                 out.textContent = fmtMoney(rate);
                 refreshProjection();
             });
@@ -589,7 +589,7 @@
                     cohorts: gameConfig.cohorts,
                     initial_pci: gameConfig.initial_pci,
                     cost_tiers: gameConfig.cost_tiers,
-                    starting_budget: gameConfig.starting_budget,
+                    annual_budget: gameConfig.annual_budget,
                     horizon_years: gameConfig.horizon_years,
                     treatment_cycle_years: gameConfig.treatment_cycle_years,
                     growth_rate: gameConfig.growth_rate
@@ -651,18 +651,19 @@
 
         /**
          * playHex reads one hexgrid feature's properties as a board hex
-         * {id, road_area, k}, or null when it is not on the board. A board hex
-         * carries k (city-jurisdiction roads); its road area is the city-scope
-         * roads area, read through city_same the way the map reads it.
+         * {id, roads_area, decay_rate}, or null when it is not on the board. A
+         * board hex carries k, its decay rate (city-jurisdiction roads); its
+         * roads area is the city-scope roads area, read through city_same the
+         * way the map reads it.
          * @param {any} props
-         * @returns {{id: string, road_area: number, k: number} | null}
+         * @returns {{id: string, roads_area: number, decay_rate: number} | null}
          */
         function playHex(props) {
             if (!props || props.id == null || !(props.k > 0)) return null;
             const city = props.city_same ? props.all : props.city;
             const roads = city && city.roads;
             if (!roads || !(roads.area >= 0)) return null;
-            return { id: props.id, road_area: Math.max(roads.area, MIN_PLAY_AREA), k: props.k };
+            return { id: props.id, roads_area: Math.max(roads.area, MIN_PLAY_AREA), decay_rate: props.k };
         }
 
         async function boot() {
@@ -802,7 +803,7 @@
             // 5. Build the gameInit config from real data and seed the game.
             //    Prefer the per-city seed fetched above so cohorts/cost_tiers/
             //    initial_pci/years/treatment_cycle_years/growth_rate all come from
-            //    the SAME city as starting_budget (pickStartingBudget below). Fall
+            //    the SAME city as annual_budget (pickStartingBudget below). Fall
             //    back to the embedded scalar (single-city equals it; also covers a
             //    fetch error). loadJSON returns null on failure, so the || chain
             //    picks the embedded seed only when the fetch didn't yield one.
@@ -813,7 +814,7 @@
             // conditions without a cell on the map to treat it.
             const gameHexes = features.map(f => {
                 const ph = playById.get(f.id);
-                return { id: ph.id, road_area: ph.road_area, k: ph.k };
+                return { id: ph.id, roads_area: ph.roads_area, decay_rate: ph.decay_rate };
             });
             // Macro insolvency headline needs cohorts. City-scope cohorts are the
             // first choice, but `city_cohorts` is omitempty — fall back to the
@@ -835,7 +836,7 @@
                 initial_pci: seed.initial_pci != null ? seed.initial_pci : FORECAST_DEFAULTS.initial_pci,
                 pci_jitter: PVMT_CONFIG.pci_jitter,
                 cost_tiers: seed.cost_tiers || [],
-                starting_budget: startingBudget,
+                annual_budget: startingBudget,
                 horizon_years: seed.horizon_years || FORECAST_DEFAULTS.horizon_years,
                 endless: false,
                 treatment_cycle_years: seed.treatment_cycle_years || 0,

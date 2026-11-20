@@ -21,13 +21,13 @@ func defaultTiers() []forecast.CostTier {
 func baseConfig() Config {
 	return Config{
 		Hexes: []HexConfig{
-			{ID: "a", RoadArea: 1000, K: 0.04},
-			{ID: "b", RoadArea: 2000, K: 0.02},
+			{ID: "a", RoadsArea: 1000, DecayRate: 0.04},
+			{ID: "b", RoadsArea: 2000, DecayRate: 0.02},
 		},
 		InitialPCI:          80,
 		PCIJitter:           0,
 		CostTiers:           defaultTiers(),
-		StartingBudget:      1_000_000,
+		AnnualBudget:        1_000_000,
 		HorizonYears:        20,
 		TreatmentCycleYears: 12,
 		GrowthRate:          0,
@@ -56,22 +56,22 @@ func newGame(t *testing.T, cfg Config) *Game {
 func TestNewValidation(t *testing.T) {
 	cases := map[string]func(*Config){
 		"no hexes":       func(c *Config) { c.Hexes = nil },
-		"bad k":          func(c *Config) { c.Hexes[0].K = 0 },
-		"neg area":       func(c *Config) { c.Hexes[0].RoadArea = -1 },
+		"bad k":          func(c *Config) { c.Hexes[0].DecayRate = 0 },
+		"neg area":       func(c *Config) { c.Hexes[0].RoadsArea = -1 },
 		"bad horizon":    func(c *Config) { c.HorizonYears = 0 },
 		"no cost tiers":  func(c *Config) { c.CostTiers = nil },
 		"empty id":       func(c *Config) { c.Hexes[0].ID = "" },
 		"nan horizon":    func(c *Config) { c.HorizonYears = math.NaN() },
 		"inf horizon":    func(c *Config) { c.HorizonYears = math.Inf(1) },
-		"nan k":          func(c *Config) { c.Hexes[0].K = math.NaN() },
-		"inf area":       func(c *Config) { c.Hexes[0].RoadArea = math.Inf(1) },
+		"nan k":          func(c *Config) { c.Hexes[0].DecayRate = math.NaN() },
+		"inf area":       func(c *Config) { c.Hexes[0].RoadsArea = math.Inf(1) },
 		"nan initialpci": func(c *Config) { c.InitialPCI = math.NaN() },
 		"initialpci>100": func(c *Config) { c.InitialPCI = 101 },
 		"neg initialpci": func(c *Config) { c.InitialPCI = -1 },
 		"nan jitter":     func(c *Config) { c.PCIJitter = math.NaN() },
 		"neg jitter":     func(c *Config) { c.PCIJitter = -1 },
-		"nan budget":     func(c *Config) { c.StartingBudget = math.NaN() },
-		"inf budget":     func(c *Config) { c.StartingBudget = math.Inf(-1) },
+		"nan budget":     func(c *Config) { c.AnnualBudget = math.NaN() },
+		"inf budget":     func(c *Config) { c.AnnualBudget = math.Inf(-1) },
 		"nan growth":     func(c *Config) { c.GrowthRate = math.NaN() },
 		"neg tier cost":  func(c *Config) { c.CostTiers[0].CostPerSqM = -1 },
 		"nan tier cost":  func(c *Config) { c.CostTiers[0].CostPerSqM = math.NaN() },
@@ -105,7 +105,7 @@ func TestNewValidation(t *testing.T) {
 // exactly on the single annual exp step (prod exp(-k*dt) == exp(-k*1)).
 func TestDecayComposition(t *testing.T) {
 	cfg := baseConfig()
-	cfg.StartingBudget = 0 // no treasury growth to confuse anything
+	cfg.AnnualBudget = 0 // no treasury growth to confuse anything
 	g := newGame(t, cfg)
 
 	startPCI := g.hexes[0].pci
@@ -185,7 +185,7 @@ func TestTreatPreventiveSmallLift(t *testing.T) {
 
 func TestTreatUnaffordableRejected(t *testing.T) {
 	cfg := baseConfig()
-	cfg.StartingBudget = 100 // tiny treasury
+	cfg.AnnualBudget = 100 // tiny treasury
 	g := newGame(t, cfg)
 	if treat(g, "a", "reconstruction") {
 		t.Fatal("expected rejection when unaffordable")
@@ -254,7 +254,7 @@ func TestTierCostRankBreaksTiesStably(t *testing.T) {
 
 func TestClosureAtZero(t *testing.T) {
 	cfg := baseConfig()
-	cfg.Hexes = []HexConfig{{ID: "a", RoadArea: 1000, K: 5.0}} // very fast decay
+	cfg.Hexes = []HexConfig{{ID: "a", RoadsArea: 1000, DecayRate: 5.0}} // very fast decay
 	cfg.InitialPCI = 2
 	cfg.Cohorts = nil
 	g := newGame(t, cfg)
@@ -309,7 +309,7 @@ func TestTickNonFiniteIsNoOp(t *testing.T) {
 func TestProjectInsolvency(t *testing.T) {
 	cfg := baseConfig()
 
-	cfg.StartingBudget = 0
+	cfg.AnnualBudget = 0
 	year, ok := ProjectInsolvency(cfg)
 	if !ok {
 		t.Fatal("expected insolvency within horizon at budget 0")
@@ -318,13 +318,13 @@ func TestProjectInsolvency(t *testing.T) {
 		t.Fatalf("insolvency year %d out of range (1..%d)", year, int(cfg.HorizonYears))
 	}
 
-	cfg.StartingBudget = 1e12
+	cfg.AnnualBudget = 1e12
 	if _, ok := ProjectInsolvency(cfg); ok {
 		t.Fatal("expected solvent-through-horizon at a huge budget")
 	}
 
 	// No board required: cohorts drive the projection, hexes are ignored.
-	cfg.StartingBudget = 0
+	cfg.AnnualBudget = 0
 	cfg.Hexes = nil
 	if _, ok := ProjectInsolvency(cfg); !ok {
 		t.Fatal("expected insolvency at budget 0 even with no hexes")
@@ -359,7 +359,7 @@ func TestProjectInsolvencyNonFiniteInputs(t *testing.T) {
 		"nan initial_pci":  func(c *Config) { c.InitialPCI = math.NaN() },
 		"initial_pci>100":  func(c *Config) { c.InitialPCI = 101 },
 		"inf growth":       func(c *Config) { c.GrowthRate = math.Inf(1) },
-		"nan budget":       func(c *Config) { c.StartingBudget = math.NaN() },
+		"nan budget":       func(c *Config) { c.AnnualBudget = math.NaN() },
 		"nan tier cost":    func(c *Config) { c.CostTiers[0].CostPerSqM = math.NaN() },
 		"neg cohort area":  func(c *Config) { c.Cohorts[0].Area = -1 },
 		"inf cohort decay": func(c *Config) { c.Cohorts[0].DecayRate = math.Inf(1) },
@@ -387,20 +387,20 @@ func TestProjectInsolvencyNonFiniteInputs(t *testing.T) {
 func TestProjectInsolvencyTinyCycleIgnoresBudget(t *testing.T) {
 	cfg := baseConfig()
 	cfg.TreatmentCycleYears = 1e-9
-	cfg.StartingBudget = 1e12
+	cfg.AnnualBudget = 1e12
 	if year, ok := ProjectInsolvency(cfg); ok {
 		t.Fatalf("expected ok=false for a sub-annual cycle at a $1e12 budget, got year %d", year)
 	}
 }
 
-// TestNewNegativeBudgetClamped: a negative StartingBudget must seed
-// treasury/budgetRate at >= 0 (no debt model).
+// TestNewNegativeBudgetClamped: a negative AnnualBudget must seed
+// treasury/annualBudget at >= 0 (no debt model).
 func TestNewNegativeBudgetClamped(t *testing.T) {
 	cfg := baseConfig()
-	cfg.StartingBudget = -1_000_000
+	cfg.AnnualBudget = -1_000_000
 	g := newGame(t, cfg)
-	if g.budgetRate < 0 {
-		t.Errorf("budgetRate should clamp to >= 0, got %v", g.budgetRate)
+	if g.annualBudget < 0 {
+		t.Errorf("annualBudget should clamp to >= 0, got %v", g.annualBudget)
 	}
 	if g.treasury < 0 {
 		t.Errorf("treasury should clamp to >= 0, got %v", g.treasury)
@@ -410,7 +410,7 @@ func TestNewNegativeBudgetClamped(t *testing.T) {
 func TestWinTransition(t *testing.T) {
 	cfg := baseConfig()
 	cfg.HorizonYears = 2
-	cfg.Hexes = []HexConfig{{ID: "a", RoadArea: 1000, K: 0.0001}} // barely decays
+	cfg.Hexes = []HexConfig{{ID: "a", RoadsArea: 1000, DecayRate: 0.0001}} // barely decays
 	cfg.InitialPCI = 95
 	cfg.Cohorts = nil
 	g := newGame(t, cfg)
@@ -433,11 +433,11 @@ func TestLoseTransition(t *testing.T) {
 	cfg := baseConfig()
 	cfg.HorizonYears = 100
 	cfg.Hexes = []HexConfig{
-		{ID: "a", RoadArea: 1000, K: 1.0},
-		{ID: "b", RoadArea: 1000, K: 1.0},
+		{ID: "a", RoadsArea: 1000, DecayRate: 1.0},
+		{ID: "b", RoadsArea: 1000, DecayRate: 1.0},
 	}
 	cfg.InitialPCI = 40
-	cfg.StartingBudget = 0
+	cfg.AnnualBudget = 0
 	cfg.Cohorts = nil
 	g := newGame(t, cfg)
 	for i := 0; i < 100 && g.status == "running"; i++ {
@@ -490,7 +490,7 @@ func TestStateJSONShape(t *testing.T) {
 	if err := json.Unmarshal(raw, &m); err != nil {
 		t.Fatal(err)
 	}
-	for _, k := range []string{"year", "treasury", "budget_rate", "network_pci", "deferred_backlog", "status", "total_spend", "treatment_count", "changed"} {
+	for _, k := range []string{"year", "treasury", "annual_budget", "network_pci", "deferred_backlog", "status", "total_spend", "treatment_count", "changed"} {
 		if _, ok := m[k]; !ok {
 			t.Fatalf("StateJSON missing key %q", k)
 		}
@@ -536,17 +536,17 @@ func TestBandForPCI(t *testing.T) {
 // --- helpers ---
 
 type stateView struct {
-	Year        float64      `json:"year"`
-	Treasury    float64      `json:"treasury"`
-	BudgetRate  float64      `json:"budget_rate"`
-	NetworkPCI  float64      `json:"network_pci"`
-	Backlog     float64      `json:"deferred_backlog"`
-	Status      string       `json:"status"`
-	LossReason  string       `json:"loss_reason"`
-	Spent       float64      `json:"total_spend"`
-	Treatments  int          `json:"treatment_count"`
-	ClosedCount int          `json:"closed_count"`
-	Changed     []changedHex `json:"changed"`
+	Year         float64      `json:"year"`
+	Treasury     float64      `json:"treasury"`
+	AnnualBudget float64      `json:"annual_budget"`
+	NetworkPCI   float64      `json:"network_pci"`
+	Backlog      float64      `json:"deferred_backlog"`
+	Status       string       `json:"status"`
+	LossReason   string       `json:"loss_reason"`
+	Spent        float64      `json:"total_spend"`
+	Treatments   int          `json:"treatment_count"`
+	ClosedCount  int          `json:"closed_count"`
+	Changed      []changedHex `json:"changed"`
 }
 
 func decodeState(t *testing.T, g *Game) stateView {
@@ -613,7 +613,7 @@ func TestTreatAutoReopensClosedHex(t *testing.T) {
 func TestEndlessNeverWins(t *testing.T) {
 	cfg := baseConfig()
 	cfg.HorizonYears = 2
-	cfg.Hexes = []HexConfig{{ID: "a", RoadArea: 1000, K: 0.0001}} // barely decays
+	cfg.Hexes = []HexConfig{{ID: "a", RoadsArea: 1000, DecayRate: 0.0001}} // barely decays
 	cfg.InitialPCI = 95
 	cfg.Cohorts = nil
 
@@ -687,10 +687,10 @@ func idleConfig(budget float64) Config {
 	cfg := baseConfig()
 	cfg.HorizonYears = 20
 	cfg.InitialPCI = 75
-	cfg.StartingBudget = budget
+	cfg.AnnualBudget = budget
 	cfg.Hexes = []HexConfig{
-		{ID: "a", RoadArea: 1000, K: 0.02},
-		{ID: "b", RoadArea: 2000, K: 0.02},
+		{ID: "a", RoadsArea: 1000, DecayRate: 0.02},
+		{ID: "b", RoadsArea: 2000, DecayRate: 0.02},
 	}
 	cfg.Cohorts = []CohortConfig{{Classification: "residential", Area: 3000, DecayRate: 0.02}}
 	return cfg
@@ -761,9 +761,9 @@ func TestLossReason(t *testing.T) {
 	t.Run("pci floor", func(t *testing.T) {
 		cfg := baseConfig()
 		cfg.HorizonYears = 100
-		cfg.Hexes = []HexConfig{{ID: "a", RoadArea: 1000, K: 0.05}, {ID: "b", RoadArea: 1000, K: 0.05}}
+		cfg.Hexes = []HexConfig{{ID: "a", RoadsArea: 1000, DecayRate: 0.05}, {ID: "b", RoadsArea: 1000, DecayRate: 0.05}}
 		cfg.InitialPCI = 32
-		cfg.StartingBudget = 0
+		cfg.AnnualBudget = 0
 		cfg.Cohorts = nil
 		g := newGame(t, cfg)
 		for i := 0; i < 100 && g.status == "running"; i++ {
@@ -779,12 +779,12 @@ func TestLossReason(t *testing.T) {
 		// Two closed hexes and one pristine hex big enough to hold the
 		// area-weighted network PCI above the floor.
 		cfg.Hexes = []HexConfig{
-			{ID: "a", RoadArea: 1, K: 0.01},
-			{ID: "b", RoadArea: 1, K: 0.01},
-			{ID: "c", RoadArea: 1000, K: 0.01},
+			{ID: "a", RoadsArea: 1, DecayRate: 0.01},
+			{ID: "b", RoadsArea: 1, DecayRate: 0.01},
+			{ID: "c", RoadsArea: 1000, DecayRate: 0.01},
 		}
 		cfg.InitialPCI = 95
-		cfg.StartingBudget = 0
+		cfg.AnnualBudget = 0
 		cfg.Cohorts = nil
 		g := newGame(t, cfg)
 		g.hexByID["a"].pci, g.hexByID["a"].closed = 0, true
@@ -807,7 +807,7 @@ func TestLiveInsolvencyMatchesProjection(t *testing.T) {
 	for _, k := range []float64{0.02, 0.04, 0.06, 0.09} {
 		cfg := idleConfig(0)
 		for i := range cfg.Hexes {
-			cfg.Hexes[i].K = k
+			cfg.Hexes[i].DecayRate = k
 		}
 		cfg.Cohorts[0].DecayRate = k
 		want, ok := ProjectInsolvency(cfg)
@@ -873,7 +873,7 @@ func TestAutoTierSelection_GapUsesTheForecastsTier(t *testing.T) {
 func TestForecastBoundsHoldForNewAndTheProjection(t *testing.T) {
 	unfunded := func() Config {
 		cfg := baseConfig()
-		cfg.StartingBudget = 0
+		cfg.AnnualBudget = 0
 		return cfg
 	}
 	if _, err := New(unfunded()); err != nil {
