@@ -40,7 +40,7 @@ func TestEvaluate_BerkeleyMatchesItsPublishedFigure(t *testing.T) {
 	}
 	if math.Abs(*berkeley.Residual) > DefaultTolerance {
 		t.Errorf("Berkeley residual %+.1f%% exceeds ±%.0f%%: modelled %.0f vs published %.0f",
-			*berkeley.Residual*100, DefaultTolerance*100, berkeley.BreakEvenBudget, berkeley.HoldSteadyBudget)
+			*berkeley.Residual*100, DefaultTolerance*100, berkeley.BreakEvenBudget, berkeley.PublishedBreakEvenBudget)
 	}
 
 	// The $/m2-yr yardstick from §6, which is what pins the cost x cycle balance.

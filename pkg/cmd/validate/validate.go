@@ -75,12 +75,12 @@ type Result struct {
 	// in, and the only one comparable across cities of different sizes.
 	BreakEvenPerSqM float64 `json:"break_even_per_sqm_year"`
 	CurrentBudget   float64 `json:"current_budget"`
-	// HoldSteadyBudget is the city's own published hold-steady figure, when it
+	// PublishedBreakEvenBudget is the city's own published hold-steady figure, when it
 	// has one in citable form: the published counterpart of BreakEvenBudget,
 	// named for it. Zero means "not published"; those rows are reported for
 	// context and are not gated.
-	HoldSteadyBudget float64 `json:"published_break_even_budget,omitempty"`
-	// Residual is (modelled - published) / published against HoldSteadyBudget.
+	PublishedBreakEvenBudget float64 `json:"published_break_even_budget,omitempty"`
+	// Residual is (modelled - published) / published against PublishedBreakEvenBudget.
 	// Nil when the city publishes no hold-steady figure.
 	Residual *float64 `json:"residual,omitempty"`
 	// Status is one of "pass", "fail", "context". "context" means there was
@@ -247,11 +247,11 @@ func evaluateCity(c referenceCity, tolerance float64) Result {
 	breakEven := forecast.BreakEvenBudget(cohorts, 25, params, forecast.StrategyWorstFirst)
 
 	res := Result{
-		Slug:             c.Slug,
-		Name:             c.Name,
-		BreakEvenBudget:  breakEven,
-		CurrentBudget:    c.CurrentBudget,
-		HoldSteadyBudget: c.HoldSteadyBudget,
+		Slug:                     c.Slug,
+		Name:                     c.Name,
+		BreakEvenBudget:          breakEven,
+		CurrentBudget:            c.CurrentBudget,
+		PublishedBreakEvenBudget: c.HoldSteadyBudget,
 	}
 	if c.PavedAreaSqM > 0 {
 		res.BreakEvenPerSqM = breakEven / c.PavedAreaSqM
@@ -281,8 +281,8 @@ func writeTable(io *iostreams.IOStreams, r Report) error {
 	tp.AddHeader("CITY", "BREAK-EVEN", "$/SQ M·YR", "PUBLISHED", "RESIDUAL", "STATUS")
 	for _, res := range r.Results {
 		published, residual := "—", "—"
-		if res.HoldSteadyBudget > 0 {
-			published = fmtDollars(res.HoldSteadyBudget)
+		if res.PublishedBreakEvenBudget > 0 {
+			published = fmtDollars(res.PublishedBreakEvenBudget)
 		}
 		if res.Residual != nil {
 			residual = fmt.Sprintf("%+.1f%%", *res.Residual*100)

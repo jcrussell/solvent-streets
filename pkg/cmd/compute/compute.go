@@ -444,7 +444,7 @@ func (c *computer) mergeSpaces(ctx context.Context, stats []geo.HexStat, buffere
 
 // sumSpaces totals the apportioned spaces over a hex-stat slice, rounded to
 // a whole count: the city-level figure is the sum of the hex-clipped shares,
-// so it stays consistent with total_area (also a sum over clipped hexes).
+// so it stays consistent with area (also a sum over clipped hexes).
 func sumSpaces(stats []geo.HexStat) int {
 	var s float64
 	for _, st := range stats {
