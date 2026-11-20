@@ -647,6 +647,21 @@
         function tabButton(tabId) {
             return tabId ? queryAll('.tab-btn').find(b => b.dataset.tab === tabId) || null : null;
         }
+        // WASM_TABS are the tabs that run the forecast simulator (or show
+        // what it computes); opening one boots it (bootWasm).
+        const WASM_TABS = ['financials-tab', 'materials-tab', 'compare-tab', 'aggregate-tab'];
+        let wasmBooting = false;
+        // bootWasm starts the forecast simulator's one boot (PvmtCommon.loadWasm)
+        // and runs onWasmReady once it is up; later calls do nothing.
+        function bootWasm() {
+            if (wasmBooting || typeof WebAssembly === 'undefined') return;
+            wasmBooting = true;
+            PvmtCommon.loadWasm().then(onWasmReady).catch(err => {
+                console.warn('WASM load failed:', err);
+                showError('forecast WASM', PvmtCommon.errorText(err));
+            });
+        }
+
         function selectTab(tabId, opts) {
             const btn = tabButton(tabId);
             const content = document.getElementById(tabId);
@@ -660,6 +675,7 @@
             revealTabButton(btn);
             if (opts && opts.focus) btn.focus();
             if (tabId === 'map-tab' && window._map) window._map.resize();
+            if (WASM_TABS.includes(tabId)) bootWasm();
             if (tabId === 'compare-tab') loadCompareData();
             if (tabId === 'aggregate-tab') loadAggregateData();
             if (tabId === 'materials-tab') loadMaterials();
@@ -5415,11 +5431,17 @@
             document.getElementById('aggregate-content').style.display = 'block';
         }
 
-        // Boot the forecast simulator. The page works without it (the static
-        // exports stand in), so a browser with no WebAssembly is not an error.
-        if (typeof WebAssembly !== 'undefined') {
-            PvmtCommon.loadWasm().then(onWasmReady).catch(err => {
-                console.warn('WASM load failed:', err);
-                showError('forecast WASM', PvmtCommon.errorText(err));
-            });
+        // Boot the forecast simulator once the map has drawn, in the browser's
+        // idle time, or as soon as a tab that runs it opens (bootWasm, from
+        // selectTab), whichever comes first. The Map tab never runs it, so its
+        // ~1 MB download does not compete with the hex grid on first paint.
+        // The page works without it (the static exports stand in), so a
+        // browser with no WebAssembly is not an error.
+        // A page opened on such a tab (a ?tab= deep link, which sets the tab's
+        // classes rather than calling selectTab) boots it at once.
+        {
+            const idle = window.requestIdleCallback || ((fn) => setTimeout(fn, 0));
+            const active = document.querySelector('.tab-content.active');
+            if (!window._map || (active && WASM_TABS.includes(active.id))) bootWasm();
+            else window._map.once('idle', () => idle(bootWasm));
         }

@@ -172,6 +172,8 @@ test('loadWasm fetches the Go runtime itself when the page has not loaded it', a
   for (const page of PAGES) {
     const { win, $$, flush } = load({ page, goRuntime: false });
     await flush();
+    // The dashboard boots the simulator when a tab that runs it opens.
+    if (page === 'index') { win.selectTab('financials-tab'); await flush(); }
     assert.equal($$('head script[src="wasm_exec.js"]').length, 1, page);
     // A second caller joins the same boot rather than starting another.
     win.PvmtCommon.loadWasm();
@@ -181,6 +183,8 @@ test('loadWasm fetches the Go runtime itself when the page has not loaded it', a
 
 test('loadWasm boots the WASM once and hands over to the page', async () => {
   const index = load({ data: fullData, goRuntime: true, wasm: true });
+  await index.flush();
+  index.win.selectTab('financials-tab');
   await index.flush();
   assert.equal(index.get('wasmReady'), true, 'the dashboard never learned the simulator was up');
   await index.win.PvmtCommon.loadWasm();
@@ -195,9 +199,39 @@ test('loadWasm boots the WASM once and hands over to the page', async () => {
 test('a WASM that fails to load is reported on both pages', async () => {
   for (const page of PAGES) {
     // The runtime is there but pvmt.wasm 404s through the fetch stub.
-    const { $, $$, flush } = load({ page, goRuntime: true });
+    const { win, $, $$, flush } = load({ page, goRuntime: true });
     await flush();
+    if (page === 'index') { win.selectTab('financials-tab'); await flush(); }
     assert.equal($('#error-banner').hidden, false, page);
     assert.ok($$('#error-banner-list li').some((li) => li.textContent.startsWith('forecast WASM (')), page);
+  }
+});
+
+// The dashboard's Map tab never runs the forecast simulator, so opening on it
+// leaves pvmt.wasm unfetched until the map has drawn (its 'idle' event, then
+// the browser's idle time) or a tab that runs it opens.
+test('the dashboard fetches pvmt.wasm after the map draws or a forecast tab opens', async () => {
+  const wasmFetched = (h) => h.fetches().some((p) => p.endsWith('pvmt.wasm'));
+
+  const onMap = load({ data: fullData, goRuntime: true, wasm: true });
+  await onMap.flush();
+  assert.equal(wasmFetched(onMap), false, 'the Map tab fetched pvmt.wasm before the map drew');
+  onMap.fireMap('idle');
+  await new Promise((r) => setTimeout(r, 10));
+  await onMap.flush();
+  assert.equal(onMap.get('wasmReady'), true, 'the simulator did not boot once the map was idle');
+
+  const onTab = load({ data: fullData, goRuntime: true, wasm: true });
+  await onTab.flush();
+  onTab.win.selectTab('financials-tab');
+  await onTab.flush();
+  assert.equal(onTab.get('wasmReady'), true, 'opening Financials did not boot the simulator');
+
+  // A deep link straight to a forecast tab boots it on first load, without
+  // waiting for the map.
+  for (const tab of ['financials-tab', 'materials-tab', 'compare-tab', 'aggregate-tab']) {
+    const deep = load({ data: fullData, goRuntime: true, wasm: true, url: 'https://example.test/index.html?tab=' + tab });
+    await deep.flush();
+    assert.equal(deep.get('wasmReady'), true, 'a ?tab=' + tab + ' deep link did not boot the simulator');
   }
 });
