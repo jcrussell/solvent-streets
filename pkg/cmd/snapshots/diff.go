@@ -384,10 +384,10 @@ func loadMeasures(ctx context.Context, entry export.CityEntry) (measures, error)
 		return m, err
 	}
 	for t, tot := range totals {
-		m.values[measureKey{resource.MetricPavedArea, string(t)}] = tot.Area
-		m.values[measureKey{resource.MetricFeatureCount, string(t)}] = float64(tot.Features)
-		if t.Bare() == resource.TypeParking {
-			m.values[measureKey{resource.MetricParkingSpaces, string(t)}] = float64(tot.Spaces)
+		// The stored rows' own shape: area and feature count, and spaces for
+		// parking.
+		for _, row := range results.TotalRows(t, tot) {
+			m.values[measureKey{row.Metric, row.Subject}] = row.Value
 		}
 	}
 	// The headline falls back to the per-resource sum when the combined pass
