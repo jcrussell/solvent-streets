@@ -9,6 +9,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/hint"
+	"github.com/jcrussell/solvent-streets/internal/logs"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	censuscmd "github.com/jcrussell/solvent-streets/pkg/cmd/census"
 	"github.com/jcrussell/solvent-streets/pkg/cmd/compute"
@@ -98,7 +99,7 @@ Run 'pvmt all compute' next.`,
 			if dryRun {
 				ctx = ingest.WithDryRun(ctx)
 			}
-			return cmdutil.ForEachCity(ctx, f, func(cf *cmdutil.Factory, city *config.CityConfig) error {
+			return cmdutil.ForEachCity(ctx, f, func(ctx context.Context, cf *cmdutil.Factory, city *config.CityConfig) error {
 				return ingestCity(ctx, f.IOStreams, cf, city, force || rebuild)
 			})
 		},
@@ -138,7 +139,7 @@ func ingestCity(ctx context.Context, ios *iostreams.IOStreams, cf *cmdutil.Facto
 		}
 		return fmt.Errorf("%w (retry: pvmt --city %s %s ingest)", err, city.Slug(), cmd)
 	}
-	err = forEachResource(ios, func(rt resource.Source) error {
+	err = forEachResource(ios, "ingest", func(rt resource.Source) error {
 		return retry(ingest.RunResourceWithBoundary(ctx, cf, rt, boundary), string(rt.Type()))
 	})
 	if isCancel(err) {
@@ -177,8 +178,8 @@ a setting that affects results.`,
 		Example: `  # Compute every resource and then the combined paved-area pass
   pvmt all compute`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return cmdutil.ForEachCity(cmd.Context(), f, func(cf *cmdutil.Factory, city *config.CityConfig) error {
-				return computeCity(cmd.Context(), f.IOStreams, cf, city)
+			return cmdutil.ForEachCity(cmd.Context(), f, func(ctx context.Context, cf *cmdutil.Factory, city *config.CityConfig) error {
+				return computeCity(ctx, f.IOStreams, cf, city)
 			})
 		},
 	}
@@ -189,6 +190,7 @@ a setting that affects results.`,
 // parts, a failed step leaves its part as it was, and a cancellation commits
 // nothing.
 func computeCity(ctx context.Context, ios *iostreams.IOStreams, cf *cmdutil.Factory, city *config.CityConfig) error {
+	logs.From(ctx).Debug("all compute: city start")
 	cfg, err := cf.Config()
 	if err != nil {
 		return err
@@ -230,7 +232,7 @@ func computeSteps(ctx context.Context, ios *iostreams.IOStreams, cf *cmdutil.Fac
 	if err != nil {
 		return err
 	}
-	resErr := forEachResource(ios, func(rt resource.Source) error {
+	resErr := forEachResource(ios, "compute", func(rt resource.Source) error {
 		return compute.RunResourceForCity(ctx, cf, rt, grid, draft)
 	})
 	// Cancellation stops the city here: the combined pass would fail
@@ -372,7 +374,9 @@ func runOptionalStep(ios *iostreams.IOStreams, label string, fn func() error) er
 	}
 }
 
-func forEachResource(ios *iostreams.IOStreams, fn func(resource.Source) error) error {
+// forEachResource runs fn for each pavement resource under a
+// "--- <resource> <verb> ---" header (verb is "ingest" or "compute").
+func forEachResource(ios *iostreams.IOStreams, verb string, fn func(resource.Source) error) error {
 	// cmdutil.Outcomes is the rule ForEachCity applies one level up: an empty
 	// resource is skipped, a failed one is kept while the rest still run, and
 	// the city is ErrNoResults (exit 3, as `pvmt roads ingest` is for the same
@@ -382,7 +386,7 @@ func forEachResource(ios *iostreams.IOStreams, fn func(resource.Source) error) e
 	// empty site.
 	var out cmdutil.Outcomes
 	for _, rt := range resource.All {
-		fmt.Fprintf(ios.ErrOut, "\n--- %s ---\n", rt.Type())
+		fmt.Fprintf(ios.ErrOut, "\n--- %s %s ---\n", rt.Type(), verb)
 		err := fn(rt)
 		// A canceled compute (SIGINT / TUI ctrl+c) must abort the fan-out
 		// immediately: warn-and-continue would launch the next resource's TUI

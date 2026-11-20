@@ -27,7 +27,7 @@ func TestRowsFromArcGISPage_DropsGeometryTheStoreRefuses(t *testing.T) {
 		t.Fatal(err)
 	}
 	var buf bytes.Buffer
-	ctx := logs.WithLogger(context.Background(), slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	ctx := logs.WithLogger(context.Background(), slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	rows, rawIDs := rowsFromArcGISPage(ctx, page, "OBJECTID", "arcgis", 0)
 	if len(rawIDs) != 4 {
 		t.Errorf("raw ids = %v, want all 4 (pagination counts the raw page)", rawIDs)

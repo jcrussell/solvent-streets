@@ -59,7 +59,11 @@ func RunCombined(ctx context.Context, f *cmdutil.Factory, grid []geo.Hex, draft 
 	if err != nil {
 		return err
 	}
-	boundaryGJSON, bbox, proj, err := LoadBoundary(ctx, store, city)
+	var warnOut io.Writer
+	if grid == nil {
+		warnOut = ios.ErrOut
+	}
+	boundaryGJSON, bbox, proj, err := LoadBoundary(ctx, store, city, warnOut)
 	if err != nil {
 		return err
 	}
@@ -67,7 +71,7 @@ func RunCombined(ctx context.Context, f *cmdutil.Factory, grid []geo.Hex, draft 
 	bufs := bufferAllResources(ctx, store, proj, ios.ErrOut)
 	if len(bufs.all) == 0 {
 		// Nothing to union: drop the part rather than keep an old total.
-		fmt.Fprintf(ios.ErrOut, "combined: no features across resources, skipping\n")
+		fmt.Fprintf(ios.ErrOut, "Skipping the combined pass: no features in any resource.\n")
 		return WithDraft(ctx, draft, store, cfg, city, func(draft *db.Draft) error {
 			draft.Drop(producer)
 			return nil
@@ -128,7 +132,7 @@ func bufferAllResources(ctx context.Context, store db.Store, proj *geo.UTMProjec
 			}
 			return nil
 		}); err != nil {
-			fmt.Fprintf(errOut, "combined: buffer %s: %v\n", rt.Type(), err)
+			cmdutil.FprintWarnf(errOut, "combined: skipping %s, whose buffer failed: %v", rt.Type(), err)
 			continue
 		}
 		// Counts are input feature counts per jurisdiction, not the
@@ -159,7 +163,7 @@ var errNoValidGeoms = errors.New("no valid geometries to process")
 func loadFeaturesForCombined(ctx context.Context, store db.Store, rt resource.Source, errOut io.Writer) ([]resource.Feature, bool) {
 	dbFeatures, err := store.ListFeatures(ctx, rt.Type())
 	if err != nil {
-		fmt.Fprintf(errOut, "combined: skip %s: %v\n", rt.Type(), err)
+		cmdutil.FprintWarnf(errOut, "combined: skipping %s: %v", rt.Type(), err)
 		return nil, false
 	}
 	if len(dbFeatures) == 0 {
@@ -191,7 +195,7 @@ func BuildCityGrid(ctx context.Context, f *cmdutil.Factory) ([]geo.Hex, error) {
 	if err != nil {
 		return nil, fmt.Errorf("database: %w", err)
 	}
-	boundaryGJSON, bbox, proj, err := LoadBoundary(ctx, store, city)
+	boundaryGJSON, bbox, proj, err := LoadBoundary(ctx, store, city, f.IOStreams.ErrOut)
 	if err != nil {
 		return nil, err
 	}

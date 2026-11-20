@@ -61,9 +61,14 @@ const (
 
 func (s *ArcGISSource) Name() string { return resource.SourceArcGIS }
 
+// Serves reports whether the layer has rt's features: an agency layer holds
+// street centerlines, so only roads.
+func (s *ArcGISSource) Serves(rt resource.Source) bool { return rt.Type() == resource.TypeRoads }
+
+var _ TypeServer = (*ArcGISSource)(nil)
+
 func (s *ArcGISSource) Fetch(ctx context.Context, client *http.Client, rt resource.Source) ([]db.Feature, error) {
-	// Only fetch centerlines for road type
-	if rt.Type() != resource.TypeRoads {
+	if !s.Serves(rt) {
 		return []db.Feature{}, nil
 	}
 

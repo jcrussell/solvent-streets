@@ -20,8 +20,8 @@ import (
 // pass an empty Overpass result through without branching.
 //
 // ctx carries the run logger; when the boundary loses sub-polygons to
-// cleaning failures, a one-line warning is emitted (a dropped boundary
-// landmass would otherwise silently shrink the subtracted result).
+// cleaning failures, a debug record says so (the compute's boundary load
+// warns the user about the same loss).
 func SubtractGeoJSON(ctx context.Context, boundaryGJSON, otherGJSON string) (string, error) {
 	if boundaryGJSON == "" {
 		return "", errors.New("boundary geojson is empty")
@@ -40,7 +40,7 @@ func SubtractGeoJSON(ctx context.Context, boundaryGJSON, otherGJSON string) (str
 		return "", fmt.Errorf("project boundary: %w", err)
 	}
 	if dropped > 0 {
-		logs.From(ctx).Warn("subtract: dropped degenerate boundary sub-polygons", "dropped", dropped)
+		logs.From(ctx).Debug("subtract: dropped degenerate boundary sub-polygons", "dropped", dropped)
 	}
 	other, _, err := GeoJSONToProjectedGeometry(otherGJSON, proj)
 	if err != nil {

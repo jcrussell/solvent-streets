@@ -324,7 +324,7 @@ func TestRunCompute_PrebuiltGridMatchesInline(t *testing.T) {
 
 	// Build the shared grid exactly as BuildCityGrid would for this city.
 	bstore := &dbtest.MockStore{GetBoundaryFunc: func(_ context.Context) (string, error) { return testBoundary, nil }}
-	boundaryGJSON, bbox, proj, err := LoadBoundary(ctx, bstore, testCity)
+	boundaryGJSON, bbox, proj, err := LoadBoundary(ctx, bstore, testCity, io.Discard)
 	if err != nil {
 		t.Fatalf("LoadBoundary: %v", err)
 	}

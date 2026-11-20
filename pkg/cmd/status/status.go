@@ -275,7 +275,7 @@ func runStatusAllCities(ctx context.Context, f *cmdutil.Factory, opts *Options) 
 	if cfg, err := f.Config(); err != nil || cfg == nil || len(cfg.Cities) == 0 {
 		return runStatus(ctx, opts)
 	}
-	return cmdutil.ForEachCityRows(ctx, f, opts.IO, opts.Exporter, func(cf *cmdutil.Factory, rows *[]statusRow) error {
+	return cmdutil.ForEachCityRows(ctx, f, opts.IO, opts.Exporter, func(ctx context.Context, cf *cmdutil.Factory, rows *[]statusRow) error {
 		cityOpts := *opts
 		cityOpts.CurrentCity, cityOpts.CityDB, cityOpts.rows = cf.CurrentCity, cf.CityDB, rows
 		return runStatus(ctx, &cityOpts)

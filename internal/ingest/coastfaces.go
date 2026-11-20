@@ -129,7 +129,7 @@ func waterFaces(ctx context.Context, faces []coastFace, opens [][][2]float64, pr
 		if !ok || inside <= minKm2 {
 			return
 		}
-		logs.From(ctx).Warn("water coastline: stripped a face its coastlines put on land",
+		logs.From(ctx).Debug("water coastline: stripped a face its coastlines put on land",
 			"land_hits", hits[i], "coastlines", leftOf[i], "km2_in_boundary", inside, "at", fmt.Sprint(at))
 	}
 	var water []waterPolygon
@@ -139,7 +139,7 @@ func waterFaces(ctx context.Context, faces []coastFace, opens [][][2]float64, pr
 			landByDirection(i)
 			water = append(water, parts[i]...)
 		case h <= faceSliverMaxAllowances*probes.maxHits && float64(h) <= coastlineLowSideFrac*float64(contrast[i]):
-			logs.From(ctx).Warn("water coastline: stripped a face holding a few city roads beside thousands across its coastline",
+			logs.From(ctx).Debug("water coastline: stripped a face holding a few city roads beside thousands across its coastline",
 				"land_hits", h, "across_land_hits", contrast[i], "allowance", probes.maxHits,
 				"area_lonlat_sq", facesArea(parts[i]))
 			landByDirection(i)
@@ -161,13 +161,13 @@ func waterFaces(ctx context.Context, faces []coastFace, opens [][][2]float64, pr
 // with a warning.
 func splitFaces(ctx context.Context, faces []coastFace, sub [][2]float64, bbox [4]float64) []coastFace {
 	drop := func(reason string) []coastFace {
-		logs.From(ctx).Warn("water coastline: dropped chain — "+reason, "vertices", len(sub))
+		logs.From(ctx).Debug("water coastline: dropped chain — "+reason, "vertices", len(sub))
 		return faces
 	}
 	head, tail := sub[0], sub[len(sub)-1]
 	if !onBBoxEdge(head, bbox) || !onBBoxEdge(tail, bbox) {
 		if !zeroLength(sub) { // a clip touching the bbox at one point is no chain
-			logs.From(ctx).Warn("water coastline: skipped a coastline that does not reach the bbox edge at both ends",
+			logs.From(ctx).Debug("water coastline: skipped a coastline that does not reach the bbox edge at both ends",
 				"vertices", len(sub), "head", fmt.Sprint(head), "tail", fmt.Sprint(tail))
 		}
 		return faces

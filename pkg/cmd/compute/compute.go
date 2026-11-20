@@ -17,7 +17,6 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/filter"
 	"github.com/jcrussell/solvent-streets/internal/forecast"
 	"github.com/jcrussell/solvent-streets/internal/geo"
-	"github.com/jcrussell/solvent-streets/internal/logs"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/internal/results"
 	"github.com/jcrussell/solvent-streets/internal/tui"
@@ -199,7 +198,7 @@ func RunResourceForCity(ctx context.Context, f *cmdutil.Factory, rt resource.Sou
 }
 
 func runComputeAllCities(ctx context.Context, f *cmdutil.Factory, opts *Options) error {
-	return cmdutil.ForEachCityRows(ctx, f, opts.IO, opts.Exporter, func(cf *cmdutil.Factory, rows *[]computeRow) error {
+	return cmdutil.ForEachCityRows(ctx, f, opts.IO, opts.Exporter, func(ctx context.Context, cf *cmdutil.Factory, rows *[]computeRow) error {
 		cityOpts := *opts
 		cityOpts.CurrentCity, cityOpts.CityDB, cityOpts.rows = cf.CurrentCity, cf.CityDB, rows
 		return runCompute(ctx, &cityOpts)
@@ -299,7 +298,11 @@ func doCompute(ctx context.Context, out, progress, errOut io.Writer, notify tui.
 	if err != nil {
 		return err
 	}
-	boundaryGJSON, bbox, proj, err := LoadBoundary(ctx, store, city)
+	var warnOut io.Writer
+	if opts.PrebuiltGrid == nil {
+		warnOut = opts.IO.ErrOut
+	}
+	boundaryGJSON, bbox, proj, err := LoadBoundary(ctx, store, city, warnOut)
 	if err != nil {
 		return err
 	}
@@ -463,11 +466,13 @@ func filterBufferedByJurisdiction(bufs []resource.BufferedFeature, j filter.Juri
 }
 
 // LoadBoundary reads the city's stored boundary and derives its bbox and UTM
-// projector, warning about an oversized bbox or dropped sub-polygons. It is
+// projector, warning on warnOut (nil: not at all, for a step after the one
+// that built the city's grid) about an oversized bbox or dropped
+// sub-polygons. It is
 // the single source of the projection every per-city pass (coverage, the
 // combined pass, service routing) must share so their hex ids and metres
 // agree.
-func LoadBoundary(ctx context.Context, store db.Store, city *config.CityConfig) (string, [4]float64, *geo.UTMProjector, error) {
+func LoadBoundary(ctx context.Context, store db.Store, city *config.CityConfig, warnOut io.Writer) (string, [4]float64, *geo.UTMProjector, error) {
 	boundaryGJSON, err := store.GetBoundary(ctx)
 	if err != nil {
 		return "", [4]float64{}, nil, fmt.Errorf("get boundary: %w", err)
@@ -484,16 +489,15 @@ func LoadBoundary(ctx context.Context, store db.Store, city *config.CityConfig) 
 	// one 6° zone gets distorted metric areas/lengths near its edges. Warn so an
 	// oversized city isn't silently mis-measured (bbox is [south,west,north,east],
 	// so the lon span is east-west = bbox[3]-bbox[1]).
-	if geo.BBoxExceedsUTMZone(bbox) {
-		logs.From(ctx).Warn("boundary: bbox longitude span exceeds one UTM zone; metric areas near the edges may be distorted",
-			"city", city.Name, "lon_span_deg", bbox[3]-bbox[1], "utm_zone", proj.Zone)
+	if geo.BBoxExceedsUTMZone(bbox) && warnOut != nil {
+		cmdutil.FprintWarnf(warnOut, "%s: its boundary spans %.1f° of longitude, more than one UTM zone (%d); metric areas near the edges may be distorted",
+			city.Name, bbox[3]-bbox[1], proj.Zone)
 	}
 	// Surface partial boundary loss: a degenerate sub-polygon that fails
 	// cleaning silently drops a whole landmass from the boundary, shrinking
 	// computed area and hex coverage. Warn so operators can fix the source.
-	if _, _, dropped, gErr := geo.GeoJSONToProjectedGeometryDropped(boundaryGJSON, proj); gErr == nil && dropped > 0 {
-		logs.From(ctx).Warn("boundary: dropped degenerate sub-polygons",
-			"city", city.Name, "dropped", dropped)
+	if _, _, dropped, gErr := geo.GeoJSONToProjectedGeometryDropped(boundaryGJSON, proj); gErr == nil && dropped > 0 && warnOut != nil {
+		cmdutil.FprintWarnf(warnOut, "%s: %d degenerate boundary sub-polygons dropped, so its area and hex coverage leave them out", city.Name, dropped)
 	}
 	return boundaryGJSON, bbox, proj, nil
 }

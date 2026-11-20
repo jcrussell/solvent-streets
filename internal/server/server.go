@@ -122,7 +122,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 
 	select {
 	case <-ctx.Done():
-		fmt.Fprintln(s.ios.ErrOut, "\nshutting down...")
+		fmt.Fprintln(s.ios.ErrOut, "\nShutting down...")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		return srv.Shutdown(shutdownCtx)

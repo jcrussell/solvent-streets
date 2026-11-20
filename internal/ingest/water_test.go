@@ -254,7 +254,7 @@ func TestParseWaterResponse_DropsWayContainingLandProbe(t *testing.T) {
 	}]}`
 
 	var buf bytes.Buffer
-	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	ctx := logs.WithLogger(context.Background(), logger)
 
 	// landProbe at (0.5, 0.5) is INSIDE the way's outer ring.
@@ -270,7 +270,8 @@ func TestParseWaterResponse_DropsWayContainingLandProbe(t *testing.T) {
 		Way      int64  `json:"way"`
 		LandHits int    `json:"land_hits"`
 	}
-	if err := json.Unmarshal(bytes.TrimSpace(buf.Bytes()), &rec); err != nil {
+	first, _, _ := bytes.Cut(bytes.TrimSpace(buf.Bytes()), []byte("\n")) // the first record; a parse summary follows
+	if err := json.Unmarshal(first, &rec); err != nil {
 		t.Fatalf("parse log line: %v: %s", err, buf.String())
 	}
 	if !strings.Contains(rec.Msg, "containing city land") {
@@ -300,7 +301,7 @@ func TestParseWaterResponse_DropsRelationContainingLandProbe(t *testing.T) {
 	}]}`
 
 	var buf bytes.Buffer
-	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	ctx := logs.WithLogger(context.Background(), logger)
 
 	result, err := parseWaterResponse(ctx, []byte(body), [4]float64{-1, -1, 2, 2}, LandProbes{Points: [][2]float64{{0.5, 0.5}}})
@@ -315,7 +316,8 @@ func TestParseWaterResponse_DropsRelationContainingLandProbe(t *testing.T) {
 		Relation int64  `json:"relation"`
 		LandHits int    `json:"land_hits"`
 	}
-	if err := json.Unmarshal(bytes.TrimSpace(buf.Bytes()), &rec); err != nil {
+	first, _, _ := bytes.Cut(bytes.TrimSpace(buf.Bytes()), []byte("\n")) // the first record; a parse summary follows
+	if err := json.Unmarshal(first, &rec); err != nil {
 		t.Fatalf("parse log line: %v: %s", err, buf.String())
 	}
 	if !strings.Contains(rec.Msg, "containing city land") {
@@ -432,7 +434,7 @@ func TestParseWaterResponse_LogsDroppedMemberWays(t *testing.T) {
 	}]}`
 
 	var buf bytes.Buffer
-	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	ctx := logs.WithLogger(context.Background(), logger)
 
 	if _, err := parseWaterResponse(ctx, []byte(body), [4]float64{0, 0, 10, 10}, LandProbes{Points: [][2]float64{{5, 5}}}); err != nil {
@@ -446,15 +448,15 @@ func TestParseWaterResponse_LogsDroppedMemberWays(t *testing.T) {
 		DroppedOuter []int64 `json:"dropped_outer"`
 		DroppedInner []int64 `json:"dropped_inner"`
 	}
-	line := bytes.TrimSpace(buf.Bytes())
+	line, _, _ := bytes.Cut(bytes.TrimSpace(buf.Bytes()), []byte("\n")) // the first record; a parse summary follows
 	if len(line) == 0 {
 		t.Fatal("expected warn log line; got nothing")
 	}
 	if err := json.Unmarshal(line, &record); err != nil {
 		t.Fatalf("parse log line: %v: %s", err, line)
 	}
-	if record.Level != "WARN" {
-		t.Errorf("level = %q, want WARN", record.Level)
+	if record.Level != "DEBUG" {
+		t.Errorf("level = %q, want DEBUG", record.Level)
 	}
 	if !strings.Contains(record.Msg, "dropped") {
 		t.Errorf("msg = %q, want it to mention dropping", record.Msg)
@@ -539,7 +541,7 @@ func TestRelationToPolygons_MultipleDisjointOuters(t *testing.T) {
 // is skipped upstream) AND logs a WARN naming the relation id and the
 // dropped member-way ids. The warning sink is captured exactly as the
 // existing TestParseWaterResponse_LogsDroppedMemberWays does — a
-// bytes.Buffer JSON slog handler at WARN level.
+// bytes.Buffer JSON slog handler at DEBUG level.
 func TestRelationToPolygons_DroppedWaysNoPolygons(t *testing.T) {
 	// Two outer ways that form a partial chain but never close back to
 	// the start, so stitchRings drops both and returns no ring.
@@ -549,7 +551,7 @@ func TestRelationToPolygons_DroppedWaysNoPolygons(t *testing.T) {
 	)
 
 	var buf bytes.Buffer
-	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	ctx := logs.WithLogger(context.Background(), logger)
 
 	polys := relationToPolygons(ctx, rel, stitchRings, nil)
@@ -557,7 +559,7 @@ func TestRelationToPolygons_DroppedWaysNoPolygons(t *testing.T) {
 		t.Fatalf("expected no polygons for unstitchable relation, got %d", len(polys))
 	}
 
-	line := bytes.TrimSpace(buf.Bytes())
+	line, _, _ := bytes.Cut(bytes.TrimSpace(buf.Bytes()), []byte("\n")) // the first record; a parse summary follows
 	if len(line) == 0 {
 		t.Fatal("expected a dropped-ways WARN line; got nothing")
 	}
@@ -571,8 +573,8 @@ func TestRelationToPolygons_DroppedWaysNoPolygons(t *testing.T) {
 	if err := json.Unmarshal(line, &rec); err != nil {
 		t.Fatalf("parse log line: %v: %s", err, line)
 	}
-	if rec.Level != "WARN" {
-		t.Errorf("level = %q, want WARN", rec.Level)
+	if rec.Level != "DEBUG" {
+		t.Errorf("level = %q, want DEBUG", rec.Level)
 	}
 	if !strings.Contains(rec.Msg, "dropped") {
 		t.Errorf("msg = %q, want it to mention dropping", rec.Msg)
@@ -1144,14 +1146,14 @@ func TestCloseCoastlineChain_DropsCWClosedRingContainingLandProbe(t *testing.T) 
 	chain := [][2]float64{{0.2, 0.2}, {0.2, 0.8}, {0.8, 0.8}, {0.8, 0.2}, {0.2, 0.2}}
 
 	var buf bytes.Buffer
-	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	ctx := logs.WithLogger(context.Background(), logger)
 
 	rings := closeCoastlineChain(ctx, chain, bbox, newLandProbeIndex([][2]float64{{0.5, 0.5}}))
 	if len(rings) != 0 {
 		t.Fatalf("expected ring containing land probe to be dropped, got %d rings: %v", len(rings), rings)
 	}
-	line := bytes.TrimSpace(buf.Bytes())
+	line, _, _ := bytes.Cut(bytes.TrimSpace(buf.Bytes()), []byte("\n")) // the first record; a parse summary follows
 	if len(line) == 0 {
 		t.Fatal("expected warn log line; got nothing")
 	}
@@ -1183,7 +1185,7 @@ func TestCloseCoastlineChain_DropsCCWClosedRingAsIsland(t *testing.T) {
 	chain := [][2]float64{{0.2, 0.2}, {0.8, 0.2}, {0.8, 0.8}, {0.2, 0.8}, {0.2, 0.2}}
 
 	var buf bytes.Buffer
-	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	ctx := logs.WithLogger(context.Background(), logger)
 
 	rings := closeCoastlineChain(ctx, chain, bbox, newLandProbeIndex([][2]float64{{0.9, 0.9}}))
@@ -1191,7 +1193,7 @@ func TestCloseCoastlineChain_DropsCCWClosedRingAsIsland(t *testing.T) {
 		t.Fatalf("expected CCW closed chain to be dropped, got %d rings: %v", len(rings), rings)
 	}
 
-	line := bytes.TrimSpace(buf.Bytes())
+	line, _, _ := bytes.Cut(bytes.TrimSpace(buf.Bytes()), []byte("\n")) // the first record; a parse summary follows
 	if len(line) == 0 {
 		t.Fatal("expected warn log line; got nothing")
 	}
@@ -1203,8 +1205,8 @@ func TestCloseCoastlineChain_DropsCCWClosedRingAsIsland(t *testing.T) {
 	if err := json.Unmarshal(line, &record); err != nil {
 		t.Fatalf("parse log line: %v: %s", err, line)
 	}
-	if record.Level != "WARN" {
-		t.Errorf("level = %q, want WARN", record.Level)
+	if record.Level != "DEBUG" {
+		t.Errorf("level = %q, want DEBUG", record.Level)
 	}
 	if !strings.Contains(record.Msg, "CCW") {
 		t.Errorf("msg = %q, want it to mention CCW orientation", record.Msg)
@@ -1593,7 +1595,7 @@ func TestParseWaterResponse_RejectsOversizedRelation(t *testing.T) {
 	}]}`
 
 	var buf bytes.Buffer
-	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	ctx := logs.WithLogger(context.Background(), logger)
 
 	// bbox is the same as the outer → 100% coverage, well over 80% limit.
@@ -1605,9 +1607,10 @@ func TestParseWaterResponse_RejectsOversizedRelation(t *testing.T) {
 		t.Errorf("expected empty result when only outer is rejected; got %q", result)
 	}
 
-	line := bytes.TrimSpace(buf.Bytes())
+	// The rejection is the first record; the parse summary follows it.
+	line, _, _ := bytes.Cut(bytes.TrimSpace(buf.Bytes()), []byte("\n"))
 	if len(line) == 0 {
-		t.Fatal("expected warn log line; got nothing")
+		t.Fatal("expected a rejection log line; got nothing")
 	}
 	var record struct {
 		Msg      string `json:"msg"`
@@ -1618,8 +1621,8 @@ func TestParseWaterResponse_RejectsOversizedRelation(t *testing.T) {
 	if err := json.Unmarshal(line, &record); err != nil {
 		t.Fatalf("parse log line: %v: %s", err, line)
 	}
-	if record.Level != "WARN" {
-		t.Errorf("level = %q, want WARN", record.Level)
+	if record.Level != "DEBUG" {
+		t.Errorf("level = %q, want DEBUG", record.Level)
 	}
 	if record.Relation != 777 {
 		t.Errorf("relation = %d, want 777", record.Relation)
@@ -1826,7 +1829,7 @@ func TestAssembleWater_LakeLargerThanBBoxAcceptedWithRoadProbes(t *testing.T) {
 // applies, as before road probes existed.
 func TestAssembleWater_LakeLargerThanBBoxRejectedWithInteriorProbes(t *testing.T) {
 	var buf bytes.Buffer
-	ctx := logs.WithLogger(context.Background(), slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	ctx := logs.WithLogger(context.Background(), slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	probes, err := InteriorLandProbes(`{"type":"Polygon","coordinates":[[[0,0],[0.5,0],[0.5,1],[0,1],[0,0]]]}`)
 	if err != nil {
 		t.Fatal(err)
@@ -1846,7 +1849,7 @@ func TestAssembleWater_LakeLargerThanBBoxRejectedWithInteriorProbes(t *testing.T
 // containing city land.
 func TestAssembleWater_LakeHoldingRoadsDropped(t *testing.T) {
 	var buf bytes.Buffer
-	ctx := logs.WithLogger(context.Background(), slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	ctx := logs.WithLogger(context.Background(), slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	var inLake [][2]float64
 	for i := range 10 {
 		inLake = append(inLake, [2]float64{0.7 + 0.02*float64(i), 0.5})
@@ -1937,7 +1940,7 @@ func TestAssembleWater_IslandCityStripsSurroundingSea(t *testing.T) {
 // leaving the boundary unchanged.
 func TestAssembleWater_SeaAroundIslandsHoldingRoadsDropped(t *testing.T) {
 	var buf bytes.Buffer
-	ctx := logs.WithLogger(context.Background(), slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	ctx := logs.WithLogger(context.Background(), slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	pts := append(gridProbes(10, 0.32, 0.32, 0.68, 0.68), gridProbes(3, 0.1, 0.75, 0.25, 0.9)...)
 	water, err := parseWaterResponse(ctx, []byte(coastlineBody(islandRing)), [4]float64{0, 0, 1, 1}, denseProbes(pts))
 	if err != nil {
@@ -2112,7 +2115,7 @@ func TestAssembleWater_FaceSliverIsCapped(t *testing.T) {
 		warn bool
 	}{{2, 0.30, true}, {4, 1.0, false}} {
 		var buf bytes.Buffer
-		ctx := logs.WithLogger(context.Background(), slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+		ctx := logs.WithLogger(context.Background(), slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
 		pts := append(gridProbes(30, 0.01, 0.01, 0.29, 0.99), gridProbes(c.side, 0.6, 0.4, 0.7, 0.6)...)
 		got := stripRatioCtx(ctx, t, body, LandProbes{Points: pts, MaxHits: 3, Dense: true})
 		if math.Abs(got-c.want) > 0.005 {
@@ -2179,7 +2182,7 @@ func TestSplitFaces_SubsTouchingAtAVertex(t *testing.T) {
 // about rather than skipped silently.
 func TestAssembleWater_WarnsOnACoastlineEndingInsideTheBBox(t *testing.T) {
 	var buf bytes.Buffer
-	ctx := logs.WithLogger(context.Background(), slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	ctx := logs.WithLogger(context.Background(), slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	body := coastlineBody([][2]float64{{0.5, -0.5}, {0.5, 0.5}})
 	if _, err := parseWaterResponse(ctx, []byte(body), [4]float64{0, 0, 1, 1}, denseProbes(gridProbes(10, 0.05, 0.05, 0.45, 0.95))); err != nil {
 		t.Fatal(err)
@@ -2207,7 +2210,7 @@ func TestAssembleWater_WarnsOnStrippingAFaceItsCoastlinesPutOnLand(t *testing.T)
 		warn     bool
 	}{{0, whole, true}, {2, whole, false}, {0, westHalf, false}} {
 		var buf bytes.Buffer
-		ctx := logs.WithLogger(context.Background(), slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+		ctx := logs.WithLogger(context.Background(), slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
 		pts := gridProbes(20, 0.01, 0.01, 0.29, 0.99)
 		if c.side > 0 {
 			pts = append(pts, gridProbes(c.side, 0.62, 0.72, 0.78, 0.98)...)

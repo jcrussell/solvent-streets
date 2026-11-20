@@ -12,6 +12,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/hint"
+	"github.com/jcrussell/solvent-streets/internal/logs"
 	"github.com/jcrussell/solvent-streets/internal/paths"
 	"github.com/jcrussell/solvent-streets/internal/units"
 	"github.com/jcrussell/solvent-streets/pkg/cmd/prompt"
@@ -190,14 +191,14 @@ func cityOverrideFunc(cmd *cobra.Command, f *Factory, fallback func() (*config.C
 // rows are dropped: a command may record a row before the city's commit
 // fails or is canceled, and that row would name a discarded run.
 // A run with no rows at all writes nothing.
-func ForEachCityRows[R RowExporter](ctx context.Context, f *Factory, ios *iostreams.IOStreams, exporter Exporter, run func(cf *Factory, rows *[]R) error) error {
+func ForEachCityRows[R RowExporter](ctx context.Context, f *Factory, ios *iostreams.IOStreams, exporter Exporter, run func(ctx context.Context, cf *Factory, rows *[]R) error) error {
 	var acc []R
-	err := ForEachCity(ctx, f, func(cf *Factory, _ *config.CityConfig) error {
+	err := ForEachCity(ctx, f, func(ctx context.Context, cf *Factory, _ *config.CityConfig) error {
 		if exporter == nil {
-			return run(cf, nil)
+			return run(ctx, cf, nil)
 		}
 		var cityRows []R
-		err := run(cf, &cityRows)
+		err := run(ctx, cf, &cityRows)
 		if err == nil || errors.Is(err, ErrNoResults) {
 			acc = append(acc, cityRows...)
 		}
@@ -221,7 +222,7 @@ func ForEachCityRows[R RowExporter](ctx context.Context, f *Factory, ios *iostre
 // path, instead of silently exiting 0. A cancellation,
 // whether ctx is done or fn returns context.Canceled, stops the loop, and a
 // database that will not open fails the run once, before any city.
-func ForEachCity(ctx context.Context, f *Factory, fn func(cf *Factory, city *config.CityConfig) error) error {
+func ForEachCity(ctx context.Context, f *Factory, fn func(ctx context.Context, cf *Factory, city *config.CityConfig) error) error {
 	cities, err := ResolveCities(f)
 	if err != nil {
 		return err
@@ -234,7 +235,7 @@ func ForEachCity(ctx context.Context, f *Factory, fn func(cf *Factory, city *con
 	}
 
 	if len(cities) == 1 {
-		return fn(f, &cities[0])
+		return fn(cityContext(ctx, &cities[0]), f, &cities[0])
 	}
 
 	// Open the database before the first city. Failing to (say, a database
@@ -253,7 +254,8 @@ func ForEachCity(ctx context.Context, f *Factory, fn func(cf *Factory, city *con
 			break
 		}
 		fmt.Fprintf(f.IOStreams.ErrOut, "\n=== %s ===\n", city.Name)
-		err := fn(withCity(ctx, f, &city), &city)
+		cityCtx := cityContext(ctx, &city)
+		err := fn(cityCtx, withCity(cityCtx, f, &city), &city)
 		out.Add(city.Name, err)
 		// A city that was canceled stops the run even when ctx is still live:
 		// a ctrl+c inside a TUI step never reaches ctx (raw mode swallows the
@@ -263,6 +265,12 @@ func ForEachCity(ctx context.Context, f *Factory, fn func(cf *Factory, city *con
 		}
 	}
 	return out.Err()
+}
+
+// cityContext is ctx with its logger carrying city=<slug>, so every record
+// a per-city step logs names the city.
+func cityContext(ctx context.Context, city *config.CityConfig) context.Context {
+	return logs.WithLogger(ctx, logs.From(ctx).With("city", city.Slug()))
 }
 
 // Outcomes folds the results of running one step over several items (cities,

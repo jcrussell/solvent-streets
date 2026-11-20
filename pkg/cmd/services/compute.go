@@ -173,7 +173,7 @@ func RunComputeForCity(ctx context.Context, cf *cmdutil.Factory, service string,
 }
 
 func runComputeAllCities(ctx context.Context, f *cmdutil.Factory, opts *Options) error {
-	return cmdutil.ForEachCityRows(ctx, f, opts.IO, opts.Exporter, func(cf *cmdutil.Factory, rows *[]computeRow) error {
+	return cmdutil.ForEachCityRows(ctx, f, opts.IO, opts.Exporter, func(ctx context.Context, cf *cmdutil.Factory, rows *[]computeRow) error {
 		cityOpts := *opts
 		cityOpts.CurrentCity, cityOpts.CityDB, cityOpts.rows = cf.CurrentCity, cf.CityDB, rows
 		return runCompute(ctx, &cityOpts)

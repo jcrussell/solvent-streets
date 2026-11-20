@@ -1,9 +1,11 @@
 package cmdutil_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"testing"
 
@@ -11,6 +13,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
 	"github.com/jcrussell/solvent-streets/internal/hint"
+	"github.com/jcrussell/solvent-streets/internal/logs"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 
@@ -43,11 +46,26 @@ func TestForEachCity(t *testing.T) {
 
 	newFactory := newCitiesFactory
 
+	t.Run("logger_names_the_city", func(t *testing.T) {
+		f, _ := newFactory([]config.CityConfig{cityA, cityB}, false, nil)
+		var buf bytes.Buffer
+		ctx := logs.WithLogger(context.Background(), slog.New(slog.NewTextHandler(&buf, nil)))
+		if err := cmdutil.ForEachCity(ctx, f, func(ctx context.Context, _ *cmdutil.Factory, _ *config.CityConfig) error {
+			logs.From(ctx).Info("step")
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if out := buf.String(); !strings.Contains(out, "city=alpha") || !strings.Contains(out, "city=beta") {
+			t.Errorf("log records do not name their city:\n%s", out)
+		}
+	})
+
 	t.Run("single_city_no_header", func(t *testing.T) {
 		f, errOut := newFactory([]config.CityConfig{cityA}, false, nil)
 
 		var calls []string
-		err := cmdutil.ForEachCity(context.Background(), f, func(_ *cmdutil.Factory, city *config.CityConfig) error {
+		err := cmdutil.ForEachCity(context.Background(), f, func(ctx context.Context, _ *cmdutil.Factory, city *config.CityConfig) error {
 			calls = append(calls, city.Name)
 			return nil
 		})
@@ -66,7 +84,7 @@ func TestForEachCity(t *testing.T) {
 		f, errOut := newFactory([]config.CityConfig{cityA, cityB, cityC}, false, nil)
 
 		var calls []string
-		err := cmdutil.ForEachCity(context.Background(), f, func(_ *cmdutil.Factory, city *config.CityConfig) error {
+		err := cmdutil.ForEachCity(context.Background(), f, func(ctx context.Context, _ *cmdutil.Factory, city *config.CityConfig) error {
 			calls = append(calls, city.Name)
 			return nil
 		})
@@ -87,7 +105,7 @@ func TestForEachCity(t *testing.T) {
 	t.Run("err_no_results_silently_skipped", func(t *testing.T) {
 		f, _ := newFactory([]config.CityConfig{cityA, cityB}, false, nil)
 
-		err := cmdutil.ForEachCity(context.Background(), f, func(_ *cmdutil.Factory, city *config.CityConfig) error {
+		err := cmdutil.ForEachCity(context.Background(), f, func(ctx context.Context, _ *cmdutil.Factory, city *config.CityConfig) error {
 			if city.Name == "Alpha" {
 				return cmdutil.ErrNoResults
 			}
@@ -104,7 +122,7 @@ func TestForEachCity(t *testing.T) {
 		// exit 0.
 		f, _ := newFactory([]config.CityConfig{cityA, cityB}, false, nil)
 
-		err := cmdutil.ForEachCity(context.Background(), f, func(_ *cmdutil.Factory, _ *config.CityConfig) error {
+		err := cmdutil.ForEachCity(context.Background(), f, func(ctx context.Context, _ *cmdutil.Factory, _ *config.CityConfig) error {
 			return cmdutil.ErrNoResults
 		})
 		if !errors.Is(err, cmdutil.ErrNoResults) {
@@ -116,7 +134,7 @@ func TestForEachCity(t *testing.T) {
 		// The single-city contract ForEachCity's all-empty case now mirrors.
 		f, _ := newFactory([]config.CityConfig{cityA}, false, nil)
 
-		err := cmdutil.ForEachCity(context.Background(), f, func(_ *cmdutil.Factory, _ *config.CityConfig) error {
+		err := cmdutil.ForEachCity(context.Background(), f, func(ctx context.Context, _ *cmdutil.Factory, _ *config.CityConfig) error {
 			return cmdutil.ErrNoResults
 		})
 		if !errors.Is(err, cmdutil.ErrNoResults) {
@@ -129,7 +147,7 @@ func TestForEachCity(t *testing.T) {
 		sentinel := errors.New("boom")
 
 		var calls []string
-		err := cmdutil.ForEachCity(context.Background(), f, func(_ *cmdutil.Factory, city *config.CityConfig) error {
+		err := cmdutil.ForEachCity(context.Background(), f, func(ctx context.Context, _ *cmdutil.Factory, city *config.CityConfig) error {
 			calls = append(calls, city.Name)
 			if city.Name == "Alpha" {
 				return sentinel
@@ -153,7 +171,7 @@ func TestForEachCity(t *testing.T) {
 		cancel()
 
 		var calls []string
-		err := cmdutil.ForEachCity(ctx, f, func(_ *cmdutil.Factory, city *config.CityConfig) error {
+		err := cmdutil.ForEachCity(ctx, f, func(ctx context.Context, _ *cmdutil.Factory, city *config.CityConfig) error {
 			calls = append(calls, city.Name)
 			return nil
 		})
@@ -171,7 +189,7 @@ func TestForEachCity(t *testing.T) {
 		cancel()
 
 		called := false
-		err := cmdutil.ForEachCity(ctx, f, func(_ *cmdutil.Factory, _ *config.CityConfig) error {
+		err := cmdutil.ForEachCity(ctx, f, func(ctx context.Context, _ *cmdutil.Factory, _ *config.CityConfig) error {
 			called = true
 			return nil
 		})
@@ -187,7 +205,7 @@ func TestForEachCity(t *testing.T) {
 		f, _ := newFactory([]config.CityConfig{cityA, cityB, cityC}, true, &cityB)
 
 		var calls []string
-		err := cmdutil.ForEachCity(context.Background(), f, func(_ *cmdutil.Factory, city *config.CityConfig) error {
+		err := cmdutil.ForEachCity(context.Background(), f, func(ctx context.Context, _ *cmdutil.Factory, city *config.CityConfig) error {
 			calls = append(calls, city.Name)
 			return nil
 		})
@@ -350,7 +368,7 @@ func TestForEachCity_StopsEarly(t *testing.T) {
 		interrupted := fmt.Errorf("interrupted: %w", context.Canceled)
 
 		var calls []string
-		err := cmdutil.ForEachCity(context.Background(), f, func(_ *cmdutil.Factory, city *config.CityConfig) error {
+		err := cmdutil.ForEachCity(context.Background(), f, func(ctx context.Context, _ *cmdutil.Factory, city *config.CityConfig) error {
 			calls = append(calls, city.Name)
 			return interrupted
 		})
@@ -371,7 +389,7 @@ func TestForEachCity_StopsEarly(t *testing.T) {
 		f.RootDB = func() (*db.RootStore, error) { return nil, openErr }
 
 		var calls []string
-		err := cmdutil.ForEachCity(context.Background(), f, func(cf *cmdutil.Factory, city *config.CityConfig) error {
+		err := cmdutil.ForEachCity(context.Background(), f, func(ctx context.Context, cf *cmdutil.Factory, city *config.CityConfig) error {
 			calls = append(calls, city.Name)
 			_, err := cf.CityDB()
 			return err
@@ -406,7 +424,7 @@ func TestForEachCityRows(t *testing.T) {
 		Config:      func() (*config.Config, error) { return cfg, nil },
 		CityFlagSet: func() bool { return false },
 	}
-	run := func(cf *cmdutil.Factory, rows *[]cityRow) error {
+	run := func(_ context.Context, cf *cmdutil.Factory, rows *[]cityRow) error {
 		city, err := cf.CurrentCity()
 		if err != nil {
 			return err
@@ -426,7 +444,7 @@ func TestForEachCityRows(t *testing.T) {
 	}
 
 	sawRows := false
-	if err := cmdutil.ForEachCityRows(context.Background(), f, ios, nil, func(_ *cmdutil.Factory, rows *[]cityRow) error {
+	if err := cmdutil.ForEachCityRows(context.Background(), f, ios, nil, func(ctx context.Context, _ *cmdutil.Factory, rows *[]cityRow) error {
 		sawRows = sawRows || rows != nil
 		return nil
 	}); err != nil {
@@ -449,7 +467,7 @@ func TestForEachCityRows_PartialFailureStillWritesRows(t *testing.T) {
 		CityFlagSet: func() bool { return false },
 	}
 	boom := errors.New("boom")
-	run := func(cf *cmdutil.Factory, rows *[]cityRow) error {
+	run := func(_ context.Context, cf *cmdutil.Factory, rows *[]cityRow) error {
 		city, err := cf.CurrentCity()
 		if err != nil {
 			return err
@@ -473,7 +491,7 @@ func TestForEachCityRows_PartialFailureStillWritesRows(t *testing.T) {
 
 	// Every city failing writes nothing.
 	exp = &recordingExporter{}
-	if err := cmdutil.ForEachCityRows(context.Background(), f, ios, exp, func(*cmdutil.Factory, *[]cityRow) error { return boom }); !errors.Is(err, boom) {
+	if err := cmdutil.ForEachCityRows(context.Background(), f, ios, exp, func(context.Context, *cmdutil.Factory, *[]cityRow) error { return boom }); !errors.Is(err, boom) {
 		t.Fatalf("err = %v, want boom", err)
 	}
 	if len(exp.writes) != 0 {

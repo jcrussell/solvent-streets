@@ -6,9 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"time"
 
+	"github.com/jcrussell/solvent-streets/internal/logs"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 )
 
@@ -130,8 +130,8 @@ func (s *sqliteStore) ListFeatures(ctx context.Context, resourceType resource.Ty
 			// indistinguishable from a legitimately empty one. We
 			// still fall through to an empty map so the rest of the
 			// pipeline can keep running on the unaffected features.
-			slog.WarnContext(ctx, "feature tags JSON unmarshal failed",
-				"feature_id", f.ID, "resource_type", f.ResourceType, "err", err)
+			logs.From(ctx).Warn("feature tags JSON unmarshal failed",
+				"feature_id", f.ID, "resource", f.ResourceType, "err", err)
 			f.Tags = make(map[string]string)
 		}
 		features = append(features, f)

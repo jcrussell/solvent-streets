@@ -279,7 +279,7 @@ func runForecastAllCities(ctx context.Context, f *cmdutil.Factory, opts *Options
 	if err := checkSnapshotExists(ctx, f, opts.Snapshot); err != nil {
 		return err
 	}
-	return cmdutil.ForEachCityRows(ctx, f, opts.IO, opts.Exporter, func(cf *cmdutil.Factory, rows *[]forecastRow) error {
+	return cmdutil.ForEachCityRows(ctx, f, opts.IO, opts.Exporter, func(ctx context.Context, cf *cmdutil.Factory, rows *[]forecastRow) error {
 		cityOpts := *opts
 		cityOpts.CurrentCity, cityOpts.CityDB, cityOpts.rows = cf.CurrentCity, cf.CityDB, rows
 		return runForecast(ctx, &cityOpts)

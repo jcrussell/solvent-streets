@@ -76,7 +76,7 @@ func replayStrip(t *testing.T, name string) (float64, replayFixture, string) {
 		t.Fatal(err)
 	}
 	var buf bytes.Buffer
-	ctx := logs.WithLogger(context.Background(), slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	ctx := logs.WithLogger(context.Background(), slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	probes := LandProbes{Points: f.Probes, MaxHits: waterLandHitAllowance(len(f.Probes)), Dense: true}
 	if f.MaxHits > 0 {
 		probes.MaxHits = f.MaxHits

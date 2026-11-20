@@ -1,9 +1,11 @@
 package all
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"testing"
@@ -13,6 +15,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
+	"github.com/jcrussell/solvent-streets/internal/logs"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/internal/tui"
 	"github.com/jcrussell/solvent-streets/internal/units"
@@ -36,7 +39,7 @@ func TestForEachResource_ErrAllSourcesFailedContinues(t *testing.T) {
 	t.Run("ErrAllSourcesFailed warns, continues, and is returned", func(t *testing.T) {
 		ios, _, _, errBuf := iostreams.Test()
 		var visited []resource.Type
-		err := forEachResource(ios, func(rt resource.Source) error {
+		err := forEachResource(ios, "ingest", func(rt resource.Source) error {
 			visited = append(visited, rt.Type())
 			if rt.Type() == resource.All[0].Type() {
 				return cmdutil.ErrAllSourcesFailed
@@ -56,14 +59,14 @@ func TestForEachResource_ErrAllSourcesFailedContinues(t *testing.T) {
 
 	t.Run("all resources clean returns nil", func(t *testing.T) {
 		ios, _, _, _ := iostreams.Test()
-		if err := forEachResource(ios, func(resource.Source) error { return nil }); err != nil {
+		if err := forEachResource(ios, "ingest", func(resource.Source) error { return nil }); err != nil {
 			t.Fatalf("forEachResource = %v; want nil when every resource succeeds", err)
 		}
 	})
 
 	t.Run("every resource empty returns ErrNoResults", func(t *testing.T) {
 		ios, _, _, _ := iostreams.Test()
-		err := forEachResource(ios, func(resource.Source) error { return cmdutil.ErrNoResults })
+		err := forEachResource(ios, "ingest", func(resource.Source) error { return cmdutil.ErrNoResults })
 		if !errors.Is(err, cmdutil.ErrNoResults) {
 			t.Fatalf("forEachResource = %v; want ErrNoResults (nothing was produced)", err)
 		}
@@ -72,7 +75,7 @@ func TestForEachResource_ErrAllSourcesFailedContinues(t *testing.T) {
 	t.Run("context.Canceled aborts", func(t *testing.T) {
 		ios, _, _, _ := iostreams.Test()
 		var visited int
-		err := forEachResource(ios, func(_ resource.Source) error {
+		err := forEachResource(ios, "ingest", func(_ resource.Source) error {
 			visited++
 			return context.Canceled
 		})
@@ -382,7 +385,7 @@ func TestAllIngest_MidFanOutDeadlineAborts(t *testing.T) {
 // and returning exit 3 there would break every chained pipeline.
 func TestForEachResource_PartialResultsAreNotNoResults(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
-	err := forEachResource(ios, func(rt resource.Source) error {
+	err := forEachResource(ios, "ingest", func(rt resource.Source) error {
 		if rt.Type() == resource.All[0].Type() {
 			return nil
 		}
@@ -398,7 +401,7 @@ func TestForEachResource_PartialResultsAreNotNoResults(t *testing.T) {
 // generic "no results".
 func TestForEachResource_EmptyPlusFailureReportsTheFailure(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
-	err := forEachResource(ios, func(rt resource.Source) error {
+	err := forEachResource(ios, "ingest", func(rt resource.Source) error {
 		if rt.Type() == resource.All[0].Type() {
 			return cmdutil.ErrAllSourcesFailed
 		}
@@ -747,5 +750,28 @@ func TestAllIngest_RebuildBoundaryReadsTheCache(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "Fetching boundary for") {
 		t.Errorf("stderr = %q; want the boundary re-resolved", stderr)
+	}
+}
+
+// TestAllCompute_LogsNameTheCity: `all compute` runs each city under the
+// context ForEachCity hands it, so its log records carry city=<slug>.
+func TestAllCompute_LogsNameTheCity(t *testing.T) {
+	ios, _, _, _ := iostreams.Test()
+	cfg := &config.Config{Cities: []config.CityConfig{{Name: "Alpha, CA"}}}
+	f := &cmdutil.Factory{
+		IOStreams:   ios,
+		Config:      func() (*config.Config, error) { return cfg, nil },
+		CurrentCity: func() (*config.CityConfig, error) { return &cfg.Cities[0], nil },
+		CityFlagSet: func() bool { return false },
+		CityDB:      func() (db.Store, error) { return nil, errors.New("database down") },
+	}
+	var buf bytes.Buffer
+	ctx := logs.WithLogger(context.Background(), slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	cmd := NewCmdAll(f)
+	cmd.SetArgs([]string{"compute"})
+	cmd.SilenceErrors, cmd.SilenceUsage = true, true
+	_ = cmd.ExecuteContext(ctx)
+	if !strings.Contains(buf.String(), "city=alpha-ca") {
+		t.Errorf("log records do not name the city:\n%s", buf.String())
 	}
 }

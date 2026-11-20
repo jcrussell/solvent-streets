@@ -23,7 +23,11 @@ type MetricTarget struct {
 // grid `pvmt all compute` already built for the city (nil builds it here).
 func LoadMetricTarget(ctx context.Context, store db.Store, cfg *config.Config, city *config.CityConfig,
 	prebuilt []geo.Hex, errOut io.Writer) (*MetricTarget, error) {
-	boundaryGJSON, bbox, proj, err := LoadBoundary(ctx, store, city)
+	var warnOut io.Writer
+	if prebuilt == nil {
+		warnOut = errOut
+	}
+	boundaryGJSON, bbox, proj, err := LoadBoundary(ctx, store, city, warnOut)
 	if err != nil {
 		return nil, err
 	}

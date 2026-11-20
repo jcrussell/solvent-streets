@@ -182,7 +182,7 @@ rather than keeping an old result.`,
 }
 
 func runComputeAllCities(ctx context.Context, f *cmdutil.Factory, opts *Options) error {
-	return cmdutil.ForEachCityRows(ctx, f, opts.IO, opts.Exporter, func(cf *cmdutil.Factory, rows *[]computeRow) error {
+	return cmdutil.ForEachCityRows(ctx, f, opts.IO, opts.Exporter, func(ctx context.Context, cf *cmdutil.Factory, rows *[]computeRow) error {
 		cityOpts := *opts
 		cityOpts.CurrentCity, cityOpts.CityDB, cityOpts.rows = cf.CurrentCity, cf.CityDB, rows
 		return runCompute(ctx, &cityOpts)
@@ -244,7 +244,11 @@ func runCompute(ctx context.Context, opts *Options) error {
 func apportion(ctx context.Context, out, errOut io.Writer, opts *Options, city *config.CityConfig, store db.Store,
 	rows []db.Feature, target *compute.MetricTarget, draft *db.Draft, inputs map[string]string) error {
 	feats := db.ResourceFeatures(rows)
-	fmt.Fprintf(errOut, "Apportioning %d Census blocks onto %d hexes for %s...\n", len(feats), len(target.Grid), city.Name)
+	// Progress, like the pavement and services computes', is not shown under
+	// --json; out is discarded then.
+	if out != io.Discard {
+		fmt.Fprintf(errOut, "Apportioning %d Census blocks onto %d hexes for %s...\n", len(feats), len(target.Grid), city.Name)
+	}
 	projected := blocks.BufferFeaturesPaired(ctx, feats, target.Proj)
 	m := population.Apportion(ctx, target.Grid, projected, nil)
 	// Partial results come back without an error on cancellation; never save

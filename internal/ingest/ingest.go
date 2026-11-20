@@ -15,6 +15,12 @@ type Source interface {
 	Fetch(ctx context.Context, client *http.Client, rt resource.Source) ([]db.Feature, error)
 }
 
+// TypeServer is a Source that serves only some resource types: Fetch of any
+// other answers with no features and sends no request.
+type TypeServer interface {
+	Serves(rt resource.Source) bool
+}
+
 // Options configures optional behavior applied to the sources returned by
 // AllSources / SourceByName. Zero value is valid — progress writes are
 // discarded when Progress is nil.

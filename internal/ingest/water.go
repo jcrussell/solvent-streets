@@ -222,13 +222,13 @@ func classifyWaterElement(ctx context.Context, e overpassElement, bboxArea float
 			return nil, nil, 0
 		}
 		if ok, reason := acceptWaterPolygon(coords, probes.capArea(bboxArea)); !ok {
-			logs.From(ctx).Warn("water way: rejected polygon",
+			logs.From(ctx).Debug("water way: rejected polygon",
 				"way", e.ID, "reason", reason, "vertices", len(coords),
 			)
 			return nil, nil, 0
 		}
 		if hits := probes.RingHits(coords); probes.landHit(hits) {
-			logs.From(ctx).Warn("water way: dropped polygon containing city land",
+			logs.From(ctx).Debug("water way: dropped polygon containing city land",
 				"way", e.ID, "land_hits", hits, "land_probes", probes.Len(),
 				"vertices", len(coords),
 			)
@@ -242,7 +242,7 @@ func classifyWaterElement(ctx context.Context, e overpassElement, bboxArea float
 		var total float64
 		for _, p := range relPolys {
 			if hits := probes.PolygonHits(p); probes.landHit(hits) {
-				logs.From(ctx).Warn("water relation: dropped polygon containing city land",
+				logs.From(ctx).Debug("water relation: dropped polygon containing city land",
 					"relation", e.ID, "land_hits", hits, "land_probes", probes.Len(),
 					"outer_vertices", len(p.outer), "holes", len(p.holes),
 				)
@@ -275,7 +275,7 @@ func classifyWaterElement(ctx context.Context, e overpassElement, bboxArea float
 func closeAndAcceptCoastline(ctx context.Context, chainIdx int, chain [][2]float64, bbox [4]float64, bboxArea float64, probes *landProbeIndex) (polys []waterPolygon, fracSum float64) {
 	for _, ring := range closeCoastlineChain(ctx, chain, bbox, probes) {
 		if !isClosedRing(ring) {
-			logs.From(ctx).Warn("water coastline: rejected ring",
+			logs.From(ctx).Debug("water coastline: rejected ring",
 				"reason", "ring not closed", "vertices", len(ring),
 			)
 			continue
@@ -456,7 +456,7 @@ func relationToPolygons(ctx context.Context, e overpassElement, stitch func([]st
 	outerRings, droppedOuter := stitch(outerWays)
 	innerRings, droppedInner := stitch(innerWays)
 	if len(droppedOuter) > 0 || len(droppedInner) > 0 {
-		logs.From(ctx).Warn("relation: dropped unclosed member ways",
+		logs.From(ctx).Debug("relation: dropped unclosed member ways",
 			"relation", e.ID,
 			"dropped_outer", droppedOuter,
 			"dropped_inner", droppedInner,
@@ -495,7 +495,7 @@ func polygonsFromRelation(ctx context.Context, e overpassElement, bboxArea float
 	return relationToPolygons(ctx, e, stitchRings, func(outer [][2]float64) bool {
 		ok, reason := acceptWaterPolygon(outer, bboxArea)
 		if !ok {
-			logs.From(ctx).Warn("water relation: rejected outer ring",
+			logs.From(ctx).Debug("water relation: rejected outer ring",
 				"relation", e.ID, "reason", reason, "vertices", len(outer),
 			)
 		}
@@ -655,7 +655,7 @@ func closedCoastlineRing(ctx context.Context, sub [][2]float64, probes *landProb
 			logs.From(ctx).Debug("water coastline: kept CCW closed ring as an island", "vertices", len(sub))
 			return waterPolygon{}, false
 		}
-		logs.From(ctx).Warn("water coastline: dropped CCW closed ring (island, not water polygon)",
+		logs.From(ctx).Debug("water coastline: dropped CCW closed ring (island, not water polygon)",
 			"vertices", len(sub),
 		)
 		return waterPolygon{}, false
@@ -665,7 +665,7 @@ func closedCoastlineRing(ctx context.Context, sub [][2]float64, probes *landProb
 	// (data error) and would over-subtract.
 	p := withIslands(sub, islands)
 	if hits := probes.PolygonHits(p); probes.landHit(hits) {
-		logs.From(ctx).Warn("water coastline: dropped CW closed ring containing city land",
+		logs.From(ctx).Debug("water coastline: dropped CW closed ring containing city land",
 			"vertices", len(sub),
 			"land_hits", hits, "land_probes", probes.Len(),
 		)
@@ -735,7 +735,7 @@ func closeOpenSubChain(ctx context.Context, sub [][2]float64, bbox [4]float64, p
 		// Both candidates contain at least one land probe (chain weaves
 		// through land — NYC chain=30 case). Drop rather than over-
 		// subtract.
-		logs.From(ctx).Warn("water coastline: dropped chain — both candidates overlap city land",
+		logs.From(ctx).Debug("water coastline: dropped chain — both candidates overlap city land",
 			"vertices", len(sub),
 			"cw_valid", okCW, "ccw_valid", okCCW,
 			"cw_land_hits", cwHits, "ccw_land_hits", ccwHits,

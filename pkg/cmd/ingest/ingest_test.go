@@ -2494,3 +2494,23 @@ func (f failTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	f.t.Errorf("dry run sent %s %s", r.Method, r.URL)
 	return nil, errors.New("no requests in a dry run")
 }
+
+// TestFetchFromSources_ArcGISSkipsNonRoads: ArcGIS serves only roads, so a
+// parking ingest says it skipped it instead of reporting a fetch that came
+// back empty, and still records its attempt.
+func TestFetchFromSources_ArcGISSkipsNonRoads(t *testing.T) {
+	ios, _, _, stderr := iostreams.Test()
+	opts := &Options{IO: ios, ResourceType: &resource.Parking{}}
+	src := &ingestpkg.ArcGISSource{URL: "https://example.test/query"}
+	_, _, attempts, err := fetchFromSources(context.Background(), []ingestpkg.Source{src}, &http.Client{Transport: failTransport{t}}, opts, "Test City")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := stderr.String()
+	if !strings.Contains(out, "Skipping arcgis for parking: it serves only roads") || strings.Contains(out, "Got ") || strings.Contains(out, "Fetching") {
+		t.Errorf("stderr = %q, want only the skip line", out)
+	}
+	if len(attempts) != 1 || attempts[0].Outcome != db.IngestEmpty {
+		t.Errorf("attempts = %+v, want one empty arcgis attempt", attempts)
+	}
+}

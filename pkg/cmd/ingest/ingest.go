@@ -361,7 +361,7 @@ func runIngestAllCities(ctx context.Context, f *cmdutil.Factory, opts *Options) 
 	if err := checkSourceForCities(f, opts); err != nil {
 		return err
 	}
-	return cmdutil.ForEachCity(ctx, f, func(cf *cmdutil.Factory, _ *config.CityConfig) error {
+	return cmdutil.ForEachCity(ctx, f, func(ctx context.Context, cf *cmdutil.Factory, _ *config.CityConfig) error {
 		cityOpts := *opts
 		cityOpts.CurrentCity = cf.CurrentCity
 		cityOpts.CityDB = cf.CityDB
@@ -542,7 +542,7 @@ func fetchAndSaveResource(ctx context.Context, opts *Options, store db.Store, cl
 		// source that legitimately emptied out thus keeps its stale rows until
 		// a clean full re-ingest — preferred over destructive deletion.)
 		recordAttempts(ctx, opts, store, attempts)
-		logs.From(ctx).Warn("no features fetched", "resource", opts.ResourceType.Type())
+		logs.From(ctx).Debug("no features fetched", "resource", opts.ResourceType.Type())
 		return emptyFetchErr(opts.ResourceType.Type(), failed, succeeded)
 	}
 
@@ -630,7 +630,7 @@ func printDryRunPlan(ctx context.Context, opts *Options, store db.Store, city *c
 		fmt.Fprintf(out, "[dry-run]   would fetch from source: %s (fixed for %s)\n", own.OwnSource(), opts.ResourceType.Type())
 	} else if opts.Source == cmdutil.SourceAll {
 		fmt.Fprintln(out, "[dry-run]   would resolve sources: "+fmtOverpass(city.Overpass)+
-			fmtArcgis(city.ArcGISURL))
+			fmtArcgis(city.ArcGISURL, opts.ResourceType))
 		fmt.Fprintln(out, "[dry-run]   would fetch + dedupe across all sources")
 	} else {
 		fmt.Fprintf(out, "[dry-run]   would fetch from source: %s\n", opts.Source)
@@ -648,9 +648,25 @@ func fmtOverpass(overpass bool) string {
 	return "(overpass: skipped — overpass=false for this city)"
 }
 
-func fmtArcgis(url string) string {
-	if url == "" {
-		return " (arcgis: skipped — no arcgis_url for this city)"
+// servedTypes names the pavement resources src serves ("roads"), for a
+// TypeServer; every resource otherwise.
+func servedTypes(src ingestpkg.Source) string {
+	ts, ok := src.(ingestpkg.TypeServer)
+	var names []string
+	for _, rt := range resource.All {
+		if !ok || ts.Serves(rt) {
+			names = append(names, string(rt.Type()))
+		}
+	}
+	return strings.Join(names, ", ")
+}
+
+func fmtArcgis(url string, rt resource.Source) string {
+	switch {
+	case url == "":
+		return " (arcgis: skipped, no arcgis_url for this city)"
+	case rt.Type() != resource.TypeRoads:
+		return " (arcgis: skipped, it serves only " + servedTypes(&ingestpkg.ArcGISSource{}) + ")"
 	}
 	return ", arcgis (" + url + ")"
 }
@@ -965,10 +981,10 @@ func stripWithLandEvidence(
 	}
 	if stripErr != nil {
 		return "", hint.Withf(fmt.Errorf("water strip for %s: %w", city.Name, stripErr),
-			"open an issue with the city name, bbox and the warning text: the OSM water-stitching "+
-				"pipeline usually produced a polygon covering more than the city boundary, and the "+
-				"'water way:', 'water relation:' or 'water coastline:' rejection warnings above it on "+
-				"stderr name the offending OSM way or relation id")
+			"re-run with -vv and open an issue with the city name, bbox and the 'water way:', "+
+				"'water relation:' or 'water coastline:' debug lines, which name the offending OSM way "+
+				"or relation id: the OSM water-stitching pipeline usually produced a polygon covering "+
+				"more than the city boundary")
 	}
 	if warn != "" {
 		fmt.Fprintf(opts.IO.ErrOut, "  %s\n", warn)
@@ -1029,7 +1045,7 @@ func saveBoundaryRoads(ctx context.Context, opts *Options, store db.Store, city 
 	}
 	if len(features) == 0 {
 		recordAttempts(ctx, opts, store, attempts)
-		logs.From(ctx).Warn("no features fetched", "resource", resource.TypeRoads)
+		logs.From(ctx).Debug("no features fetched", "resource", resource.TypeRoads)
 		return out
 	}
 	logs.From(ctx).Info("saving features to database", "count", len(features), "resource", resource.TypeRoads)
@@ -1288,7 +1304,15 @@ func fetchFromSources(ctx context.Context, sources []ingestpkg.Source, client *h
 	failures := 0
 	input := string(opts.ResourceType.Type())
 	for _, src := range sources {
-		fmt.Fprintf(opts.IO.ErrOut, "Fetching %s data from %s for %s...\n", opts.ResourceType.Type(), src.Name(), cityName)
+		serves := true
+		if ts, ok := src.(ingestpkg.TypeServer); ok {
+			serves = ts.Serves(opts.ResourceType)
+		}
+		if serves {
+			fmt.Fprintf(opts.IO.ErrOut, "Fetching %s from %s for %s...\n", opts.ResourceType.Type(), src.Name(), cityName)
+		} else {
+			fmt.Fprintf(opts.IO.ErrOut, "Skipping %s for %s: it serves only %s\n", src.Name(), opts.ResourceType.Type(), servedTypes(src))
+		}
 		started := time.Now()
 		features, err := src.Fetch(ctx, client, opts.ResourceType)
 		attempt := db.IngestAttempt{Input: input, Source: src.Name(), StartedAt: started, FinishedAt: time.Now()}
@@ -1301,7 +1325,9 @@ func fetchFromSources(ctx context.Context, sources []ingestpkg.Source, client *h
 			}
 			continue
 		}
-		fmt.Fprintf(opts.IO.ErrOut, "  Got %d features from %s\n", len(features), src.Name())
+		if serves {
+			fmt.Fprintf(opts.IO.ErrOut, "  Got %d features from %s\n", len(features), src.Name())
+		}
 		attempt.Outcome, attempt.FeatureCount = db.IngestOK, len(features)
 		if len(features) == 0 {
 			attempt.Outcome = db.IngestEmpty
