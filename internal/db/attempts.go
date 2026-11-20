@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/jcrussell/solvent-streets/internal/redact"
 )
 
 // IngestOutcome is how one source answered one ingest.
@@ -104,7 +106,8 @@ func AnsweredEmpty(history []IngestHistory, input string, sources []string) bool
 	return true
 }
 
-// RecordIngestAttempts stores attempts for the city in one transaction, and
+// RecordIngestAttempts stores attempts for the city in one transaction, each
+// error with its URL credentials redacted (redact.String), and
 // deletes all but the newest ingestAttemptsKept of each (input, source) they
 // touch.
 func (s *sqliteStore) RecordIngestAttempts(ctx context.Context, attempts []IngestAttempt) error {
@@ -120,7 +123,7 @@ func (s *sqliteStore) RecordIngestAttempts(ctx context.Context, attempts []Inges
 					(city_id, input, source, started_at, finished_at, outcome, feature_count, error)
 				VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 				s.cityID, a.Input, a.Source, unixSeconds(a.StartedAt), unixSeconds(a.FinishedAt),
-				string(a.Outcome), a.FeatureCount, truncateUTF8(a.Error, maxIngestErrorBytes)); err != nil {
+				string(a.Outcome), a.FeatureCount, truncateUTF8(redact.String(a.Error), maxIngestErrorBytes)); err != nil {
 				return fmt.Errorf("record ingest attempt: %w", err)
 			}
 			touched[key{a.Input, a.Source}] = true
@@ -160,6 +163,7 @@ func (s *sqliteStore) IngestHistory(ctx context.Context) ([]IngestHistory, error
 			return nil, fmt.Errorf("scan ingest attempt: %w", err)
 		}
 		a.Outcome = IngestOutcome(outcome)
+		a.Error = redact.String(a.Error) // rows recorded before errors were redacted on write
 		if n := len(out); n == 0 || out[n-1].Input != a.Input || out[n-1].Source != a.Source {
 			out = append(out, IngestHistory{Input: a.Input, Source: a.Source, Latest: a})
 		}

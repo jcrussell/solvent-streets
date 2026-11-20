@@ -19,6 +19,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/httpio"
 	"github.com/jcrussell/solvent-streets/internal/logs"
+	"github.com/jcrussell/solvent-streets/internal/redact"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 )
 
@@ -198,7 +199,7 @@ func (q *ArcGISQuery) FetchAll(ctx context.Context, client *http.Client) ([]ArcG
 	endpoint := q.Endpoint
 	if !q.AllowPrivate {
 		if err := validatePublicHTTPURL(ctx, endpoint); err != nil {
-			return nil, fmt.Errorf("arcgis endpoint: %w", err)
+			return nil, fmt.Errorf("arcgis endpoint: %w", redact.Error(err))
 		}
 	} else {
 		// Carry the opt-out on the context so the client-level
@@ -391,7 +392,7 @@ var errNoLayerMetadata = errors.New("layer metadata unavailable")
 func arcgisLayerMaxRecordCount(ctx context.Context, client *http.Client, endpoint string) (int, error) {
 	u, err := url.Parse(endpoint)
 	if err != nil {
-		return 0, fmt.Errorf("%w: parse endpoint %q: %w", errNoLayerMetadata, endpoint, err)
+		return 0, fmt.Errorf("%w: parse endpoint %q: %w", errNoLayerMetadata, redact.URL(endpoint), redact.Error(err))
 	}
 	trimmed := strings.TrimSuffix(u.Path, "/")
 	if !strings.EqualFold(path.Base(trimmed), "query") {
@@ -409,7 +410,7 @@ func arcgisLayerMaxRecordCount(ctx context.Context, client *http.Client, endpoin
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return 0, fmt.Errorf("%w: %w", errNoLayerMetadata, err)
+		return 0, fmt.Errorf("%w: %w", errNoLayerMetadata, redact.Error(err))
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -418,7 +419,7 @@ func arcgisLayerMaxRecordCount(ctx context.Context, client *http.Client, endpoin
 		return 0, fmt.Errorf("%w: read response: %w", errNoLayerMetadata, err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return 0, fmt.Errorf("%w: %s returned %d: %s", errNoLayerMetadata, u.String(), resp.StatusCode, truncate(string(body)))
+		return 0, fmt.Errorf("%w: %s returned %d: %s", errNoLayerMetadata, redact.URL(u.String()), resp.StatusCode, redact.String(truncate(string(body))))
 	}
 
 	var meta arcgisLayerMeta
@@ -430,7 +431,7 @@ func arcgisLayerMaxRecordCount(ctx context.Context, client *http.Client, endpoin
 		return 0, fmt.Errorf("%w: %s", errNoLayerMetadata, msg)
 	}
 	if meta.MaxRecordCount == nil || *meta.MaxRecordCount <= 0 {
-		return 0, fmt.Errorf("%w: %s reported no usable maxRecordCount", errNoLayerMetadata, u.String())
+		return 0, fmt.Errorf("%w: %s reported no usable maxRecordCount", errNoLayerMetadata, redact.URL(u.String()))
 	}
 	return *meta.MaxRecordCount, nil
 }
@@ -578,7 +579,7 @@ func (q *ArcGISQuery) fetchPage(ctx context.Context, client *http.Client, offset
 	// than blindly appending "?...", which would corrupt an existing query.
 	u, err := url.Parse(endpoint)
 	if err != nil {
-		return nil, nil, false, false, fmt.Errorf("parse arcgis endpoint %q: %w", endpoint, err)
+		return nil, nil, false, false, fmt.Errorf("parse arcgis endpoint %q: %w", redact.URL(endpoint), redact.Error(err))
 	}
 	merged := u.Query()
 	for k, vs := range params {
@@ -596,7 +597,7 @@ func (q *ArcGISQuery) fetchPage(ctx context.Context, client *http.Client, offset
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, nil, false, false, fmt.Errorf("arcgis request: %w", err)
+		return nil, nil, false, false, fmt.Errorf("arcgis request: %w", redact.Error(err))
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -606,7 +607,7 @@ func (q *ArcGISQuery) fetchPage(ctx context.Context, client *http.Client, offset
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, nil, false, false, fmt.Errorf("arcgis %s returned %d: %s", endpoint, resp.StatusCode, truncate(string(body)))
+		return nil, nil, false, false, fmt.Errorf("arcgis %s returned %d: %s", redact.URL(endpoint), resp.StatusCode, redact.String(truncate(string(body))))
 	}
 
 	// Parse the body exactly ONCE into a combined envelope that carries the
@@ -624,7 +625,7 @@ func (q *ArcGISQuery) fetchPage(ctx context.Context, client *http.Client, offset
 	// up front so the caller sees the underlying message + endpoint instead
 	// of an empty feature list.
 	if msg, ok := arcgisErrorMessageFromPage(page); ok {
-		return nil, nil, false, false, fmt.Errorf("arcgis %s: %s", endpoint, msg)
+		return nil, nil, false, false, fmt.Errorf("arcgis %s: %s", redact.URL(endpoint), redact.String(msg))
 	}
 
 	rows, rawIDs := rowsFromArcGISPage(ctx, page, q.idField(), q.idPrefix(), offset)

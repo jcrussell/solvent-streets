@@ -1656,3 +1656,37 @@ func TestArcGISQuery_ProgressLabel(t *testing.T) {
 		t.Errorf("progress = %q, want it labelled TIGERweb", progress.String())
 	}
 }
+
+// TestFetch_ErrorsRedactToken: an arcgis_url's ?token= never reaches an
+// error message, whether the server answers with an error status or the
+// connection fails (the HTTP client's *url.Error quotes the full URL).
+func TestFetch_ErrorsRedactToken(t *testing.T) {
+	const secret = "s3cr3t-token"
+	failing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "boom", http.StatusInternalServerError)
+	}))
+	t.Cleanup(failing.Close)
+	closed := httptest.NewServer(http.NotFoundHandler())
+	closedURL := closed.URL
+	closed.Close()
+
+	for name, base := range map[string]string{"status": failing.URL, "dial": closedURL} {
+		t.Run(name, func(t *testing.T) {
+			src := &ArcGISSource{
+				BBox:         [4]float64{37.0, -122.0, 38.0, -121.0},
+				URL:          base + "/FeatureServer/0/query?token=" + secret,
+				AllowPrivate: true,
+			}
+			_, err := src.Fetch(context.Background(), failing.Client(), resource.ByType(resource.TypeRoads))
+			if err == nil {
+				t.Fatal("Fetch succeeded against a failing server")
+			}
+			if strings.Contains(err.Error(), secret) {
+				t.Errorf("error %q leaks the token", err)
+			}
+			if !strings.Contains(err.Error(), "token=REDACTED") {
+				t.Errorf("error %q does not name the redacted URL", err)
+			}
+		})
+	}
+}

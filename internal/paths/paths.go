@@ -91,9 +91,26 @@ func validateToolName(toolName string) error {
 	return nil
 }
 
-// EnsureDir is a thin wrapper around os.MkdirAll with 0o755 so callers do
-// not have to remember the bit.
-func EnsureDir(p string) error { return os.MkdirAll(p, 0o755) }
+// EnsureDir creates p and its missing parents owner-only (0o700). p is one
+// of pvmt's own directories (the cache, its HTTP subdirectory, the data
+// directory), which hold request URLs that can carry credentials, cached
+// responses and the database. An existing directory keeps its mode; NarrowDir
+// tightens it.
+func EnsureDir(p string) error { return os.MkdirAll(p, 0o700) }
+
+// NarrowDir chmods the existing directory p to 0o700 when it lets anyone but
+// the owner in. The caller treats a failure (a directory another user owns)
+// as a warning: the directory still works.
+func NarrowDir(p string) error {
+	info, err := os.Stat(p)
+	if err != nil {
+		return err
+	}
+	if info.Mode().Perm()&0o077 == 0 {
+		return nil
+	}
+	return os.Chmod(p, 0o700) //nolint:gosec // a directory needs its search bit; 0o700 is owner-only
+}
 
 // HTTPCacheDir returns the directory backing the disk HTTP response cache
 // (cache.CachingTransport). It is a subdirectory of Cache rather than

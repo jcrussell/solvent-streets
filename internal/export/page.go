@@ -6,8 +6,12 @@ import (
 	"fmt"
 	"html/template"
 	"os"
+	"strings"
+
+	"github.com/BurntSushi/toml"
 
 	"github.com/jcrussell/solvent-streets/internal/config"
+	"github.com/jcrussell/solvent-streets/internal/redact"
 )
 
 // SiteTitle is the name a multi-city dashboard carries: [export] title, else
@@ -80,7 +84,7 @@ func NewTemplateData(cfg *config.Config, meta MetaJSON, seed template.JS, cities
 	case len(cities) == 0:
 		if cfg.SourcePath != "" {
 			if data, err := os.ReadFile(cfg.SourcePath); err == nil {
-				rawTOML = string(data)
+				rawTOML = publishableRawTOML(string(data))
 			}
 		}
 		resolvedTOML = ResolvedTOMLWithEdges(cfg, hexEdges)
@@ -114,4 +118,50 @@ func RenderPage(parse func() (*template.Template, error), td TemplateData) ([]by
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+// rawTOMLWithheld stands in for the config file in the Config tab when
+// publishableRawTOML cannot show it safely.
+const rawTOMLWithheld = "# The file as written is not shown: it carries a credential pvmt could not\n" +
+	"# redact with certainty. The resolved settings are what this site was built with.\n"
+
+// publishableRawTOML is the config file as the published Config tab shows
+// it: redacted (redact.String), and only when that provably removed every
+// arcgis_url credential. TOML escapes can spell a token so a text-level
+// redaction misses it, so the redacted text is decoded again, and it is
+// withheld (rawTOMLWithheld) when it does not decode, when a city's decoded
+// arcgis_url still carries a credential or does not redact to the same URL
+// as the original's, or when any of the original's credential values still
+// appears in the text.
+func publishableRawTOML(raw string) string {
+	red := redact.String(raw)
+	type urls struct {
+		Cities []struct {
+			ArcGISURL string `toml:"arcgis_url"`
+		} `toml:"cities"`
+	}
+	var orig, got urls
+	if _, err := toml.Decode(raw, &orig); err != nil {
+		return rawTOMLWithheld
+	}
+	if _, err := toml.Decode(red, &got); err != nil || len(got.Cities) != len(orig.Cities) {
+		return rawTOMLWithheld
+	}
+	for i, city := range orig.Cities {
+		after := got.Cities[i].ArcGISURL
+		if redact.URL(after) != redact.URL(city.ArcGISURL) {
+			return rawTOMLWithheld
+		}
+		for _, v := range redact.Secrets(after) {
+			if v != redact.Placeholder {
+				return rawTOMLWithheld
+			}
+		}
+		for _, v := range redact.Secrets(city.ArcGISURL) {
+			if v != redact.Placeholder && (strings.Contains(red, v) || strings.Contains(after, v)) {
+				return rawTOMLWithheld
+			}
+		}
+	}
+	return red
 }

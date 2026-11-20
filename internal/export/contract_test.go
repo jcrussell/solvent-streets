@@ -20,6 +20,8 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/export/exporttest"
 	"github.com/jcrussell/solvent-streets/internal/forecast"
+	"github.com/jcrussell/solvent-streets/internal/resource"
+	"github.com/jcrussell/solvent-streets/internal/results"
 	"github.com/jcrussell/solvent-streets/internal/services"
 )
 
@@ -376,6 +378,27 @@ func TestResolvedTOML_StripsConfigID(t *testing.T) {
 	}
 }
 
+// TestResolvedTOML_RedactsArcGISToken: the published Config tab (ResolvedTOML,
+// and each city's meta.json settings_toml from CityResolvedTOML) never
+// carries an arcgis_url's token, while the city's hash, which arcgis_url does
+// not feed, is unchanged by the redaction.
+func TestResolvedTOML_RedactsArcGISToken(t *testing.T) {
+	city := config.CityConfig{Name: "Test", ArcGISURL: "https://gis.example/FeatureServer/0/query?token=s3cr3t&f=json"}
+	cfg := &config.Config{Cities: []config.CityConfig{city}}
+	hash := cfg.CityHash(&cfg.Cities[0])
+	for name, out := range map[string]string{
+		"ResolvedTOML":     ResolvedTOML(cfg),
+		"CityResolvedTOML": CityResolvedTOML(cfg, city, 0),
+	} {
+		if strings.Contains(out, "s3cr3t") || !strings.Contains(out, "token=REDACTED") {
+			t.Errorf("%s does not redact the token:\n%s", name, out)
+		}
+	}
+	if cfg.Cities[0].ArcGISURL != city.ArcGISURL || cfg.CityHash(&cfg.Cities[0]) != hash {
+		t.Error("rendering the view changed the live config or its hash")
+	}
+}
+
 // TestResolvedTOML_StripsZeroCurrentBudget guards the Config tab against a
 // fabricated `current_budget = 0.0` for uncalibrated cities. current_budget
 // uses 0 as a "not provided" sentinel and BurntSushi emits zero floats
@@ -698,5 +721,79 @@ overpass = true
 				t.Errorf("%s: %s hash %s after a round trip, want %s", dir, cfg.Cities[i].Name, got, want)
 			}
 		}
+	}
+}
+
+// TestExport_PublishesNoArcGISToken: a single-city export of a config whose
+// file carries an arcgis_url token writes it into no file of the site: not
+// the Config tab's raw file view, nor its resolved view, nor any data file.
+func TestExport_PublishesNoArcGISToken(t *testing.T) {
+	const secret = "s3cr3t-tok"
+	arcgis := "https://gis.example/FeatureServer/0/query?token=" + secret
+	src := filepath.Join(t.TempDir(), "pvmt.toml")
+	if err := os.WriteFile(src, []byte("[[cities]]\nname = \"Solo\"\narcgis_url = \""+arcgis+"\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{SourcePath: src}
+	entry := exportTestEntry(cfg, "Solo", "solo", exportBoundaryA, map[resource.Type]results.Totals{
+		resource.TypeRoads: {Area: 1000, Features: 10},
+	})
+	entry.City.ArcGISURL = arcgis
+	cfg.Cities = []config.CityConfig{entry.City}
+	dir := filepath.Join(t.TempDir(), "site")
+	if err := New([]CityEntry{entry}, cfg, dir, "metric", testAssets(t)).Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	checked := 0
+	_ = filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		data, _ := os.ReadFile(p)
+		if strings.Contains(string(data), secret) {
+			t.Errorf("%s publishes the arcgis_url token", p)
+		}
+		checked++
+		return nil
+	})
+	if checked == 0 {
+		t.Fatal("the export wrote no files")
+	}
+	index, _ := os.ReadFile(filepath.Join(dir, IndexFileName))
+	if !strings.Contains(string(index), "token=REDACTED") {
+		t.Error("index.html's Config tab does not show the redacted arcgis_url")
+	}
+}
+
+// TestPublishableRawTOML_FailsClosed: a token TOML escapes hide from the
+// text-level redaction withholds the raw file view rather than publish it,
+// while a plain token is redacted and a file without one shows as written.
+func TestPublishableRawTOML_FailsClosed(t *testing.T) {
+	const secret = "SECRETVALUE"
+	city := func(arcgis string) string { return "[[cities]]\nname = \"A\"\narcgis_url = " + arcgis + "\n" }
+	withheld := map[string]string{
+		"escaped name":            city(`"https://h.example/q?\u0074oken=` + secret + `"`),
+		"escaped separator":       city(`"https://h.example/q?f=json\u0026token=` + secret + `"`),
+		"escaped name and value":  city(`"https://h.example/q?\u0074oken=\u0053ECRETVALUE"`),
+		"line-ending backslash":   "[[cities]]\nname = \"A\"\narcgis_url = \"\"\"https://h.example/q?tok\\\n  en=" + secret + "\"\"\"\n",
+		"escaped quote in value":  city(`"https://h.example/q?token=SECRET\"VALUE"`),
+		"undecodable after edits": city(`"https://h.example/q?token=` + secret + `" junk`),
+	}
+	for name, raw := range withheld {
+		got := publishableRawTOML(raw)
+		if got != rawTOMLWithheld {
+			t.Errorf("%s: raw view published as\n%s", name, got)
+		}
+		if strings.Contains(got, secret) || strings.Contains(got, "SECRET") {
+			t.Errorf("%s: published text carries the token", name)
+		}
+	}
+	plain := city(`"https://h.example/q?f=json&token=` + secret + `"`)
+	if got := publishableRawTOML(plain); strings.Contains(got, secret) || !strings.Contains(got, "token=REDACTED") {
+		t.Errorf("plain token: got\n%s", got)
+	}
+	clean := city(`"https://h.example/q?f=json&where=1%3D1"`) + "# a comment\n"
+	if got := publishableRawTOML(clean); got != clean {
+		t.Errorf("a file without a token changed:\n%s", got)
 	}
 }

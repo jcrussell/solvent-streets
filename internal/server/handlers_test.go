@@ -7,6 +7,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -1477,5 +1479,38 @@ func TestDataFiles_RouteEveryExportedFile(t *testing.T) {
 	}
 	if len(routes) != len(want) {
 		t.Errorf("server routes %d data files, the exporter writes %d", len(routes), len(want))
+	}
+}
+
+// TestHandleIndex_PublishesNoArcGISToken: the live server's page, whose
+// Config tab shows the config file as written, never carries an arcgis_url
+// token.
+func TestHandleIndex_PublishesNoArcGISToken(t *testing.T) {
+	const secret = "s3cr3t-tok"
+	arcgis := "https://gis.example/FeatureServer/0/query?token=" + secret
+	src := filepath.Join(t.TempDir(), "pvmt.toml")
+	if err := os.WriteFile(src, []byte("[[cities]]\nname = \"Test City\"\narcgis_url = \""+arcgis+"\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	store := &dbtest.MockStore{
+		GetBoundaryFunc: func(context.Context) (string, error) {
+			return `{"type":"Polygon","coordinates":[[[-121.84,37.64],[-121.68,37.64],[-121.68,37.72],[-121.84,37.72],[-121.84,37.64]]]}`, nil
+		},
+	}
+	cfg := &config.Config{SourcePath: src, Cities: []config.CityConfig{{Name: "Test City", ArcGISURL: arcgis}}}
+	entry := export.CityEntry{Config: cfg, City: cfg.Cities[0], Store: store, Slug: cfg.Cities[0].Slug()}
+	ios, _, _, _ := iostreams.Test()
+	srv := New([]export.CityEntry{entry}, "127.0.0.1", 0, ios, testAssets(t))
+	req, _ := http.NewRequestWithContext(context.Background(), "GET", "/", nil)
+	w := httptest.NewRecorder()
+	srv.handleIndex(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("index = %d: %s", w.Code, w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), secret) {
+		t.Error("the served page carries the arcgis_url token")
+	}
+	if !strings.Contains(w.Body.String(), "token=REDACTED") {
+		t.Error("the served page's Config tab does not show the redacted arcgis_url")
 	}
 }

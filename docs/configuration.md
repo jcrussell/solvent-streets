@@ -78,7 +78,18 @@ least one of them: `overpass` defaults to false, so a city with neither is
 rejected. A private or
 loopback ArcGIS address is refused unless the city also sets
 `allow_private_arcgis = true`, which is for self-hosted or staging endpoints
-only. Fire stations always come from OpenStreetMap, and census blocks always
+only. An `arcgis_url` may carry an access token in its query string
+(`?token=...`): pvmt prints and records the URL with the value of every
+parameter named like a token, key, secret, password or signature replaced by
+`REDACTED`, including in the Config tab of an exported site and in `pvmt
+config show`. When TOML escapes spell a token so that it cannot be sure it
+caught it, the Config tab leaves out the file as written and shows only the
+resolved settings. Its cache and data directories are owner-only (0700): pvmt
+creates them so, and narrows them when it finds them wider (warning when it cannot,
+as for a directory another user owns). New cache files
+and a new database are owner-only too, and a cache entry an older pvmt wrote
+is narrowed, and its URL redacted, the next time it is read. Fire stations
+always come from OpenStreetMap, and census blocks always
 come from the Census Bureau's TIGERweb, whatever these settings say.
 
 **Boundary.** The city boundary comes from a Nominatim search for the name.

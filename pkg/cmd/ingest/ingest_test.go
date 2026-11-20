@@ -2514,3 +2514,12 @@ func TestFetchFromSources_ArcGISSkipsNonRoads(t *testing.T) {
 		t.Errorf("attempts = %+v, want one empty arcgis attempt", attempts)
 	}
 }
+
+// TestFmtArcgis_RedactsToken: the dry-run plan names the ArcGIS layer
+// without the arcgis_url's access token.
+func TestFmtArcgis_RedactsToken(t *testing.T) {
+	got := fmtArcgis("https://gis.example/FeatureServer/0/query?token=s3cr3t", resource.ByType(resource.TypeRoads))
+	if strings.Contains(got, "s3cr3t") || !strings.Contains(got, "token=REDACTED") {
+		t.Errorf("fmtArcgis = %q, want the token redacted", got)
+	}
+}

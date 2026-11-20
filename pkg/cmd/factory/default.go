@@ -168,7 +168,7 @@ func httpClientFactory(f *cmdutil.Factory) func() (*http.Client, error) {
 			return nil, err
 		}
 		cacheDir := p.HTTPCacheDir()
-		if err := paths.EnsureDir(cacheDir); err != nil {
+		if err := ensureDirs(f.IOStreams, p.Cache, cacheDir); err != nil {
 			if errors.Is(err, fs.ErrPermission) {
 				return nil, hint.Withf(err, "check filesystem permissions on %s", p.Cache)
 			}
@@ -204,6 +204,21 @@ func httpClientFactory(f *cmdutil.Factory) func() (*http.Client, error) {
 			},
 		}, nil
 	})
+}
+
+// ensureDirs creates each of pvmt's own dirs (paths.EnsureDir), in order,
+// and narrows one an earlier pvmt left wider than owner-only
+// (paths.NarrowDir), warning rather than failing when it cannot.
+func ensureDirs(ios *iostreams.IOStreams, dirs ...string) error {
+	for _, d := range dirs {
+		if err := paths.EnsureDir(d); err != nil {
+			return err
+		}
+		if err := paths.NarrowDir(d); err != nil && ios != nil {
+			cmdutil.Warnf(ios, "could not make %s owner-only: %v", d, err)
+		}
+	}
+	return nil
 }
 
 // resolveCacheTTL is the config's [cache] ttl, or cache.DefaultTTL when it is
@@ -385,7 +400,7 @@ func rootDBFactory(f *cmdutil.Factory, path string) func() (*db.RootStore, error
 			if err != nil {
 				return nil, err
 			}
-			if err := paths.EnsureDir(p.Data); err != nil {
+			if err := ensureDirs(f.IOStreams, p.Data); err != nil {
 				if errors.Is(err, fs.ErrPermission) {
 					return nil, hint.Withf(err, "check filesystem permissions on %s", p.Data)
 				}

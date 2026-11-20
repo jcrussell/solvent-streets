@@ -7,6 +7,8 @@ import (
 	"net"
 	"net/netip"
 	"net/url"
+
+	"github.com/jcrussell/solvent-streets/internal/redact"
 )
 
 // SSRF-guard rule for outbound URLs in package ingest
@@ -85,7 +87,7 @@ func ValidatePublicHTTPURL(ctx context.Context, urlStr string) error {
 func validatePublicHTTPURL(ctx context.Context, urlStr string) error {
 	u, err := url.Parse(urlStr)
 	if err != nil {
-		return fmt.Errorf("parse url: %w", err)
+		return fmt.Errorf("parse url: %w", redact.Error(err))
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
 		return fmt.Errorf("scheme %q is not http or https", u.Scheme)

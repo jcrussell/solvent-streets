@@ -782,3 +782,40 @@ func TestCityStore_EnsuresOnce(t *testing.T) {
 		t.Errorf("city b's boundary = (%q, %v), want none", got, err)
 	}
 }
+
+// TestOpen_CreatesOwnerOnly: a database pvmt creates, its -wal and -shm
+// files, and the directory it creates for it let no one but the owner in,
+// whatever the umask; an existing file keeps its mode.
+func TestOpen_CreatesOwnerOnly(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "data")
+	path := filepath.Join(dir, FileName)
+	root, err := Open(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := root.EnsureCity(context.Background(), "a", "A", "test"); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{dir, path, path + "-wal", path + "-shm"} {
+		info, err := os.Stat(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if perm := info.Mode().Perm(); perm&0o077 != 0 || perm&0o600 != 0o600 {
+			t.Errorf("%s mode = %v, want owner-only", p, perm)
+		}
+	}
+	_ = root.Close()
+
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	root, err = Open(context.Background(), path)
+	if err != nil {
+		t.Fatalf("reopen a 0644 database: %v", err)
+	}
+	_ = root.Close()
+	if info, _ := os.Stat(path); info.Mode().Perm() != 0o644 {
+		t.Errorf("reopen changed an existing database's mode to %v", info.Mode().Perm())
+	}
+}

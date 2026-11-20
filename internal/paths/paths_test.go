@@ -186,3 +186,35 @@ func TestRequireAbs(t *testing.T) {
 func rootOf(dir string, err error) func() (string, error) {
 	return func() (string, error) { return dir, err }
 }
+
+// TestEnsureDir_OwnerOnly: EnsureDir creates a directory owner-only, and
+// NarrowDir narrows an existing one that lets others in, leaving its parent
+// alone.
+func TestEnsureDir_OwnerOnly(t *testing.T) {
+	parent := t.TempDir()
+	if err := os.Chmod(parent, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	p := filepath.Join(parent, "pvmt")
+	if err := os.Mkdir(p, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := EnsureDir(p); err != nil {
+		t.Fatal(err)
+	}
+	if err := NarrowDir(p); err != nil {
+		t.Fatal(err)
+	}
+	fresh := filepath.Join(parent, "new", "pvmt")
+	if err := EnsureDir(fresh); err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range []string{p, fresh} {
+		if info, _ := os.Stat(d); info.Mode().Perm()&0o077 != 0 {
+			t.Errorf("%s mode = %v, want owner-only", d, info.Mode().Perm())
+		}
+	}
+	if info, _ := os.Stat(parent); info.Mode().Perm() != 0o755 {
+		t.Errorf("EnsureDir changed the parent's mode to %v", info.Mode().Perm())
+	}
+}

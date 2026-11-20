@@ -181,3 +181,25 @@ func TestIngestAttempts_TimesReadableBySQLite(t *testing.T) {
 		t.Errorf("round trip %v, want %v in UTC", h[0].Latest.StartedAt, want)
 	}
 }
+
+// TestRecordIngestAttempts_RedactsURLCredentials: an error quoting a URL
+// with a credential (an arcgis_url's ?token=) is stored and read back with it
+// redacted, so 'pvmt status' never shows it.
+func TestRecordIngestAttempts_RedactsURLCredentials(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	now := time.Now()
+	msg := `arcgis request: Get "https://gis.example/query?f=json&token=s3cr3t": dial tcp: connection refused`
+	if err := store.RecordIngestAttempts(ctx, []IngestAttempt{{Input: "roads", Source: "arcgis",
+		StartedAt: now, FinishedAt: now, Outcome: IngestFailed, Error: msg}}); err != nil {
+		t.Fatal(err)
+	}
+	hist, err := store.IngestHistory(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := hist[0].LastFailure.Error
+	if strings.Contains(got, "s3cr3t") || !strings.Contains(got, "token=REDACTED") {
+		t.Errorf("stored error = %q, want the token redacted", got)
+	}
+}

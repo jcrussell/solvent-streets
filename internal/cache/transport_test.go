@@ -885,3 +885,110 @@ func TestCachingTransport_CorruptMarkerIsRemoved(t *testing.T) {
 		t.Errorf("upstream calls = %d, want 2: a corrupt marker answers nothing", calls)
 	}
 }
+
+// TestCachingTransport_EntriesOwnerOnlyAndRedacted: a cached entry is
+// readable only by its owner, and its .meta names the request URL with any
+// credential redacted.
+func TestCachingTransport_EntriesOwnerOnlyAndRedacted(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	t.Cleanup(srv.Close)
+	dir := t.TempDir()
+	client := &http.Client{Transport: NewTransport(http.DefaultTransport, dir, time.Hour)}
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL+"/q?f=json&token=s3cr3t", nil)
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+
+	files := cacheFiles(t, dir)
+	if len(files) != 2 {
+		t.Fatalf("cache dir = %q, want a body and a meta", files)
+	}
+	for _, name := range files {
+		path := filepath.Join(dir, name)
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if perm := info.Mode().Perm(); perm != FilePerm {
+			t.Errorf("%s mode = %v, want %v", name, perm, os.FileMode(FilePerm))
+		}
+		if strings.HasSuffix(name, metaExt) {
+			data, _ := os.ReadFile(path)
+			if strings.Contains(string(data), "s3cr3t") || !strings.Contains(string(data), "token=REDACTED") {
+				t.Errorf("meta = %s, want the token redacted", data)
+			}
+		}
+	}
+}
+
+// TestCachingTransport_NarrowsOldEntries: an entry an earlier pvmt wrote
+// world-readable, with the token in its .meta, is narrowed to owner-only and
+// its URL redacted the next time it is served.
+func TestCachingTransport_NarrowsOldEntries(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	t.Cleanup(srv.Close)
+	dir := t.TempDir()
+	client := &http.Client{Transport: NewTransport(http.DefaultTransport, dir, time.Hour)}
+	u := srv.URL + "/q?token=s3cr3t"
+	get := func() {
+		t.Helper()
+		req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, u, nil)
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+	}
+	get()
+	// Make the entry look like an old one: world-readable, URL in clear.
+	for _, name := range cacheFiles(t, dir) {
+		path := filepath.Join(dir, name)
+		if strings.HasSuffix(name, metaExt) {
+			data, _ := os.ReadFile(path)
+			var m entryMeta
+			_ = json.Unmarshal(data, &m)
+			m.URL = u
+			data, _ = json.Marshal(m)
+			_ = os.WriteFile(path, data, 0o644)
+		}
+		_ = os.Chmod(path, 0o644)
+	}
+	get() // a cache hit
+	for _, name := range cacheFiles(t, dir) {
+		path := filepath.Join(dir, name)
+		info, _ := os.Stat(path)
+		if info.Mode().Perm() != FilePerm {
+			t.Errorf("%s mode = %v after a hit, want %v", name, info.Mode().Perm(), os.FileMode(FilePerm))
+		}
+		if strings.HasSuffix(name, metaExt) {
+			if data, _ := os.ReadFile(path); strings.Contains(string(data), "s3cr3t") {
+				t.Errorf("meta still names the token after a hit: %s", data)
+			}
+		}
+	}
+}
+
+// TestReadTooLarge_NarrowsOldMarkers: a too-large marker an earlier pvmt
+// wrote world-readable with the token in its URL is redacted and narrowed
+// when read.
+func TestReadTooLarge_NarrowsOldMarkers(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "k"+tooLargeExt)
+	data, _ := json.Marshal(tooLargeMarker{Timestamp: time.Now(), URL: "https://h.example/q?token=s3cr3t", LimitBytes: 1})
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := readTooLarge(path); !ok {
+		t.Fatal("marker not read")
+	}
+	got, _ := os.ReadFile(path)
+	info, _ := os.Stat(path)
+	if strings.Contains(string(got), "s3cr3t") || info.Mode().Perm() != FilePerm {
+		t.Errorf("marker after a read = %s, mode %v; want redacted and %v", got, info.Mode().Perm(), os.FileMode(FilePerm))
+	}
+}

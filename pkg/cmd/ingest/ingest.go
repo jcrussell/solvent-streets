@@ -16,6 +16,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/hint"
 	ingestpkg "github.com/jcrussell/solvent-streets/internal/ingest"
 	"github.com/jcrussell/solvent-streets/internal/logs"
+	"github.com/jcrussell/solvent-streets/internal/redact"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/internal/warn"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
@@ -671,7 +672,7 @@ func fmtArcgis(url string, rt resource.Source) string {
 	case rt.Type() != resource.TypeRoads:
 		return " (arcgis: skipped, it serves only " + servedTypes(&ingestpkg.ArcGISSource{}) + ")"
 	}
-	return ", arcgis (" + url + ")"
+	return ", arcgis (" + redact.URL(url) + ")"
 }
 
 // nominatimFetcher abstracts the by-name Nominatim search so tests

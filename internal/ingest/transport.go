@@ -41,6 +41,7 @@ import (
 	"time"
 
 	"github.com/jcrussell/solvent-streets/internal/build"
+	"github.com/jcrussell/solvent-streets/internal/redact"
 )
 
 // NewTransport wires the canonical middleware chain over
@@ -157,7 +158,7 @@ func retryNotifier(ctx context.Context) func(RetryNotice) {
 // retryReason is the cause of a retry as a short phrase.
 func retryReason(resp *http.Response, err error) string {
 	if err != nil {
-		return err.Error()
+		return redact.String(err.Error())
 	}
 	return fmt.Sprintf("HTTP %d", resp.StatusCode)
 }

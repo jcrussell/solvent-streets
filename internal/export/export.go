@@ -22,6 +22,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/forecast"
 	"github.com/jcrussell/solvent-streets/internal/geo"
 	"github.com/jcrussell/solvent-streets/internal/hint"
+	"github.com/jcrussell/solvent-streets/internal/redact"
 	"github.com/jcrussell/solvent-streets/internal/services"
 	"github.com/jcrussell/solvent-streets/internal/warn"
 )
@@ -640,6 +641,11 @@ func resolvedConfig(cfg *config.Config, hexEdges map[string]float64) config.Conf
 			cities[i].Forecast = &rf
 			census := cities[i].CensusEnabled()
 			cities[i].Census = &census
+			// The view is published (the site's Config tab, meta.json
+			// settings_toml) and printed by 'pvmt config show': never with an
+			// arcgis_url's token. arcgis_url is not hashed (Config.CityHash),
+			// and this copy is display only.
+			cities[i].ArcGISURL = redact.URL(cities[i].ArcGISURL)
 		}
 		resolved.Cities = cities
 	}

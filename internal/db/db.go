@@ -6,6 +6,7 @@ import (
 	"embed"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -408,10 +409,28 @@ func DefaultPath() (string, error) {
 		return "", err
 	}
 	dir := filepath.Join(home, ".local", "share", "pvmt")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
 	return filepath.Join(dir, FileName), nil
+}
+
+// createOwnerOnly creates the database file empty and owner-only (0o600)
+// when it does not exist, so SQLite, which gives its -wal and -shm files the
+// database file's mode, never creates any of them world-readable. An existing
+// file keeps its mode; ":memory:" is left alone.
+func createOwnerOnly(path string) error {
+	if path == ":memory:" {
+		return nil
+	}
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
+	if errors.Is(err, fs.ErrExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return f.Close()
 }
 
 // openBusyBudget bounds how long Open's migrate retries while another
@@ -430,12 +449,6 @@ func Open(ctx context.Context, path string) (retStore *RootStore, retErr error) 
 			return nil, fmt.Errorf("default db path: %w", err)
 		}
 	}
-	if dir := filepath.Dir(path); dir != "" {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return nil, fmt.Errorf("create db dir: %w", err)
-		}
-	}
-
 	// The DSN is built by appending our pragma query string to the path.
 	// A path that already contains a '?' would corrupt that query string
 	// (the driver splits the DSN on the first '?'), silently dropping the
@@ -445,6 +458,15 @@ func Open(ctx context.Context, path string) (retStore *RootStore, retErr error) 
 	// for the supported paths.
 	if strings.Contains(path, "?") {
 		return nil, fmt.Errorf("open sqlite: db path must not contain '?': %q", path)
+	}
+
+	if dir := filepath.Dir(path); dir != "" {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return nil, fmt.Errorf("create db dir: %w", err)
+		}
+	}
+	if err := createOwnerOnly(path); err != nil {
+		return nil, fmt.Errorf("create db file: %w", err)
 	}
 
 	incompatible := func(err error) error {

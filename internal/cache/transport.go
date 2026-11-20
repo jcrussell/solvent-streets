@@ -17,6 +17,7 @@ import (
 
 	"github.com/jcrussell/solvent-streets/internal/fsutil"
 	"github.com/jcrussell/solvent-streets/internal/httpio"
+	"github.com/jcrussell/solvent-streets/internal/redact"
 )
 
 // bypassKey is the context key carrying the per-request "skip the read
@@ -42,6 +43,21 @@ type entryMeta struct {
 	Timestamp  time.Time           `json:"timestamp"`
 	URL        string              `json:"url"`
 }
+
+// narrow chmods path to FilePerm when its mode lets anyone but the owner in,
+// best-effort.
+func narrow(path string) {
+	if info, err := os.Stat(path); err == nil && info.Mode().Perm()&^FilePerm != 0 {
+		_ = os.Chmod(path, FilePerm)
+	}
+}
+
+// FilePerm is the mode of the cache's files: owner-only, since a request URL
+// can carry a credential (an arcgis_url's ?token=) and a response can be
+// private data. The directory is owner-only too (paths.EnsureDir). Entries an
+// earlier pvmt wrote with wider modes are still read, and narrowed (and their
+// URL redacted) when next read.
+const FilePerm = 0o600
 
 type CachingTransport struct {
 	Wrapped http.RoundTripper
@@ -147,13 +163,13 @@ func (t *CachingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	_ = resp.Body.Close()
 	if err != nil {
 		if errors.Is(err, httpio.ErrBodyTooLarge) && resp.StatusCode == http.StatusOK {
-			t.writeTooLarge(markerPath, metaPath, bodyPath, req.URL.String())
+			t.writeTooLarge(markerPath, metaPath, bodyPath, redact.URL(req.URL.String()))
 		}
 		return nil, fmt.Errorf("read response body: %w", err)
 	}
 
 	if resp.StatusCode == http.StatusOK {
-		t.writeCache(metaPath, bodyPath, resp, body, req.URL.String())
+		t.writeCache(metaPath, bodyPath, resp, body, redact.URL(req.URL.String()))
 		_ = os.Remove(markerPath) // the key fits now; best-effort
 	}
 
@@ -233,6 +249,16 @@ func readTooLarge(path string) (tooLargeMarker, bool) {
 		_ = os.Remove(path)
 		return tooLargeMarker{}, false
 	}
+	// A marker an earlier pvmt wrote: redact its URL and narrow it, as
+	// readCache does for a .meta. Best-effort.
+	if redact.URL(m.URL) != m.URL {
+		fixed := m
+		fixed.URL = redact.URL(m.URL)
+		if data, err := json.Marshal(fixed); err == nil {
+			_ = fsutil.WriteFile(path, data, FilePerm)
+		}
+	}
+	narrow(path)
 	return m, true
 }
 
@@ -243,7 +269,7 @@ func (t *CachingTransport) writeTooLarge(markerPath, metaPath, bodyPath, url str
 	if err != nil {
 		return
 	}
-	if err := fsutil.WriteFile(markerPath, data, 0o644); err != nil { // best-effort cache write
+	if err := fsutil.WriteFile(markerPath, data, FilePerm); err != nil { // best-effort cache write
 		return
 	}
 	_ = os.Remove(metaPath)
@@ -312,6 +338,14 @@ func (t *CachingTransport) readCache(metaPath, bodyPath string) (*entryMeta, []b
 	if err != nil {
 		return nil, nil, false
 	}
+	// An entry an earlier pvmt wrote: rewrite a .meta naming an unredacted
+	// URL (writeCacheMeta redacts it, keeping the timestamp), and narrow
+	// both files to FilePerm. Best-effort; the entry is served either way.
+	if redact.URL(meta.URL) != meta.URL {
+		t.writeCacheMeta(metaPath, meta)
+	}
+	narrow(metaPath)
+	narrow(bodyPath)
 	return &meta, body, true
 }
 
@@ -354,11 +388,12 @@ func gzipBody(body []byte) ([]byte, error) {
 // writeCacheMeta replaces the .meta file in place — used by the 304
 // revalidation path to bump Timestamp without touching the body.
 func (t *CachingTransport) writeCacheMeta(metaPath string, meta entryMeta) {
+	meta.URL = redact.URL(meta.URL) // an entry written before URLs were redacted
 	data, err := json.Marshal(meta)
 	if err != nil {
 		return
 	}
-	_ = fsutil.WriteFile(metaPath, data, 0o644) // best-effort cache write
+	_ = fsutil.WriteFile(metaPath, data, FilePerm) // best-effort cache write
 }
 
 func (t *CachingTransport) writeCache(metaPath, bodyPath string, resp *http.Response, body []byte, url string) {
@@ -394,10 +429,10 @@ func (t *CachingTransport) writeCache(metaPath, bodyPath string, resp *http.Resp
 	if err != nil {
 		return
 	}
-	if err := fsutil.WriteFile(bodyPath, compressed, 0o644); err != nil {
+	if err := fsutil.WriteFile(bodyPath, compressed, FilePerm); err != nil {
 		return
 	}
-	_ = fsutil.WriteFile(metaPath, metaData, 0o644) // commit; best-effort
+	_ = fsutil.WriteFile(metaPath, metaData, FilePerm) // commit; best-effort
 }
 
 func buildResponse(req *http.Request, meta *entryMeta, body []byte) *http.Response {
