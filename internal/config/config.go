@@ -14,6 +14,7 @@ import (
 	"github.com/BurntSushi/toml"
 
 	"github.com/jcrussell/solvent-streets/internal/forecast"
+	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/internal/units"
 )
 
@@ -1095,6 +1096,20 @@ func validateCityFields(i int, city CityConfig) error {
 		}
 	}
 	return nil
+}
+
+// PavementSources names the sources the city's pavement resources come from:
+// resource.SourceOverpass when overpass is on, then resource.SourceArcGIS when
+// arcgis_url is set. Own-sourced resources (resource.OwnSourced) ignore it.
+func (c *CityConfig) PavementSources() []string {
+	var sources []string
+	if c.Overpass {
+		sources = append(sources, resource.SourceOverpass)
+	}
+	if c.ArcGISURL != "" {
+		sources = append(sources, resource.SourceArcGIS)
+	}
+	return sources
 }
 
 // CensusEnabled reports whether the city takes part in the Census

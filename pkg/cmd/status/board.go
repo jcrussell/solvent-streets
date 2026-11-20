@@ -98,13 +98,7 @@ type boardLayer struct {
 // its configured sources, each service's facilities and routing roads, and
 // census blocks unless the city opts out.
 func boardLayers(city *config.CityConfig) []boardLayer {
-	var pavement []string
-	if city.Overpass {
-		pavement = append(pavement, resource.SourceOverpass)
-	}
-	if city.ArcGISURL != "" {
-		pavement = append(pavement, resource.SourceArcGIS)
-	}
+	pavement := city.PavementSources()
 	boundarySrc := "nominatim"
 	if city.BoundaryRelationID > 0 {
 		boundarySrc = "overpass-relation"

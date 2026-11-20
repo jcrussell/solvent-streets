@@ -785,13 +785,7 @@ func ingestGaps(ctx context.Context, entry CityEntry, missing []string) (failure
 	if err != nil {
 		return nil, nil, err
 	}
-	var configured []string
-	if entry.City.Overpass {
-		configured = append(configured, resource.SourceOverpass)
-	}
-	if entry.City.ArcGISURL != "" {
-		configured = append(configured, resource.SourceArcGIS)
-	}
+	configured := entry.City.PavementSources()
 	for _, rt := range resource.All {
 		input, name := string(rt.Type()), string(rt.Type().Bare())
 		if failing := db.FailingSources(history, input, configured); len(failing) > 0 {

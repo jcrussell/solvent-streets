@@ -122,12 +122,9 @@ is cured by a successful full re-ingest, not by gc.
 // Config validation forbids overpass=false with no arcgis_url, so the keep set
 // is never empty for a valid city.
 func keepSourcesFor(city config.CityConfig, sweepDisabled bool) []string {
-	var keep []string
-	if city.Overpass || !sweepDisabled {
-		keep = append(keep, resource.SourceOverpass)
-	}
-	if city.ArcGISURL != "" {
-		keep = append(keep, resource.SourceArcGIS)
+	keep := city.PavementSources()
+	if !city.Overpass && !sweepDisabled {
+		keep = append([]string{resource.SourceOverpass}, keep...)
 	}
 	return keep
 }
