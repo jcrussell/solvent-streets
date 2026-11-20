@@ -80,6 +80,26 @@ func TestCobraTree_SubcommandRouting(t *testing.T) {
 	}
 }
 
+// TestCobraTree_ResourceGroupsWireTheirOwnResource: each pavement group's
+// ingest, compute and status describe that group's resource, so a group
+// wired with another resource (roads commands running on sidewalks) fails
+// here; the path set above cannot tell them apart.
+func TestCobraTree_ResourceGroupsWireTheirOwnResource(t *testing.T) {
+	rootCmd := newTestRoot(t)
+	for _, group := range []string{"roads", "parking", "sidewalks"} {
+		for _, sub := range []string{"ingest", "compute", "status"} {
+			cmd, _, err := rootCmd.Find([]string{group, sub})
+			if err != nil || cmd.Name() != sub {
+				t.Errorf("pvmt %s %s does not resolve: %v", group, sub, err)
+				continue
+			}
+			if !strings.Contains(cmd.Short, group) {
+				t.Errorf("pvmt %s %s: Short %q does not name %s (wrong resource wired?)", group, sub, cmd.Short, group)
+			}
+		}
+	}
+}
+
 // TestCobraTree_HelpForEverySubcommand asserts that `--help` succeeds
 // and produces non-empty output for every command in the tree. Catches
 // regressions that the path-set check misses: a command whose Short or

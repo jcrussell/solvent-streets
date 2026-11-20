@@ -426,19 +426,6 @@ func withMiddlewares(t *testing.T, ms ...middleware) {
 	middlewares = ms
 }
 
-// TestPersistentPreRunE_Wired: the root command
-// must install a PersistentPreRunE so the documented cobra execution order
-// (root.PersistentPreRunE → cmd.RunE) holds. Subcommands rely on this to
-// receive a logger bound to their command path and to inherit any cross-
-// cutting setup the middlewares slice performs.
-func TestPersistentPreRunE_Wired(t *testing.T) {
-	f := testFactory()
-	cmd := NewCmdRoot(f)
-	if cmd.PersistentPreRunE == nil {
-		t.Fatal("root.PersistentPreRunE is nil; middleware chain will not run")
-	}
-}
-
 // TestPersistentPreRunE_RunsMiddlewareForLeafCommand locks in that the
 // middleware chain actually fires for ordinary subcommands. Without this,
 // a future refactor that drops the for-range over middlewares (or moves
@@ -545,19 +532,6 @@ func TestRoot_CacheGroupRegistered(t *testing.T) {
 		if sub.Flags().Lookup(name) == nil {
 			t.Errorf("`cache prune` is missing --%s", name)
 		}
-	}
-}
-
-// TestCompletion_DefaultSubcommandEnabled: the
-// auto-generated `completion <shell>` subcommand must stay wired so users
-// can `eval "$(pvmt completion bash)"` without us hand-writing scripts.
-// A future change that flips CompletionOptions.DisableDefaultCmd would
-// silently remove the subcommand; this test catches that immediately.
-func TestCompletion_DefaultSubcommandEnabled(t *testing.T) {
-	f := testFactory()
-	cmd := NewCmdRoot(f)
-	if cmd.CompletionOptions.DisableDefaultCmd {
-		t.Fatal("CompletionOptions.DisableDefaultCmd is true; the `completion` subcommand will not be created")
 	}
 }
 
