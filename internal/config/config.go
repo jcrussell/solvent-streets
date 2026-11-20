@@ -736,6 +736,9 @@ func parseConfig(data []byte) (*Config, error) {
 	var cfg Config
 	md, err := toml.Decode(string(data), &cfg)
 	if err != nil {
+		if misplaced := misplacedOverpassFlag(data); misplaced != nil {
+			return nil, misplaced
+		}
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
 	if undecoded := md.Undecoded(); len(undecoded) > 0 {
@@ -803,6 +806,24 @@ func applyForecastPresence(cfg *Config, data []byte) {
 		pc := p.Cities[i].Forecast
 		cfg.Cities[i].Forecast.growthRateSet = pc != nil && pc.GrowthRate != nil
 	}
+}
+
+// misplacedOverpassFlag explains a top-level `overpass = true` (or false), the city data
+// source written above the first [[cities]]. The top-level key is the
+// [overpass] table, so the decoder's own error is a type mismatch naming a Go
+// type. Returns nil when the file has no such key.
+func misplacedOverpassFlag(data []byte) error {
+	// A decode error leaves probe with whatever parsed before it, which is
+	// still a fair reading of the key, so the error itself is not needed.
+	var probe map[string]any
+	_, _ = toml.Decode(string(data), &probe)
+	flag, isFlag := probe["overpass"].(bool)
+	if !isFlag {
+		return nil
+	}
+	return errors.Join(ErrInvalidConfig, fmt.Errorf(
+		"overpass = %t belongs inside [[cities]] (move it below a city's name); "+
+			"the top-level [overpass] table takes url", flag))
 }
 
 // MinCacheTTL is the shortest [cache] ttl a config may set. Anything shorter

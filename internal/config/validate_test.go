@@ -943,3 +943,19 @@ func TestValidInitialPCIPredicate(t *testing.T) {
 		}
 	}
 }
+
+// TestLoad_TopLevelOverpassFlag pins the message for `overpass = true` written
+// above the first [[cities]]: it names where the key belongs rather than the
+// decoder's type mismatch.
+func TestLoad_TopLevelOverpassFlag(t *testing.T) {
+	for _, v := range []string{"true", "false"} {
+		_, err := Load(writeTOML(t, t.TempDir(), "pvmt.toml",
+			"overpass = "+v+"\n\n[[cities]]\nname = \"Oakland, CA\"\n"))
+		if !errors.Is(err, ErrInvalidConfig) {
+			t.Fatalf("overpass = %s: Load err = %v; want ErrInvalidConfig", v, err)
+		}
+		if msg := err.Error(); !strings.Contains(msg, "overpass = "+v+" belongs inside [[cities]]") || strings.Contains(msg, "OverpassConfig") {
+			t.Errorf("overpass = %s: Load err = %q; want the misplaced-key message, echoing the value, without the Go type", v, msg)
+		}
+	}
+}
