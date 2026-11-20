@@ -589,6 +589,7 @@
                     cohorts: gameConfig.cohorts,
                     initial_pci: gameConfig.initial_pci,
                     cost_tiers: gameConfig.cost_tiers,
+                    cost_overhead: gameConfig.cost_overhead,
                     annual_budget: gameConfig.annual_budget,
                     horizon_years: gameConfig.horizon_years,
                     treatment_cycle_years: gameConfig.treatment_cycle_years,
@@ -836,6 +837,9 @@
                 initial_pci: seed.initial_pci != null ? seed.initial_pci : FORECAST_DEFAULTS.initial_pci,
                 pci_jitter: PVMT_CONFIG.pci_jitter,
                 cost_tiers: seed.cost_tiers || [],
+                // The loaded-cost multiplier the forecast priced the budget
+                // at; a seed without one is bare (0 reads as 1.0).
+                cost_overhead: seed.cost_overhead || 0,
                 annual_budget: startingBudget,
                 horizon_years: seed.horizon_years || FORECAST_DEFAULTS.horizon_years,
                 endless: false,

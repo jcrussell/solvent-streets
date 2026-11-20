@@ -74,6 +74,19 @@ test('play: the map is fitted to the board, not left on the region', async () =>
   assert.deepEqual(last, want, 'the last fit was not to the board');
 });
 
+// The game prices work at the overhead the forecast priced the budget at, on
+// the board and in the start screen's projection alike.
+test('play: the board and the projection carry the seed cost overhead', async () => {
+  const seed = { ...structuredClone(seedJSON), cost_overhead: 1.35 };
+  const h = await bootBoard(boardData(seed));
+  assert.equal(h.get('gameConfig').cost_overhead, 1.35);
+  const sent = [];
+  h.win.gameProjectInsolvency = (json) => { sent.push(JSON.parse(json)); return '{}'; };
+  h.get('refreshProjection()');
+  await new Promise((r) => setTimeout(r, 100));
+  assert.equal(sent.at(-1).cost_overhead, 1.35, 'the projection priced work bare');
+});
+
 // The start screen opens at the cited street budget,
 // else at the roads hold-steady budget, as the Financials slider does.
 const roadsForecast = forecastJSON.find((f) => f.resource_type === 'roads');

@@ -212,11 +212,12 @@ func surfaceVerdicts(t *testing.T, in forecast.Inputs) map[string]bool {
 	_, _, _, _, err := bridge.Translate(bin)
 	verdicts["bridge"] = err == nil
 
-	// The game. It has no single decay rate and no cost overhead.
+	// The game. It has no single decay rate.
 	gcfg := game.Config{
 		Hexes:               []game.HexConfig{{ID: "a", RoadsArea: 1000, DecayRate: 0.04}},
 		InitialPCI:          in.InitialPCI,
 		CostTiers:           in.CostTiers,
+		CostOverhead:        in.CostOverhead,
 		AnnualBudget:        in.Budget,
 		HorizonYears:        in.Years,
 		TreatmentCycleYears: in.CycleYears,
@@ -239,7 +240,7 @@ func TestForecastBounds_OneAnswerOnEverySurface(t *testing.T) {
 	// Inputs a surface does not take, so a case on one cannot move its verdict.
 	absent := map[string][]string{
 		"config": {forecast.FieldCohorts},
-		"game":   {forecast.FieldDecayRate, forecast.FieldCostOverhead},
+		"game":   {forecast.FieldDecayRate},
 	}
 	for _, tc := range boundCases {
 		t.Run(tc.name, func(t *testing.T) {

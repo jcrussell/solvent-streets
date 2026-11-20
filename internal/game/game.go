@@ -72,6 +72,12 @@ type Config struct {
 
 	CostTiers []forecast.CostTier `json:"cost_tiers"`
 
+	// CostOverhead is the loaded-cost multiplier on every tier, as the
+	// forecast prices work (forecast_seed.json's cost_overhead). It scales the
+	// treatment charge, the board's need and the macro forecast alike, so the
+	// game spends the dollars Financials budgets. 0 means bare (1.0).
+	CostOverhead float64 `json:"cost_overhead"`
+
 	// AnnualBudget is the annual funding rate ($/sim-year) that refills the
 	// treasury and drives the macro insolvency headline: the forecast's
 	// annual_budget.
@@ -168,9 +174,7 @@ var inputNames = map[string]string{
 }
 
 // forecastInputs is the macro forecast's view of cfg at the given annual
-// budget: what New validates and what ProjectInsolvency simulates. The
-// cost overhead is left unset because the game prices bare (see
-// insolvencyFromForecast).
+// budget: what New validates and what ProjectInsolvency simulates.
 func (cfg Config) forecastInputs(budget float64) forecast.Inputs {
 	raw := make([]forecast.RawCohort, len(cfg.Cohorts))
 	for i, c := range cfg.Cohorts {
@@ -181,14 +185,31 @@ func (cfg Config) forecastInputs(budget float64) forecast.Inputs {
 		}
 	}
 	return forecast.Inputs{
-		InitialPCI: cfg.InitialPCI,
-		GrowthRate: cfg.GrowthRate,
-		Years:      cfg.HorizonYears,
-		Budget:     budget,
-		CycleYears: cfg.TreatmentCycleYears,
-		CostTiers:  cfg.CostTiers,
-		Cohorts:    raw,
+		InitialPCI:   cfg.InitialPCI,
+		GrowthRate:   cfg.GrowthRate,
+		Years:        cfg.HorizonYears,
+		Budget:       budget,
+		CycleYears:   cfg.TreatmentCycleYears,
+		CostTiers:    cfg.CostTiers,
+		CostOverhead: cfg.CostOverhead,
+		Cohorts:      raw,
 	}
+}
+
+// loadedTiers returns a copy of tiers with every cost scaled by overhead (a
+// value <= 0 is bare, as forecast.TieredCostProjector reads it). The game
+// charges treatments, bounds affordability and prices the board's need off
+// these, so all three carry the overhead the macro forecast applies.
+func loadedTiers(tiers []forecast.CostTier, overhead float64) []forecast.CostTier {
+	if overhead <= 0 {
+		overhead = 1
+	}
+	out := make([]forecast.CostTier, len(tiers))
+	for i, t := range tiers {
+		t.CostPerSqM *= overhead
+		out[i] = t
+	}
+	return out
 }
 
 // noDebt is the game's funding rule: there is no debt model, so a negative
@@ -255,8 +276,7 @@ func New(cfg Config) (*Game, error) {
 		return nil, err
 	}
 
-	tiers := make([]forecast.CostTier, len(cfg.CostTiers))
-	copy(tiers, cfg.CostTiers)
+	tiers := loadedTiers(cfg.CostTiers, cfg.CostOverhead)
 
 	startBudget := noDebt(cfg.AnnualBudget)
 
@@ -449,22 +469,7 @@ func insolvencyFromForecast(in forecast.Inputs) (int, bool) {
 	// (condition.go), so the game's insolvency headline must not skip it.
 	cohorts := forecast.SpreadCohorts(in.Cohorts, in.InitialPCI)
 	cycleYears := forecast.ResolveCycleYears(in.CycleYears)
-	// Overhead 1.0 (bare) deliberately, NOT config.DefaultCostOverhead.
-	//
-	// The game prices work through two different paths: backlog accrues via
-	// this projector (ProjectCost), while the treatment charge, the
-	// affordability floor (minTierCost) and the loss ceiling all read RAW tier
-	// values off g.tiers. Loading only the projector would accrue backlog at
-	// the overhead multiple against treatments the player still pays bare for,
-	// firing the out-of-funds loss condition proportionally sooner — a balance
-	// change disguised as a costing fix. (The default is 1.0 today, so that
-	// skew currently measures zero; the coupling is what matters, not the
-	// present value.)
-	//
-	// Making the game genuinely overhead-aware means scaling all four sites
-	// together and plumbing the value through forecast_seed.json, which
-	// game.js does not carry today. Tracked as solvent-streets-0mc9.
-	params := forecast.NewParams(in.GrowthRate, in.CostTiers, cycleYears, 1)
+	params := forecast.NewParams(in.GrowthRate, in.CostTiers, cycleYears, in.CostOverhead)
 	scenario := forecast.Scenario{
 		Name:         "game",
 		AnnualBudget: in.Budget,

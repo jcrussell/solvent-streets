@@ -73,6 +73,9 @@ func TestNewValidation(t *testing.T) {
 		"nan budget":     func(c *Config) { c.AnnualBudget = math.NaN() },
 		"inf budget":     func(c *Config) { c.AnnualBudget = math.Inf(-1) },
 		"nan growth":     func(c *Config) { c.GrowthRate = math.NaN() },
+		"nan overhead":   func(c *Config) { c.CostOverhead = math.NaN() },
+		"neg overhead":   func(c *Config) { c.CostOverhead = -1 },
+		"huge overhead":  func(c *Config) { c.CostOverhead = forecast.MaxCostOverhead + 1 },
 		"neg tier cost":  func(c *Config) { c.CostTiers[0].CostPerSqM = -1 },
 		"nan tier cost":  func(c *Config) { c.CostTiers[0].CostPerSqM = math.NaN() },
 		"nan cohort area": func(c *Config) {
@@ -916,5 +919,40 @@ func TestForecastBoundsHoldForNewAndTheProjection(t *testing.T) {
 	}
 	if _, ok := ProjectInsolvency(cfg); !ok {
 		t.Error("no projection at the maximum horizon")
+	}
+}
+
+// TestCostOverheadLoadsEveryCost: the overhead scales what a treatment debits,
+// the board's need and the macro forecast together, so a loaded budget meets
+// loaded costs. Dollars are linear in both, so the projection at an overhead
+// and a budget is the bare projection at the budget over the overhead.
+func TestCostOverheadLoadsEveryCost(t *testing.T) {
+	const overhead = 1.5
+	bare := newGame(t, baseConfig())
+	cfg := baseConfig()
+	cfg.CostOverhead = overhead
+	loaded := newGame(t, cfg)
+
+	before := loaded.treasury
+	if !treat(loaded, "a", "preventive") {
+		t.Fatal("preventive should be affordable")
+	}
+	if got, want := before-loaded.treasury, overhead*5*1000; math.Abs(got-want) > 1e-6 {
+		t.Errorf("loaded debit = %v, want %v", got, want)
+	}
+	if got, want := loaded.insolvencyAt, overhead*bare.insolvencyAt; math.Abs(got-want) > 1e-6*want {
+		t.Errorf("loaded insolvency threshold = %v, want %v", got, want)
+	}
+
+	for _, budget := range []float64{0, 50_000, 200_000} {
+		cfg.AnnualBudget = budget * overhead
+		gotYear, gotOK := ProjectInsolvency(cfg)
+		bareCfg := baseConfig()
+		bareCfg.AnnualBudget = budget
+		wantYear, wantOK := ProjectInsolvency(bareCfg)
+		if gotYear != wantYear || gotOK != wantOK {
+			t.Errorf("budget %g: loaded projection (%d,%v), bare at budget/overhead (%d,%v)",
+				budget, gotYear, gotOK, wantYear, wantOK)
+		}
 	}
 }
