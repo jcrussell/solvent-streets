@@ -61,21 +61,22 @@ Only names that existed in v0.4.x are listed. Fields of the commands and files t
 
 | Command | v0.4.x | v0.5.0 |
 |---------|--------|--------|
-| `status` | `resourceType`, `featureCount`, `lastIngest`, `lastCompute` | `resource_type`, `feature_count`, `last_ingest_at`, `last_compute_at`; new `state` (`current`, `stale`, `not computed`) and `stale_inputs` |
-| `cities` | `features`, `totalArea`, `lastIngest`, `lastCompute` | `feature_counts`, `total_paved`, `last_ingest_at`, `last_compute_at` |
+| `status` | `resourceType`, `featureCount`, `lastIngest`, `lastCompute` | `resource_type`, `feature_count`, `last_ingest_at`, `last_compute_at`; new `state` (`current`, `stale`, `not_computed`) and `stale_inputs` |
+| `cities` | `features`, `totalArea`, `lastIngest`, `lastCompute` | `feature_counts`, `total_paved` (omitted for a city with nothing computed), `last_ingest_at`, `last_compute_at` |
 | `snapshots list` (`ls`) | one row per city's snapshot: `id`, `computedAt`, `configHash` | one row per named snapshot: `name`, `created_at`, `city_count`, `compute_epoch`; each city's `config_hash`, `hex_edge_m` and `parts` (`part`, `run_id`, `computed_at`) are in `snapshots show <name>` |
-| `<resource> compute` | `resourceType`, `featureCount`, `snapshotId` | `resource_type`, `feature_count`, `run_id` (the compute run, not a snapshot) |
+| `<resource> compute` | `resourceType`, `jurisdiction`, `featureCount`, `snapshotId` | `resource_type`, `scope`, `feature_count`, `run_id` (the compute run, not a snapshot) |
 | `<resource> compute` | `city`: display name (`Oakland, CA`) | `city`: slug (`oakland-ca`) |
 | `forecast` | `resourceType`, `treatmentCost`, `treatmentTier` | `resource_type`, `annual_need`, `cost_tier`; new `city` |
 | `export` | `total` | `file_count` |
-| `validate` | `break_even`; `passed`, `failed`, `context` | `break_even_budget`; `pass_count`, `fail_count`, `context_count` |
+| `validate` | `break_even`; `hold_steady_budget`; `passed`, `failed`, `context` | `break_even_budget`; `published_break_even_budget`; `pass_count`, `fail_count`, `context_count` |
 | `config show` | `key` and the file `source.detail`: `units`, `display.min_hex_area`, `forecast.years`, `forecast.cost_overhead`, `cities[<slug>].forecast.cost_overhead` | `display.units`, `grid.min_hex_area`, `forecast.horizon_years`, `forecast.cost_multiplier`, `cities[<slug>].forecast.cost_multiplier` (the config keys of step 12); `--sources` prints the same keys |
 
 #### `pvmt serve` API
 
 | Endpoint | v0.4.x | v0.5.0 |
 |----------|--------|--------|
-| `/api/snapshots`, `/api/cities/{slug}/snapshots` | `computed_at` | `created_at`; new `name`, `compute_epoch`, `hex_edge_m`, `parts` (`part`, `run_id`, `computed_at`) and `served` (the snapshot the server pinned) |
+| `/api/snapshots`, `/api/cities/{slug}/snapshots` | `id`, `computed_at` | `created_at`; no `id` (a snapshot is named by `name`); new `name`, `compute_epoch`, `hex_edge_m`, `parts` (`part`, `run_id`, `computed_at`) and `served` (the snapshot the server pinned) |
+| every `/api/` endpoint | errors as plain text | errors as `{"error": "<message>"}` with `Content-Type: application/json` |
 | `/api/cities` | as `cities.json` below | as `cities.json` below |
 
 `/data/{file}` serves the site data files below. `?snapshot=<name>` picks a snapshot, and `?snapshot=latest` the city's latest compute as the server read it at startup.
@@ -86,16 +87,17 @@ Only names that existed in v0.4.x are listed. Fields of the commands and files t
 |------|--------|--------|
 | `cities.json`, `meta.json` | `center_lon`, `center_lat` | `center`: `[lon, lat]` |
 | `cities.json`, `meta.json` | `bbox`: `[south, west, north, east]` | `bbox`: `[west, south, east, north]` |
-| `meta.json` | `pct_paved` (0..100); `stats[].type`; `stats[].feature_count` | `paved_share` (0..1); `stats[].resource_type`; no feature count |
+| `meta.json` | `project_name`; `pct_paved` (0..100); `stats[].type`; `stats[].total_area`; `stats[].feature_count` | `name`, and new `city` (the slug); `paved_share` (0..1); `stats[].resource_type`; `stats[].area`; no feature count |
 | `meta.json` | — | `missing_resources`: the resources with no ingested data (omitted when none) |
-| `meta.json` | — | `ingest_failures`: resource → the configured sources whose last ingest failed and hold none of its rows (omitted when none) |
-| `meta.json` | — | `empty_resources`: missing resource → the configured sources, every one of which last answered with no rows, so upstream maps none (omitted when none) |
+| `meta.json` | — | `failing_sources`: resource → the configured sources whose last ingest failed and hold none of its rows (omitted when none) |
+| `meta.json` | — | `empty_sources`: missing resource → the configured sources, every one of which last answered with no rows, so upstream maps none (omitted when none) |
 | `meta.json` | `snapshot_date`: the render date | `snapshot_date`: the date of the data (the snapshot's `created_at`, or the latest compute's newest run); new `snapshot` (its name), and from `pvmt serve` `latest_compute: true` for a latest compute (each omitted when not applicable) |
 | `hexgrid.geojson` | format `v` 2; per-hex scope key `bbox`; coverage `pct` (0..100) | format `v` 6; scope key `all`; coverage `share` (0..1); city road hexes carry `k`, the Play board's decay rate |
 | `play-hexes.json` | the Play board: `id`, `road_area`, `k` per hex | gone: the board reads `hexgrid.geojson`. Its road area is now the map's city-scope roads area, which counts pavement where road classes overlap once rather than once per class |
 | `scenarios.json` | scope key `bbox`; summary `city_count`, `all_count`, `city_pct`, `state_count`, `county_count`, `federal_count` | scope key `all`; the `summary` block is gone (its feature counts and city share were never shown) |
-| `hex-cost-summary.json` | scope key `bbox`; `year1_cost` | scope key `all`; `year1_need` |
-| `forecast.json` | `bbox_baseline`; `insolvency_year`, `funding_gap` as `null` | `all_baseline`; `insolvency_year`, `funding_gap` omitted |
+| `hex-cost-summary.json` | scope key `bbox`; `year1_cost`; `total_area` | scope key `all`; `year1_need`; `area` |
+| `forecast.json` | `baseline`: the city-maintained run when the city has one, else every jurisdiction's; `bbox_baseline`: every jurisdiction's, beside a city-maintained `baseline`; `insolvency_year`, `funding_gap` as `null` | `baseline`: always every jurisdiction's; `city_baseline`: the city-maintained run (omitted when the city has none), which `scenarios` and the solvency figures are run on when present; `insolvency_year`, `funding_gap` omitted |
+| `forecast.json`, `scenarios.json` | `final_cohorts[].total_deficit` | `final_cohorts[].deferred_backlog` |
 | `forecast_seed.json` | `years`; material `binder_pct`; `cost_overhead` | `horizon_years`; material `binder_share`; `cost_multiplier` |
 | `forecast_seed.json` | `total_area`, `city_paved`: the paved footprint (the union, as `meta.json`'s `total_paved`) | `maintained_area`, `city_maintained_area`: the maintained area, roads + parking + sidewalks summed as the forecast prices them. The footprint is only in `meta.json` |
 | `PVMT_CONFIG` (dashboard) | `layerColors`, `unitSystem`, `forecastSeed`, `wasmPrefix`; `cities[].lon`, `cities[].lat` | `layer_colors`, `unit_system`, `forecast_seed`, `hexgrid_version` (`wasmPrefix` is gone); `cities[].center` |

@@ -13,7 +13,8 @@
 //   - a key carries no unit suffix (areas are m², money dollars), except a
 //     duration, which ends in _s and has unit "s";
 //   - a proportion in 0..1 ends in _share and has unit "share";
-//   - a rate named X_per_Y has a unit with a "/".
+//   - a rate named X_per_Y has a unit with a "/"; its Y may be the area unit
+//     sqm (cost_per_sqm), the one unit a key spells out.
 //
 // The package imports nothing outside the standard library, so the WASM
 // build and every producer can depend on it.
@@ -123,6 +124,9 @@ func (d Def) Validate() error {
 	for i, s := range segs {
 		if s == "s" && i != len(segs)-1 {
 			return fmt.Errorf("metric: %s: %q is a unit and only ends a duration's key", d.Key, s)
+		}
+		if s == "sqm" && i > 0 && segs[i-1] == "per" {
+			continue
 		}
 		if slices.Contains(unitWords, s) {
 			return fmt.Errorf("metric: %s carries the unit %q in its key; the unit is %q and belongs in Unit", d.Key, s, d.Unit)

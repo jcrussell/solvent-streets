@@ -30,6 +30,7 @@ func TestDefValidate_NamingRule(t *testing.T) {
 		{"tree_share", UnitShare, Hex, "x"},
 		{"cost_per_resident", UnitDollarsPerResident, Derived, "x"},
 		{"population_density", UnitPerSquareMeter, Hex, "x"},
+		{"cost_per_sqm", "usd/m2", Hex, "x"},
 	}
 	for _, d := range ok {
 		if err := d.Validate(); err != nil {
@@ -53,6 +54,7 @@ func TestDefValidate_NamingRule(t *testing.T) {
 		"share without _share": {"coverage", UnitShare, Hex, "x"},
 		"_share not 0..1":      {"coverage_share", UnitCount, Hex, "x"},
 		"rate without a rate":  {"cars_per_hex", UnitCount, Hex, "x"},
+		"sqm outside a rate":   {"paved_sqm", UnitSquareMeters, Hex, "x"},
 	}
 	for name, d := range bad {
 		if err := d.Validate(); err == nil {

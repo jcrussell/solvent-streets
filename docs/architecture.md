@@ -639,26 +639,51 @@ everywhere. That covers CLI `--json` output, the HTTP API, the exported site
 files, `window.PVMT_CONFIG`, and the game and WASM payloads.
 
 - Keys are `snake_case`, and a value has one name across every surface
-  (forecast.json's `annual_need` is the CLI's `annual_need`).
+  (forecast.json's `annual_need` is the CLI's `annual_need`). Enumerated
+  values are `snake_case` too (`not_computed`).
 - Timestamps end in `_at` and are RFC3339 UTC at second precision. Calendar
   dates end in `_date`.
 - A plural noun is a collection. An integer count of entities ends in
   `_count`. A quantity in a unit keeps its noun (`estimated_spaces`).
 - Values are in canonical units, and the UI converts them for display:
   - areas in m², with no unit suffix;
-  - money in dollars;
+  - money in dollars, with no unit suffix;
+  - lengths in meters, suffixed `_m` (`hex_edge_m`);
   - durations in seconds, suffixed `_s`;
   - rates carry their unit (`cost_per_sqm`).
 - Proportions are fractions in 0..1. A part-of-whole proportion ends in
   `_share`. Signed ratios (`funding_gap`) keep plain names.
+- Metric keys come from the metric catalog (`internal/metric`), which
+  enforces these rules when a key is declared (see
+  [Per-hex metrics](#per-hex-metrics)).
 - Positions are `[lon, lat]`, and extents are `bbox:
   [west, south, east, north]` (GeoJSON order). `pvmt.toml` and the Go
   internals use Overpass's `[south, west, north, east]`, and the exporter
   reorders at the boundary.
-- `city` holds the slug. The display name is `name`.
+- A city is named by its slug. An object that is a city (a `pvmt cities`
+  row, a cities.json entry) holds it as `slug`; an object that belongs to
+  a city (a compute row, meta.json) holds it as `city`. The display name is
+  `name`.
+- Elsewhere `name` is an identifier and `label` its display form: a
+  scenario, a snapshot, a tag dimension, a cost tier.
+- `resource_type` is a pavement resource (`roads`, `parking`,
+  `sidewalks`). `layer` (`pvmt status --all`) is any stored input, so it
+  also takes `boundary`, each service's stations, routing roads and census
+  blocks.
 - A value that does not apply is omitted, never `null` or a 0 sentinel.
 - Scope values are `"city"` (city-maintained) and `"all"` (every
-  jurisdiction).
+  jurisdiction). A value per scope is an object keyed by scope
+  (`{"all": ..., "city": ...}`), or a pair of keys where the bare one is
+  `all` and the `city_` one is city-maintained (`baseline` and
+  `city_baseline`, `cohorts` and `city_cohorts`). The prefix means a scope
+  only beside a bare partner: `city_area` (the boundary's land area) and
+  `city_count` are not scoped values.
+- A versioned data file carries its format version as `v`
+  (`hexgrid.geojson`, `hex-metrics.json`, `compare.json`). The page config
+  names the hexgrid's `hexgrid_version`.
+- An error is `{"error": "<message>"}`: from the `pvmt serve` `/api/`
+  endpoints and from every WASM export. The `/data/` files keep plain-text
+  errors, like the static host they stand in for.
 
 A few formats are exempt:
 
@@ -667,7 +692,7 @@ A few formats are exempt:
 - `pvmt.toml` keys;
 - `pkg/cmd/validate/reference.json`;
 - the deliberately short per-hex keys in the large hexgrid (`area`,
-  `share`, `spaces`, `city_same`, `k`, and the file version `v`).
+  `share`, `spaces`, `city_same`, `k`).
 
 `TestJSONTagsSnakeCase` and `TestJSONFields_SnakeCase` enforce the
 conventions.
