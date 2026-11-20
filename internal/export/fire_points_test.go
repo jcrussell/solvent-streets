@@ -78,8 +78,8 @@ func TestMetricSummary_StationsInsideAndOutside(t *testing.T) {
 			if s.PointLabel != "Stations serving the city" {
 				t.Errorf("point_label = %q", s.PointLabel)
 			}
-			if s.PointsCaveat != tc.caveat || s.PointsIncomplete != (tc.caveat != "") {
-				t.Errorf("caveat = %q (incomplete %v), want %q", s.PointsCaveat, s.PointsIncomplete, tc.caveat)
+			if s.PointsCaveat != tc.caveat {
+				t.Errorf("caveat = %q, want %q", s.PointsCaveat, tc.caveat)
 			}
 		})
 	}
@@ -92,7 +92,7 @@ func TestMetricSummary_NoBoundaryNoSplit(t *testing.T) {
 	sum := MetricSummaryJSON{PointCount: 2}
 	sums := map[string]MetricSummaryJSON{metric.FireResponseS: sum}
 	flagSparsePoints(sums)
-	if got := sums[metric.FireResponseS]; got.PointsIncomplete || got.PointsCaveat != "" {
+	if got := sums[metric.FireResponseS]; got.PointsCaveat != "" {
 		t.Errorf("summary without a split = %+v, want no flag", got)
 	}
 }

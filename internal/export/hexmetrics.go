@@ -63,10 +63,12 @@ type MetricPointJSON struct {
 // card: computed over the stored rows of the hexes the map draws (DrawnGrid),
 // the same rows hex-metrics.json carries.
 type MetricSummaryJSON struct {
-	Label    string `json:"label"`
-	Unit     string `json:"unit"`
-	Format   string `json:"format"`
-	HexCount int    `json:"hex_count"`
+	Label  string `json:"label"`
+	Unit   string `json:"unit"`
+	Format string `json:"format"`
+	// HexCount is the drawn hexes with a value. Not emitted: the page shows
+	// the median and range, not the count.
+	HexCount int `json:"-"`
 	// Total is the sum over the city's hexes, for additive metrics
 	// (hexmetric.Spec.Additive) only.
 	Total  *float64 `json:"total,omitempty"`
@@ -84,17 +86,16 @@ type MetricSummaryJSON struct {
 	// city"), for a service's coverage metric.
 	PointLabel string `json:"point_label,omitempty"`
 	// InsidePointCount and OutsidePointCount split PointCount by whether the
-	// point lies inside the city boundary. Present (0 included) for a
-	// service's coverage metric whose boundary could be read.
-	InsidePointCount  *int `json:"inside_point_count,omitempty"`
+	// point lies inside the city boundary. Set (0 included) for a service's
+	// coverage metric whose boundary could be read. Only the outside count is
+	// emitted, for the stats panel; flagSparsePoints reads the inside one.
+	InsidePointCount  *int `json:"-"`
 	OutsidePointCount *int `json:"outside_point_count,omitempty"`
-	// PointsIncomplete flags a facility list that is probably missing some:
-	// no point inside the city serves it, or fewer inside than the service's
-	// floor per 100,000 residents (services.Spec.SparsePer100k, against the
-	// population summary's total). PointsCaveat is the one line the stats
-	// panel shows for it.
-	PointsIncomplete bool   `json:"points_incomplete,omitempty"`
-	PointsCaveat     string `json:"points_caveat,omitempty"`
+	// PointsCaveat is the one line the stats panel shows for a facility list
+	// that is probably missing some: no point inside the city serves it, or
+	// fewer inside than the service's floor per 100,000 residents
+	// (services.Spec.SparsePer100k, against the population summary's total).
+	PointsCaveat string `json:"points_caveat,omitempty"`
 	// UnreachableCount is, for a service's coverage metric, the hexes on the
 	// road network that no facility reached (services.SubjectUnreachable).
 	// They carry no value, so the map leaves them blank, and they are not in
@@ -320,7 +321,7 @@ func buildMetricSummaries(ctx context.Context, entry CityEntry, grid *DrawnGrid)
 	return out, nil
 }
 
-// flagSparsePoints sets PointsIncomplete and PointsCaveat on each service
+// flagSparsePoints sets PointsCaveat on each service
 // summary whose facility list looks incomplete: no facility inside the city
 // boundary serves it, or fewer inside than the service's floor per 100,000
 // residents, the population being the census summary's total over the same
@@ -349,7 +350,6 @@ func flagSparsePoints(sums map[string]MetricSummaryJSON) {
 		if reason == "" {
 			continue
 		}
-		s.PointsIncomplete = true
 		s.PointsCaveat = capitalize(svc.FacilityNoun) + " list from OpenStreetMap may be incomplete: " + reason
 		sums[key] = s
 	}

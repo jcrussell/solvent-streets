@@ -138,9 +138,10 @@ type Spec struct {
 	Format string `json:"format"` // one of the Format* constants
 	Scale  Scale  `json:"scale"`
 	// Additive marks a count whose per-hex values sum to a meaningful city
-	// total (population, housing units). The stats card then leads with
-	// that total; for a time, rate or density a sum means nothing.
-	Additive bool `json:"additive,omitempty"`
+	// total (population, housing units): the exporter then gives its summary
+	// a total, which the stats card leads with; for a time, rate or density a
+	// sum means nothing. Not emitted: the page reads the total, not the flag.
+	Additive bool `json:"-"`
 	// Derive, when set, makes this a derived metric: the dashboard computes
 	// it (see Derivation) and nothing is stored or exported per hex.
 	Derive *Derivation `json:"derive,omitempty"`

@@ -78,14 +78,13 @@ test('the Color-by selector lists the available derived metrics plus each stored
 test('the stations row counts outside stations, and an incomplete list carries the caveat', async () => {
   const fireSummary = metaJSON.metrics.fire_response_s;
   assert.equal(fireSummary.point_label, 'Stations serving the city', 'Go names the points');
-  assert.equal(fireSummary.inside_point_count, 1);
   assert.equal(fireSummary.outside_point_count, 0);
   const caveat = 'Station list from OpenStreetMap may be incomplete: no station inside the city serves it';
   const flagged = {
     ...metaJSON,
     metrics: {
       ...metaJSON.metrics,
-      fire_response_s: { ...fireSummary, point_count: 3, inside_point_count: 0, outside_point_count: 3, points_incomplete: true, points_caveat: caveat },
+      fire_response_s: { ...fireSummary, point_count: 3, outside_point_count: 3, points_caveat: caveat },
     },
   };
   const h = load({ data: { ...data, 'meta.json': flagged } });

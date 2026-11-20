@@ -143,8 +143,8 @@ test('a ratio divides a blended numerator by a stored denominator above min_den'
 
 test('metric cards lead with a total for additive counts and never list hexes reached', async () => {
   const meta = { ...metaJSON, metrics: {
-    population: { label: 'Population', unit: '', format: 'int', hex_count: 3, min: 2, median: 50, max: 80, total: 132 },
-    population_density: { label: 'Population density', unit: '1/m2', format: 'density', hex_count: 3, min: 0.00007, median: 0.0019, max: 0.003 },
+    population: { label: 'Population', unit: '', format: 'int', min: 2, median: 50, max: 80, total: 132 },
+    population_density: { label: 'Population density', unit: '1/m2', format: 'density', min: 0.00007, median: 0.0019, max: 0.003 },
   } };
   const h = await loadGrid({ 'meta.json': meta });
   const card = (title) => h.$$('#stats .metric-card').find((c) => c.querySelector('h3').textContent === title);

@@ -505,7 +505,6 @@ func roundArea(v float64) float64 { return geo.RoundTo(v, 0) }
 func roundMaterials(m forecast.MaterialQuantities) forecast.MaterialQuantities {
 	m.MixTonnes = geo.RoundTo(m.MixTonnes, emitMaterialDecimals)
 	m.BinderTonnes = geo.RoundTo(m.BinderTonnes, emitMaterialDecimals)
-	m.AggregateTonnes = geo.RoundTo(m.AggregateTonnes, emitMaterialDecimals)
 	m.OilBarrels = geo.RoundTo(m.OilBarrels, emitMaterialDecimals)
 	return m
 }

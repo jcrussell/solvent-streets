@@ -21,13 +21,6 @@ func TestMaterialsForArea(t *testing.T) {
 	if !approxEqual(got.BinderTonnes, 6.6) {
 		t.Errorf("BinderTonnes = %v, want 6.6", got.BinderTonnes)
 	}
-	if !approxEqual(got.AggregateTonnes, 120-6.6) {
-		t.Errorf("AggregateTonnes = %v, want %v", got.AggregateTonnes, 120-6.6)
-	}
-	// binder + aggregate must reconstitute the mix exactly.
-	if !approxEqual(got.BinderTonnes+got.AggregateTonnes, got.MixTonnes) {
-		t.Errorf("binder+aggregate = %v, want mix %v", got.BinderTonnes+got.AggregateTonnes, got.MixTonnes)
-	}
 	// oil = binder tonnes * BarrelsPerTonBinder.
 	if !approxEqual(got.OilBarrels, 6.6*BarrelsPerTonBinder) {
 		t.Errorf("OilBarrels = %v, want %v", got.OilBarrels, 6.6*BarrelsPerTonBinder)

@@ -55,10 +55,9 @@ const BarrelsPerTonBinder = 6.23
 // MaterialQuantities is the material demand to treat a given area at one tier.
 // Masses are in metric tonnes; OilBarrels is crude-oil-equivalent barrels.
 type MaterialQuantities struct {
-	MixTonnes       float64 `json:"mix_tonnes"`
-	BinderTonnes    float64 `json:"binder_tonnes"`
-	AggregateTonnes float64 `json:"aggregate_tonnes"`
-	OilBarrels      float64 `json:"oil_barrels"`
+	MixTonnes    float64 `json:"mix_tonnes"`
+	BinderTonnes float64 `json:"binder_tonnes"`
+	OilBarrels   float64 `json:"oil_barrels"`
 }
 
 // MaterialTierForPCI returns the tier whose band contains pci, or, in a gap
@@ -97,10 +96,9 @@ func MaterialsForArea(area float64, t MaterialTier) MaterialQuantities {
 	mixTonnes := area * t.MixKgPerSqM / 1000
 	binderTonnes := mixTonnes * t.BinderShare
 	return MaterialQuantities{
-		MixTonnes:       mixTonnes,
-		BinderTonnes:    binderTonnes,
-		AggregateTonnes: mixTonnes - binderTonnes,
-		OilBarrels:      binderTonnes * BarrelsPerTonBinder,
+		MixTonnes:    mixTonnes,
+		BinderTonnes: binderTonnes,
+		OilBarrels:   binderTonnes * BarrelsPerTonBinder,
 	}
 }
 
