@@ -98,7 +98,7 @@ func ForecastConfig() config.ForecastConfig {
 	return config.ForecastConfig{
 		HorizonYears: 10,
 		InitialPCI:   85,
-		DecayRate:    1.5,
+		DecayRate:    0.05,
 		GrowthRate:   0.01,
 		// Pinned explicitly (not left 0-to-default) so a change to
 		// DefaultTreatmentCycleYears doesn't silently move the fixture. Gates
