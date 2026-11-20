@@ -184,7 +184,7 @@ func snapshotByID(ctx context.Context, q queryer, id int64) (*Snapshot, error) {
 		Scan(&snap.Name, unixTime{&snap.CreatedAt}, &snap.ComputeEpoch); err != nil {
 		return nil, err
 	}
-	cities, err := listSnapshotCities(ctx, q, `c.snapshot_id = ?`, `ci.slug, c.city_id`, id)
+	cities, err := listSnapshotCities(ctx, q, eq("c.snapshot_id", id), orderCitySlug)
 	if err != nil {
 		return nil, err
 	}

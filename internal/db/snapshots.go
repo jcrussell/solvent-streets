@@ -481,13 +481,22 @@ func (s *sqliteStore) checkCommitRuns(ctx context.Context, tx *sql.Tx, configHas
 // ListSnapshots returns the snapshots covering this city newest first, with
 // the city's manifests.
 func (s *sqliteStore) ListSnapshots(ctx context.Context) ([]SnapshotCity, error) {
-	return listSnapshotCities(ctx, s.db, `c.city_id = ?`, `c.snapshot_id DESC`, s.cityID)
+	return listSnapshotCities(ctx, s.db, eq("c.city_id", s.cityID), orderNewestFirst)
 }
 
-// listSnapshotCities reads snapshot cities matching where (a fragment over
-// snapshot_cities c, with its binds), ordered by order then part, each with
-// its manifest. Both fragments are compile-time literals at every call site.
-func listSnapshotCities(ctx context.Context, q queryer, where, order string, args ...any) ([]SnapshotCity, error) {
+// snapshotCityOrder is an ORDER BY over listSnapshotCities' snapshot_cities c
+// and cities ci; only the constants below are used.
+type snapshotCityOrder string
+
+const (
+	orderNewestFirst snapshotCityOrder = `c.snapshot_id DESC`
+	orderSnapshotID  snapshotCityOrder = `c.snapshot_id`
+	orderCitySlug    snapshotCityOrder = `ci.slug, c.city_id`
+)
+
+// listSnapshotCities reads snapshot cities matching where (a filter over
+// snapshot_cities c), ordered by order then part, each with its manifest.
+func listSnapshotCities(ctx context.Context, q queryer, where viewFilter, order snapshotCityOrder) ([]SnapshotCity, error) {
 	query := `SELECT s.id, s.name, s.created_at, s.compute_epoch, c.city_id, ci.slug, c.config_hash, c.hex_edge_m,
 			COALESCE(b.digest, ''), p.part, p.run_id, r.computed_at
 		FROM snapshot_cities c
@@ -496,9 +505,9 @@ func listSnapshotCities(ctx context.Context, q queryer, where, order string, arg
 		LEFT JOIN snapshot_boundaries b ON b.id = c.boundary_id
 		LEFT JOIN snapshot_parts p ON p.snapshot_id = c.snapshot_id AND p.city_id = c.city_id
 		LEFT JOIN runs r ON r.id = p.run_id
-		WHERE ` + where + `
-		ORDER BY ` + order + `, p.part`
-	rows, err := q.QueryContext(ctx, query, args...)
+		WHERE ` + where.sql + `
+		ORDER BY ` + string(order) + `, p.part`
+	rows, err := q.QueryContext(ctx, query, where.args...)
 	if err != nil {
 		return nil, fmt.Errorf("query snapshots: %w", err)
 	}
@@ -533,7 +542,7 @@ func (s *sqliteStore) ViewSnapshot(ctx context.Context) (*SnapshotCity, error) {
 	if err != nil || id == 0 {
 		return nil, err
 	}
-	snaps, err := listSnapshotCities(ctx, s.db, `c.snapshot_id = ? AND c.city_id = ?`, `c.snapshot_id`, id, s.cityID)
+	snaps, err := listSnapshotCities(ctx, s.db, and(eq("c.snapshot_id", id), eq("c.city_id", s.cityID)), orderSnapshotID)
 	if err != nil {
 		return nil, err
 	}
