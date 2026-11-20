@@ -221,7 +221,8 @@ func TierForPCI(pci float64) string {
 
 // TierForPCI returns the cost tier label for a PCI value using the projector's
 // configured tiers (falling back to DefaultCostTiers exactly as ProjectCost
-// does), so the per-year label stays consistent with the dollar math.
+// does). Simulate labels a year at its shown blended PCI (ShownPCI); the
+// year's dollars are priced per cohort at the model's unrounded PCI.
 func (p *TieredCostProjector) TierForPCI(pci float64) string {
 	tiers := p.Tiers
 	if len(tiers) == 0 {

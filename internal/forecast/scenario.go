@@ -304,6 +304,26 @@ func blendedPCI(states []cohortState) float64 {
 	return pci
 }
 
+// EmitPCIDecimals is the precision the export writes a PCI at
+// (EmittedPCI): two digits past the whole number the site shows.
+const EmitPCIDecimals = 2
+
+// EmittedPCI is pci at the precision the export writes it (EmitPCIDecimals).
+func EmittedPCI(pci float64) float64 {
+	if pci == 0 || math.IsNaN(pci) || math.IsInf(pci, 0) {
+		return pci
+	}
+	pow := math.Pow(10, EmitPCIDecimals)
+	return math.Round(pci*pow) / pow
+}
+
+// ShownPCI is the whole number the site shows for pci: the emitted value
+// (EmittedPCI), rounded. The site shows PCI as a whole number everywhere,
+// and a year's cost tier, its label and its material quantities are taken
+// at this shown number, so a year shown at PCI 70 is in the band that starts
+// at 70.
+func ShownPCI(pci float64) float64 { return math.Round(EmittedPCI(pci)) }
+
 // Simulate runs one scenario over the given number of years with per-cohort
 // decay rates. Each cohort decays independently; budget is distributed
 // proportional to need; PCI is area-weighted blended.
@@ -384,8 +404,8 @@ func Simulate(s Scenario, cohorts []Cohort, years int, p *Params) ScenarioResult
 			AnnualSpend:     totalSpend,
 			DeferredBacklog: deferredBacklog,
 			// Label from the active tier set (custom/sidewalk), not the hardcoded
-			// defaults, so the label matches ProjectCost's dollar figures above.
-			CostTier: p.Cost.TierForPCI(blended),
+			// defaults, at the PCI the site shows (ShownPCI).
+			CostTier: p.Cost.TierForPCI(ShownPCI(blended)),
 		}
 	}
 

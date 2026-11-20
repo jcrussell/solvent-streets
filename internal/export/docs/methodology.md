@@ -73,6 +73,11 @@ per m²), and a config's own `cost_tiers` are scaled the same way. That
 holds wherever sidewalks are costed: on their own, and inside the
 scenarios that blend roads, parking and sidewalks.
 
+The site shows PCI as a whole number everywhere. A forecast year's tier and
+its label are taken at that shown number, so a year shown at PCI 70 is in
+the band that starts at 70. The dollars are not: each road class is priced
+at its own unrounded condition on the interpolated curve above.
+
 ### Bare construction cost vs. loaded program cost
 
 The cost tiers above are **bare construction** prices: what a contractor
@@ -136,9 +141,10 @@ The Materials tab turns each forecast year's treatment into the asphalt it
 takes. It covers every asphalt surface, streets and parking lots alike,
 whatever the Financials tab is set to maintain. Each year `1/N` of that
 area is treated (see the treatment cycle above); sidewalks are concrete,
-so their area is netted out rather than priced as hot-mix. The year's network-average PCI picks one
-treatment tier for all of it by condition band (preventive, rehab or
-reconstruction), whatever the city's cost tiers are called. The tab's
+so their area is netted out rather than priced as hot-mix. The year's network-average PCI, rounded
+to the whole number the site shows, picks one treatment tier for all of it
+by condition band (preventive, rehab or reconstruction), whatever the city's
+cost tiers are called; the tier's material quantities follow it. The tab's
 **Material Intensity by Treatment Tier** table gives each tier's mix and
 binder per unit area.
 

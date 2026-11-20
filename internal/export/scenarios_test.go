@@ -247,7 +247,7 @@ func TestScenarios_YearsCarryMaterialsNetOfConcrete(t *testing.T) {
 			if y.Materials == nil {
 				t.Fatalf("%s year %d carries no materials", sr.Scenario.Name, y.Year)
 			}
-			tier, _ := forecast.MaterialTierForPCI(forecast.DefaultMaterialTiers, math.Round(y.PCI))
+			tier, _ := forecast.MaterialTierForPCI(forecast.DefaultMaterialTiers, forecast.ShownPCI(y.PCI))
 			want := forecast.MaterialsForArea(y.Area*0.75/cycle, tier)
 			if math.Abs(y.Materials.MixTonnes-want.MixTonnes) > 1e-9*want.MixTonnes {
 				t.Fatalf("%s year %d: mix %.4f t, want %.4f t (3/4 of the area is asphalt)",

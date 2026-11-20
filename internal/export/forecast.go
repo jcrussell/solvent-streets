@@ -464,12 +464,10 @@ func singleCohortScenarios(classification string, area, initialPCI, decayRate fl
 //
 // Precisions are chosen to be invisible to the client, not merely "close":
 // dollars and areas render with 0-1 decimals against magnitudes in the millions,
-// PCI renders at 0 decimals, and decay rates at 4. Each rounding below keeps at
+// PCI renders at 0 decimals (forecast.EmittedPCI, forecast.ShownPCI), and
+// decay rates at 4. Each rounding below keeps at
 // least two digits of headroom past what any consumer displays.
 const (
-	// emitPCIDecimals: client renders PCI at 0 decimals (cohort table) and plots
-	// it on a 0-100 axis.
-	emitPCIDecimals = 2
 	// emitRateDecimals: client renders decay_rate at 4 decimals.
 	emitRateDecimals = 6
 	// emitRatioDecimals: funding_gap is a ratio the client renders as a percentage.
@@ -500,7 +498,7 @@ func roundMaterials(m forecast.MaterialQuantities) forecast.MaterialQuantities {
 func roundScenarioResult(r forecast.ScenarioResult) forecast.ScenarioResult {
 	years := make([]forecast.ScenarioYear, len(r.Years))
 	for i, y := range r.Years {
-		y.PCI = geo.RoundTo(y.PCI, emitPCIDecimals)
+		y.PCI = forecast.EmittedPCI(y.PCI)
 		y.Area = roundArea(y.Area)
 		y.AnnualNeed = roundMoney(y.AnnualNeed)
 		y.AnnualSpend = roundMoney(y.AnnualSpend)
@@ -515,7 +513,7 @@ func roundScenarioResult(r forecast.ScenarioResult) forecast.ScenarioResult {
 
 	cohorts := make([]forecast.CohortSummary, len(r.FinalCohorts))
 	for i, c := range r.FinalCohorts {
-		c.EndPCI = geo.RoundTo(c.EndPCI, emitPCIDecimals)
+		c.EndPCI = forecast.EmittedPCI(c.EndPCI)
 		c.Area = roundArea(c.Area)
 		c.DecayRate = geo.RoundTo(c.DecayRate, emitRateDecimals)
 		c.TotalSpend = roundMoney(c.TotalSpend)

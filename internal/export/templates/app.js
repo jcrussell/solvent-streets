@@ -2325,6 +2325,21 @@
                 return { text: name.charAt(0).toUpperCase() + name.slice(1), fillStyle: color, strokeStyle: color };
             });
         }
+        // shownPCI is the whole number the page shows for a PCI: the value at
+        // the precision the export writes it (forecast_defaults.pci_decimals),
+        // rounded, as Go's forecast.ShownPCI picks a year's tiers. A live
+        // (WASM) PCI is unrounded; one from scenarios.json is already at that
+        // precision, so both show the same number.
+        /** @param {number} pci */
+        function shownPCI(pci) {
+            const pow = Math.pow(10, FORECAST_DEFAULTS.pci_decimals || 0);
+            return Math.round(Math.round(pci * pow) / pow);
+        }
+        // pciTooltipLabel is a PCI chart's tooltip line, at the shown PCI.
+        /** @param {any} ctx */
+        function pciTooltipLabel(ctx) {
+            return ctx.dataset.label + ': ' + shownPCI(ctx.parsed.y);
+        }
         // pciBadgeClass is the cohort table's condition badge for a PCI: good
         // in the best tier, poor in the worst, fair in between.
         function pciBadgeClass(pci) {
@@ -2595,7 +2610,7 @@
                             pointRadius: 0
                         }))
                     },
-                    options: { responsive: true, animation: FINANCIAL_CHART_ANIMATION, interaction: { mode: 'index', intersect: false }, scales: { y: { min: 0, max: 100, title: { display: true, text: 'PCI' } } }, plugins: { legend: { position: 'bottom' } } }
+                    options: { responsive: true, animation: FINANCIAL_CHART_ANIMATION, interaction: { mode: 'index', intersect: false }, scales: { y: { min: 0, max: 100, title: { display: true, text: 'PCI' } } }, plugins: { legend: { position: 'bottom' }, tooltip: { callbacks: { label: pciTooltipLabel } } } }
                 }));
             }
 
@@ -2733,7 +2748,8 @@
 
             sorted.forEach(c => {
                 const areaLargeVal = toAreaLarge(c.area);
-                const pci = c.end_pci;
+                // The badge follows the number it shows.
+                const pci = shownPCI(c.end_pci);
                 const cls = pciBadgeClass(pci);
 
                 totalSpend += c.total_spend;
@@ -2745,7 +2761,7 @@
                     '<td class="number">' + fmtNum1(areaLargeVal) + '</td>' +
                     '<td class="number">' + c.area_pct.toFixed(1) + '%</td>' +
                     '<td class="number">' + c.decay_rate.toFixed(4) + '</td>' +
-                    '<td class="number"><span class="pci-badge ' + cls + '">' + pci.toFixed(0) + '</span></td>' +
+                    '<td class="number"><span class="pci-badge ' + cls + '">' + pci + '</span></td>' +
                     '<td class="number">' + fmtMoney(c.total_spend, { full: true }) + '</td>' +
                     '<td class="number">' + fmtMoney(c.total_deficit, { full: true }) + '</td>';
                 tbody.appendChild(tr);
@@ -4353,7 +4369,7 @@
             const totalSpend = years.reduce((s, y) => s + y.annual_spend, 0);
             const totalDeficit = at ? at.deferred_backlog : 0;
 
-            document.getElementById('hl-end-pci').textContent = lastPCI.toFixed(0);
+            document.getElementById('hl-end-pci').textContent = String(shownPCI(lastPCI));
             document.getElementById('hl-total-spend').textContent = fmtMoney(totalSpend);
             const budgeted = (budget || 0) * years.length;
             document.getElementById('hl-spend-sub').textContent =

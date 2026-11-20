@@ -18,6 +18,7 @@ func TestForecastDefaults_GoConstantsWithoutASeed(t *testing.T) {
 		HorizonYears:        config.DefaultForecastYears,
 		TreatmentCycleYears: forecast.DefaultTreatmentCycleYears,
 		BarrelsPerTonBinder: forecast.BarrelsPerTonBinder,
+		PCIDecimals:         forecast.EmitPCIDecimals,
 	}
 	if got != want {
 		t.Errorf("ForecastDefaults() = %+v; want the Go defaults %+v", got, want)
@@ -27,7 +28,7 @@ func TestForecastDefaults_GoConstantsWithoutASeed(t *testing.T) {
 func TestForecastDefaults_FollowTheSeed(t *testing.T) {
 	seed := template.JS(`{"initial_pci":72.5,"horizon_years":25,"treatment_cycle_years":15,"barrels_per_ton_binder":6}`)
 	got := TemplateData{ForecastSeed: seed}.ForecastDefaults()
-	want := ForecastDefaults{InitialPCI: 72.5, HorizonYears: 25, TreatmentCycleYears: 15, BarrelsPerTonBinder: 6}
+	want := ForecastDefaults{InitialPCI: 72.5, HorizonYears: 25, TreatmentCycleYears: 15, BarrelsPerTonBinder: 6, PCIDecimals: forecast.EmitPCIDecimals}
 	if got != want {
 		t.Errorf("ForecastDefaults() = %+v; want the seed's %+v", got, want)
 	}

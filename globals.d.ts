@@ -114,6 +114,7 @@ interface PvmtConfig {
     horizon_years: number;
     treatment_cycle_years: number;
     barrels_per_ton_binder: number;
+    pci_decimals: number;
   };
 }
 

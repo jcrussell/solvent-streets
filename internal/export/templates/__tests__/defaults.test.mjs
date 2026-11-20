@@ -29,6 +29,7 @@ test('the fixture horizon is not the default, and the page carries the seed sett
     horizon_years: seedJSON.horizon_years,
     treatment_cycle_years: seedJSON.treatment_cycle_years,
     barrels_per_ton_binder: seedJSON.barrels_per_ton_binder,
+    pci_decimals: 2,
   });
 });
 

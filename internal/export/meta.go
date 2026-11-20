@@ -237,6 +237,10 @@ type ForecastDefaults struct {
 	HorizonYears        int     `json:"horizon_years"`
 	TreatmentCycleYears float64 `json:"treatment_cycle_years"`
 	BarrelsPerTonBinder float64 `json:"barrels_per_ton_binder"`
+	// PCIDecimals is the precision the export writes PCI at
+	// (forecast.EmitPCIDecimals), so the page rounds a live PCI the same way
+	// before it shows the whole number (forecast.ShownPCI).
+	PCIDecimals int `json:"pci_decimals"`
 }
 
 // PCISlider is InitialPCI on the Initial PCI slider's whole-number track,
@@ -252,6 +256,7 @@ func (d TemplateData) ForecastDefaults() ForecastDefaults {
 		HorizonYears:        config.DefaultForecastYears,
 		TreatmentCycleYears: forecast.DefaultTreatmentCycleYears,
 		BarrelsPerTonBinder: forecast.BarrelsPerTonBinder,
+		PCIDecimals:         forecast.EmitPCIDecimals,
 	}
 	var seed ForecastSeedJSON
 	if d.ForecastSeed == "" || json.Unmarshal([]byte(d.ForecastSeed), &seed) != nil {

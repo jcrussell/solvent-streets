@@ -119,8 +119,8 @@ func checkYears(t *testing.T, s forecast.Scenario, a0, growth float64, p *foreca
 		if y.PCI < 0 || y.PCI > 100 || math.IsNaN(y.PCI) {
 			t.Errorf("year %d: PCI %g outside [0,100]", y.Year, y.PCI)
 		}
-		if want := p.Cost.TierForPCI(y.PCI); y.CostTier != want {
-			t.Errorf("year %d: CostTier %q, want %q (the configured tier of PCI %g)", y.Year, y.CostTier, want, y.PCI)
+		if want := p.Cost.TierForPCI(forecast.ShownPCI(y.PCI)); y.CostTier != want {
+			t.Errorf("year %d: CostTier %q, want %q (the configured tier of PCI %g as shown)", y.Year, y.CostTier, want, y.PCI)
 		}
 		if y.AnnualNeed <= 0 {
 			t.Errorf("year %d: AnnualNeed = %g, want > 0 for a network with area", y.Year, y.AnnualNeed)

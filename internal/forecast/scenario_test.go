@@ -649,3 +649,66 @@ func TestTierIndexForPCI(t *testing.T) {
 		t.Errorf("no tiers: index %d, want -1", i)
 	}
 }
+
+// TestSimulate_CostTierFollowsShownPCI: a year whose blended PCI rounds to
+// 70 on the site (69.995) is labelled with the band that starts at 70, the
+// tier WithMaterials picks for it.
+func TestSimulate_CostTierFollowsShownPCI(t *testing.T) {
+	if got := ShownPCI(69.995); got != 70 {
+		t.Fatalf("ShownPCI(69.995) = %v, want 70", got)
+	}
+	p := NewParams(0, nil, 12, 1)
+	year1 := func(initial float64) ScenarioYear {
+		cohorts := []Cohort{{Classification: "residential", Area: 1000, DecayRate: 0.04, InitialPCI: initial}}
+		return Simulate(Scenario{Strategy: StrategyDoNothing}, cohorts, 1, p).Years[0]
+	}
+	// Find the starting PCI whose year-1 PCI is 69.995: year-1 PCI rises
+	// with the starting PCI.
+	lo, hi := 60.0, 100.0
+	for range 200 {
+		mid := (lo + hi) / 2
+		if year1(mid).PCI < 69.995 {
+			lo = mid
+		} else {
+			hi = mid
+		}
+	}
+	y := year1(hi)
+	if math.Abs(y.PCI-69.995) > 1e-6 {
+		t.Fatalf("year-1 PCI %v, want 69.995", y.PCI)
+	}
+	if want := p.Cost.TierForPCI(70); y.CostTier != want {
+		t.Errorf("PCI %.3f (shown as 70): cost tier %q, want %q", y.PCI, y.CostTier, want)
+	}
+	if y.CostTier == p.Cost.TierForPCI(69.995) {
+		t.Fatalf("fixture: tiers %q at 69.995 and 70 are the same; the test checks nothing", y.CostTier)
+	}
+	mat := WithMaterials(ScenarioResult{Years: []ScenarioYear{y}}, DefaultMaterialTiers, 12, 1).Years[0]
+	if mat.MaterialTier != TierPreventive {
+		t.Errorf("material tier %q, want %q", mat.MaterialTier, TierPreventive)
+	}
+}
+
+// TestShownPCI_RoundsTheEmittedValue: the site shows the whole number of the
+// PCI scenarios.json carries, which is already rounded to EmitPCIDecimals.
+// 69.497 is emitted as 69.50 and shown as 70, so it takes the tier at 70.
+func TestShownPCI_RoundsTheEmittedValue(t *testing.T) {
+	if got := EmittedPCI(69.497); got != 69.5 {
+		t.Fatalf("EmittedPCI(69.497) = %v, want 69.5", got)
+	}
+	for _, tc := range []struct{ pci, want float64 }{
+		{69.497, 70}, {69.494, 69}, {69.995, 70}, {69.4, 69}, {0, 0},
+	} {
+		if got := ShownPCI(tc.pci); got != tc.want {
+			t.Errorf("ShownPCI(%v) = %v, want %v", tc.pci, got, tc.want)
+		}
+	}
+	y := WithMaterials(ScenarioResult{Years: []ScenarioYear{{Year: 1, Area: 1000, PCI: 69.497}}}, DefaultMaterialTiers, 12, 1).Years[0]
+	if y.MaterialTier != TierPreventive {
+		t.Errorf("PCI 69.497 (emitted 69.50, shown 70): material tier %q, want %q", y.MaterialTier, TierPreventive)
+	}
+	p := NewParams(0, nil, 12, 1)
+	if got, want := p.Cost.TierForPCI(ShownPCI(69.497)), p.Cost.TierForPCI(70); got != want {
+		t.Errorf("PCI 69.497: cost tier %q, want %q", got, want)
+	}
+}

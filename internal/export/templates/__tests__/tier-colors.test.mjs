@@ -41,6 +41,29 @@ test('the PCI badge follows the city\'s tier bands', async () => {
     ['pci-good', 'pci-good', 'pci-fair', 'pci-fair', 'pci-poor', 'pci-poor']);
 });
 
+// The site shows PCI as a whole number, and the badge follows that number:
+// 69.995 shows as 70, in the band that starts at 70, and so does 69.497,
+// which the export writes as 69.50.
+test('the PCI badge follows the whole number it shows', async () => {
+  const { win, doc } = await page();
+  assert.deepEqual(badges(win, [69.995, 69.497, 69.494]), ['pci-good', 'pci-good', 'pci-fair']);
+  assert.deepEqual(Array.from(doc.querySelectorAll('#cohort-table tbody .pci-badge'), (b) => b.textContent),
+    ['70', '70', '69']);
+});
+
+// The PCI chart's tooltip shows the same whole number, not the raw value.
+test('the PCI Over Time tooltip shows a whole-number PCI', async () => {
+  const { win, flush } = await page();
+  win.selectTab('financials-tab');
+  await flush();
+  const chart = win.__charts.find((c) => c.options && c.options.scales && c.options.scales.y &&
+    c.options.scales.y.title && c.options.scales.y.title.text === 'PCI');
+  assert.ok(chart, 'no PCI chart rendered');
+  const label = chart.options.plugins.tooltip.callbacks.label;
+  assert.equal(label({ dataset: { label: 'Do nothing' }, parsed: { y: 69.497 } }), 'Do nothing: 70');
+  assert.equal(label({ dataset: { label: 'Do nothing' }, parsed: { y: 72.34 } }), 'Do nothing: 72');
+});
+
 test('the PCI badge moves with a config\'s own bands', async () => {
   const { win } = await page([tier(80, 101, 'preventive'), tier(30, 80, 'rehab'), tier(0, 30, 'reconstruction')]);
   assert.deepEqual(badges(win, [85, 75, 45, 35, 25]),
