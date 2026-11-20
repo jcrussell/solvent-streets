@@ -214,10 +214,9 @@
 
         // BUDGET_MAX_DOLLARS bounds a ?budget= before the city's anchors are
         // known; BUDGET_MAX_ANCHOR_MULT bounds it after, as a multiple of the
-        // larger of today's budget and hold steady. A linked budget used to be
-        // taken as given and widened the slider one notch per 25% of hold
-        // steady, so ?budget=1e15 built millions of DOM nodes and crashed the
-        // tab (solvent-streets-ern4.27). Ten times hold steady is far past
+        // larger of today's budget and hold steady. The slider has a notch per
+        // 25% of hold steady, so an unbounded ?budget=1e15 would build
+        // millions of DOM nodes and crash the tab. Ten times hold steady is far past
         // where extra money still buys condition.
         const BUDGET_MAX_DOLLARS = 1e12;
         const BUDGET_MAX_ANCHOR_MULT = 10;
@@ -853,8 +852,7 @@
         // fits a city's boundary to: the boundary's parts, largest first, up
         // to FRAME_AREA_SHARE of its area. San Francisco's boundary carries
         // the Farallon Islands 40 km out to sea, and framing its whole bbox
-        // drew the city as a sliver at the map's edge
-        // (solvent-streets-ginb). The parts left out stay in the boundary,
+        // would draw the city as a sliver at the map's edge. The parts left out stay in the boundary,
         // the hexes and every total; this is only the view. Areas are
         // compared, not measured, so the outer rings' shoelace area in
         // degrees, scaled by cos(latitude), is enough. Null when the
@@ -1334,8 +1332,7 @@
             let toggles = '';
 
             // Resource toggles — filter the blended hex grid by type. There is
-            // no separate per-resource fill layer anymore (it was a cosmetic
-            // overlay duplicating the hex grid); empty data-layers skips the
+            // no per-resource fill layer; empty data-layers skips the
             // visibility-setter while data-type still drives activeTypes and
             // updateHexGrid().
             for (const type of Object.keys(layerColors)) {
@@ -2090,8 +2087,8 @@
         // with anything but a 404 (a blocked or rate-limited tile server, no
         // network) is marked errored without asking for another frame, so
         // when the last tiles fail the map is loaded() with no render left to
-        // say so, 'load' never fires, and the dashboard stayed blank
-        // (solvent-streets-h2pa). 'load' stays as a fallback; the flag keeps
+        // say so and 'load' never fires, which would leave the dashboard
+        // blank. 'load' stays as a fallback; the flag keeps
         // the two from loading the city twice.
         let mapDataStarted = false;
         function startMapData() {
@@ -2528,10 +2525,10 @@
         // no temporal-dead-zone hazard (same reason no-use-before-define is off).
         // The Financials charts are drawn without the entry animation. The
         // interactive "Your budget" series is added right after each chart is
-        // built and pushed with update('none'), which left the other series
-        // frozen partway through their first animation: the Cumulative Spending
-        // lines started below $0 and ended ~20% low, with the data correct
-        // (solvent-streets-i4ly). With nothing animating, every element sits at
+        // built and pushed with update('none'), which would leave the other
+        // series frozen partway through their first animation (Cumulative
+        // Spending lines starting below $0 and ending ~20% low, with the data
+        // correct). With nothing animating, every element sits at
         // its final position from the first frame.
         const FINANCIAL_CHART_ANIMATION = false;
 

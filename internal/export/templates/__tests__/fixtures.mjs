@@ -7,15 +7,10 @@
 // PVMT_FIXTURE_DIR next to the rendered index.html. See
 // js_harness_test.go:writeJSFixtureTree.
 //
-// They used to be JS object literals, and they had drifted from the Go json
-// tags with nothing to notice (solvent-streets-q48z.8): the seed said `area`
-// where Go emits `total_area`, scenarios were named `do-nothing`/`maintain`
-// where the exporter emits `baseline`/`fund-25pct`/..., and meta.json put
-// total_area at the top level instead of inside stats[]. Three of the four
-// Financials charts never rendered under test and the suite stayed green — so
-// it would also have stayed green through a real regression. Reading the
-// exporter's own output is what makes that class of drift impossible: rename a
-// json tag on the Go side and these specs fail.
+// Hand-written literals would drift from the Go json tags with nothing to
+// notice, and a spec reading a misnamed key passes while the chart it covers
+// never renders. Reading the exporter's own output makes that class of drift
+// impossible: rename a json tag on the Go side and these specs fail.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fixtureDir } from './harness.mjs';

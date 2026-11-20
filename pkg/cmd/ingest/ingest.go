@@ -615,9 +615,8 @@ type roadsFetch struct {
 
 // boundaryFetchers is every network call resolveBoundary makes. All four
 // are injected — the water and roads fetches included — so its tests never
-// reach Nominatim or Overpass: a hardcoded FetchOSMWater once made them hang
-// `make test` for its full timeout wherever Overpass was unreachable
-// (solvent-streets-zdv7).
+// reach Nominatim or Overpass and cannot hang `make test` where the network
+// is unreachable.
 type boundaryFetchers struct {
 	byName     nominatimFetcher
 	byRelation relationFetcher

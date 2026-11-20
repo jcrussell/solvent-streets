@@ -148,8 +148,8 @@ type Config struct {
 	// the fs.FS-relative name (LoadFS). Users who want a key that is
 	// stable across repo moves, renames, or cross-machine sharing set
 	// it explicitly. Distinct values disambiguate two configs that
-	// happen to define the same city slug (the original solvent-streets-zqul
-	// case: two examples both defining "Austin").
+	// happen to define the same city slug (e.g. two examples that both
+	// define "Austin").
 	ConfigID string `toml:"config_id,omitempty"`
 
 	// SourcePath is the filesystem path of the loaded pvmt.toml file.
@@ -317,9 +317,8 @@ type ForecastConfig struct {
 	// years, treatment_cycle_years and current_budget all have no real 0 case,
 	// so zero-as-unset is correct for them and they need no presence bit.
 	//
-	// Without this a per-city `growth_rate = 0` was indistinguishable from an
-	// absent one, so a city could not opt out of a positive top-level rate
-	// (solvent-streets-r312). Unexported on purpose: it must not decode from
+	// It tells a per-city `growth_rate = 0` from an absent one, so a city can
+	// opt out of a positive top-level rate. Unexported on purpose: it must not decode from
 	// TOML and must not be emitted by `config show`; the snapshot hash sees
 	// only the resolved growth rate it produces. It rides along on struct copies, which is
 	// exactly what the [[include]] merge does.
@@ -426,8 +425,7 @@ type CityConfig struct {
 	// (relation 171262), where OSM models the city as a place=city
 	// node and Nominatim's index doesn't surface the admin boundary.
 	// When unset (the common case), the ingest path uses Nominatim
-	// search by Name. See solvent-streets-95i8 for the diagnosis
-	// pattern.
+	// search by Name.
 	BoundaryRelationID int64 `toml:"boundary_relation_id"`
 
 	// Facilities are hand-placed points of service for this city, used by
@@ -946,8 +944,8 @@ func (c *Config) validate(requireCities bool) error {
 	// Reject an unknown display.units rather than silently rendering imperial:
 	// units.ParseSystem maps any unrecognized string (incl. typos like "metirc")
 	// to Imperial, so without this a misspelling loads clean and misreports every
-	// area. The PVMT_UNITS env path already gates on IsKnown; this closes the
-	// config-file gap (solvent-streets-dfm5). Empty is allowed (means "default").
+	// area. The PVMT_UNITS env path gates on IsKnown too, so both sources are
+	// checked the same way. Empty is allowed (means "default").
 	if c.Display.Units != "" && !units.IsKnown(c.Display.Units) {
 		return errors.Join(ErrInvalidConfig,
 			fmt.Errorf("display.units %q is not a known unit system (want \"metric\" or \"imperial\")", c.Display.Units))
@@ -1004,9 +1002,7 @@ func validateFacilities(i int, city CityConfig) error {
 
 // validateTags rejects blank or malformed tags on one city (see validateTag
 // in tags.go for the rules). unionTags strips empties, but only for cities
-// arriving through [[include]]; a directly declared city bypasses it. Split out
-// of validateCities for the same reason that function was split out of
-// validate: cognitive complexity.
+// arriving through [[include]]; a directly declared city bypasses it.
 func validateTags(i int, city CityConfig) error {
 	for j, tag := range city.Tags {
 		if err := validateTag(tag); err != nil {

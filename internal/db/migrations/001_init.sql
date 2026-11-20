@@ -9,10 +9,9 @@
 -- non-empty database whose PRAGMA user_version is not schemaGeneration
 -- (migrations.go) with ErrIncompatibleDatabase.
 --
--- FROZEN. This file is the v0.5.0 baseline and is never edited again. Its last
--- in-place edit (solvent-streets-ern4.23, snapshots as named tags) kept
--- generation 1, because no database but the one release database existed to
--- support, and that one was converted by a one-off script.
+-- FROZEN. This file is the v0.5.0 baseline and is never edited again.
+-- Generation 1 is the v0.5.0 baseline; databases built from pre-release
+-- revisions of this file are unsupported and must be rebuilt.
 --
 -- Rules:
 --   * Every schema change from now on is an additive numbered migration

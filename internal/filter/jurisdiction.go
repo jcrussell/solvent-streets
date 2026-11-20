@@ -35,10 +35,9 @@ func (j Jurisdiction) String() string {
 // stateNameAlt is the regex alternation of every US state name (plus DC and
 // the territories), shared by every rule that has to tell a state agency from
 // a municipal one. It is a single source of truth so the two spellings of a
-// transportation department cannot drift apart in which names they recognise —
-// which is exactly how solvent-streets-niak happened: "<State> Transportation
-// Department" was anchored on this list while "<City> Department of
-// Transportation" was left as a bare substring test.
+// transportation department cannot drift apart in which names they recognise:
+// "<State> Transportation Department" and "<City> Department of
+// Transportation" are both anchored on this list, not on a bare substring test.
 const stateNameAlt = `alabama|alaska|arizona|arkansas|california|colorado|connecticut|delaware|` +
 	`florida|georgia|hawaii|idaho|illinois|indiana|iowa|kansas|kentucky|louisiana|` +
 	`maine|maryland|massachusetts|michigan|minnesota|mississippi|missouri|montana|` +
@@ -75,12 +74,12 @@ var (
 	// sibling rather than folded into the alternation above because that
 	// regex is already carrying six prefixes and three paragraphs of
 	// justification. Mirrors the stateExplicitRefRe / stateWordRefRe split.
-	// "US Highway 12", "U.S. 40", "Interstate 90" and "US Route 66" matched
-	// nothing and fell through to City. solvent-streets-fu74.
+	// Without it "US Highway 12", "U.S. 40", "Interstate 90" and "US Route 66"
+	// would match nothing and fall through to City.
 	//
 	// Measured: every one of these is ZERO in the corpus except a single
 	// "US Route 1/9 Southbound" (New York NY), and that one is highway=trunk
-	// so it was ALREADY State -- this rule moves it State -> Federal and
+	// so it is State without this rule -- this rule moves it State -> Federal and
 	// takes nothing out of City. The whole arm is therefore inert-plus-one,
 	// carried on domain knowledge like the CO RD arm below.
 	//
@@ -110,13 +109,13 @@ var (
 	//
 	// The optional [A-Z] before the number covers Florida's lettered state
 	// roads -- "SR A1A" is 466 features in Jacksonville. Anchoring on a bare
-	// \d missed every one of them, and a state route that falls through this
+	// \d would miss every one of them, and a state route that falls through this
 	// ladder lands in City, billing FDOT arterial to the city.
 	// The spelled STATE forms live here rather than in stateWordRefRe below,
-	// which is LOOP|SPUR-shaped for a different reason. This regex already
-	// carried "STATE ROUTE" and bare "ROUTE", so "State Route 26" was always
-	// State -- the gap was only HIGHWAY/HWY/ROAD/RD/RTE, which fell through
-	// the whole ladder into City. Sharing this regex also inherits the [A-Z]?
+	// which is LOOP|SPUR-shaped for a different reason. This regex carries
+	// "STATE ROUTE", bare "ROUTE" and the HIGHWAY/HWY/ROAD/RD/RTE designators,
+	// any of which would otherwise fall through the whole ladder into City.
+	// Sharing this regex also inherits the [A-Z]?
 	// lettered handling, so "State Highway A1A" works like "SR A1A".
 	// solvent-streets-fu74.
 	//
@@ -204,8 +203,8 @@ var (
 
 	// singleLetterCountyRefRe is the County half of the allow list above; see
 	// that comment for the measurement. It is kept out of countyRefRe because
-	// that rule matches on the PREFIX ALONE with no designator shape
-	// (bf0c601), and this one does require a digit: "C" is a single letter,
+	// that rule matches on the PREFIX ALONE with no designator shape,
+	// and this one does require a digit: "C" is a single letter,
 	// with far more ways to turn up on a road than "CR" has.
 	singleLetterCountyRefRe = regexp.MustCompile(`^C[ -]\d`)
 
@@ -505,8 +504,7 @@ var statePostalDeny = map[string]bool{
 // ABBREVIATION rather than by its spelled-out name. It is consulted by
 // isStateQualifier, alongside stateNameSuffixRe.
 //
-// solvent-streets-q48z.2: anchoring the DOT qualifier on the 52 spelled-out
-// names alone would make "NYS Department of Transportation", "NC Department
+// Anchoring the DOT qualifier on the 52 spelled-out names alone would make "NYS Department of Transportation", "NC Department
 // of Transportation" and "Guam Department of Transportation" fail
 // isStateTransportationAgency, PASS isLocalTransportationAgency, and land in
 // City.
@@ -514,13 +512,13 @@ var statePostalDeny = map[string]bool{
 // This is an ALLOW list, and unlike the ref-side rules it is NOT restricted to
 // prefixes measured in the corpus. That is a deliberate departure and the
 // reason is the difference in ambiguity between the two signals. Refs collide
-// with local conventions -- solvent-streets-vp43 measured "CT" as Wisconsin
-// County Trunk and "ME" as a California county road, neither of them the state
+// with local conventions -- in the corpus "CT" is Wisconsin County Trunk and
+// "ME" a California county road, neither of them the state
 // the postal code names. An agency NAME does not collide that way: "<code>
 // Department of Transportation" is a state DOT essentially always. Enumerating
 // only the handful of forms someone happened to write down would leave the
-// next one ("PA ...", "WA ...") silently broken, which is the same "the next
-// shape springs the same trap" failure bf0c601 guards against.
+// next one ("PA ...", "WA ...") silently broken: the next shape would spring
+// the same trap.
 //
 // TWO DELIBERATE OMISSIONS, both two-letter codes that are far more often a
 // CITY:
@@ -695,8 +693,7 @@ func transportationAgencyQualifier(operator string) (qualifier string, ok bool) 
 // "nc department of transportation" -- a qualifier that is present and is not a
 // state NAME. Teaching only isStateTransportationAgency about abbreviations
 // would compile, pass every existing test, and move zero features, because the
-// operator would still be rejected as a city one first. That is
-// solvent-streets-niak's failure shape, one level down.
+// operator would still be rejected as a city one first.
 //
 // An abbreviation must be the WHOLE qualifier, with dots stripped so "n.c."
 // and "nc" agree, and with a leading "the" dropped -- deptOfTransportationRe
@@ -710,9 +707,7 @@ func transportationAgencyQualifier(operator string) (qualifier string, ok bool) 
 // ending the qualifier identifies nothing of the sort: "Charlotte NC
 // Department of Transportation" and "Boston MA Department of Transportation"
 // are the ordinary way to disambiguate a CITY, and a suffix test reads both as
-// state agencies and moves municipal lane area out of the City cohort. That is
-// solvent-streets-niak's direction of failure, reintroduced one abbreviation
-// at a time; it was caught in review of the commit that added this function.
+// state agencies and moves municipal lane area out of the City cohort.
 func isStateQualifier(qualifier string) bool {
 	if stateNameSuffixRe.MatchString(qualifier) {
 		return true

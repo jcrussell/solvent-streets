@@ -22,11 +22,8 @@ import (
 // databases from the previous generation already record schema_version 1 and
 // would otherwise skip the edited file and run on the old schema. Generation 0
 // is every database created before generations existed (v0.4.1 and earlier).
-// Generation 1 is v0.5.0's schema; the pre-release generations were folded
-// into it, since every pre-release database is rebuilt rather than migrated.
-// Its last in-place edit (snapshots as named tags, solvent-streets-ern4.23)
-// kept generation 1: the one database it had to support was converted by a
-// one-off script.
+// Generation 1 is the v0.5.0 baseline; databases built from pre-release
+// revisions of 001_init.sql are unsupported and must be rebuilt.
 const schemaGeneration = 1
 
 // ErrIncompatibleDatabase means the database was created by a pvmt whose

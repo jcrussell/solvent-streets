@@ -70,7 +70,7 @@ func ValidatePolygon(g geom.Geometry) (geom.Geometry, error) {
 // follow city boundaries along a river/coast). RetainPolygonal strips those
 // 1-D artifacts back to the 2-D overlap, which is what callers actually want.
 //
-// As of simplefeatures v0.59.0 the overlay ops (Difference/Union/UnionMany/...)
+// Under simplefeatures v0.59.0 the overlay ops (Difference/Union/UnionMany/...)
 // accept a mixed-dimension GC operand without erroring, and Difference's own
 // output is already clean — so this is a NORMALIZATION step, not crash
 // avoidance. It is load-bearing where the result geometry is kept or exported:

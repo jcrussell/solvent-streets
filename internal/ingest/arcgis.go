@@ -470,7 +470,7 @@ func (q *ArcGISQuery) confirmRepeatedPageIsComplete(ctx context.Context, client 
 //
 // classifyArcGISPage cannot make this call on its own: `parsed > 0 &&
 // newUnique == 0` with no exceededTransferLimit is produced by TWO different
-// servers, and treating them alike is solvent-streets-ofbo.
+// servers, which must not be treated alike.
 //
 //   - (a) An offset-ignoring server whose layer genuinely fits in one response.
 //     Everything is in hand; stopping is correct.
@@ -497,8 +497,8 @@ func (q *ArcGISQuery) confirmRepeatedPageIsComplete(ctx context.Context, client 
 // reintroducing, for exactly those layers, the silent truncation this function
 // exists to prevent.
 //
-// ABOVE our own cap that reasoning inverts, and generalizing the min() across
-// the whole range was solvent-streets-szq9. rawCount > arcgisMaxRecords means
+// ABOVE our own cap that reasoning inverts, so the min() must not be
+// generalized across the whole range. rawCount > arcgisMaxRecords means
 // the server returned more rows than we asked for, which PROVES it never
 // applied our resultRecordCount — and a layer that ignores resultRecordCount
 // ignores resultOffset too (supportsPagination:false / pre-10.3), which is why

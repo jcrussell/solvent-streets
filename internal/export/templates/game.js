@@ -201,7 +201,7 @@
         // styleReady resolves once the style is parsed, which is all the board
         // needs (addSource/addLayer). 'load' alone is not enough: it waits for
         // every first-view basemap tile, so a tile server that hangs or is
-        // unreachable left "Loading board…" up for good (solvent-streets-wr4t).
+        // unreachable would leave "Loading board…" up for good.
         // Registered here, at construction, so neither event can fire unheard.
         const styleReady = new Promise(resolve => {
             map.once('style.load', resolve);
@@ -554,7 +554,7 @@
             // and the hold-steady (break-even) budget, so a solvent budget is always
             // reachable even when today's budget is far below it. Sets
             // gameConfig.starting_budget and refreshes the preview; there is no
-            // in-game budget slider anymore.
+            // in-game budget slider.
             const slider = inputById('start-budget-slider');
             const out = document.getElementById('start-budget-value');
             const max = Math.max(1, 2 * Math.max(defaultBudget, holdSteady || 0));

@@ -342,9 +342,8 @@ func logAcceptedWaterPolygon(ctx context.Context, msg, idKey string, idVal int64
 // roadProbeCellDeg cell, about 100 m, so a dense downtown grid does not
 // outweigh the rest of the city.
 //
-// These are first guesses, not calibrated values: calibrate them on the
-// batch-1 replay (solvent-streets-npg2) against each city's boundary area
-// versus Census land area, tuning the floor up only for a city whose real
+// These are first guesses, not calibrated values: calibrate them against
+// each city's boundary area versus Census land area, tuning the floor up only for a city whose real
 // water is dropped "containing city land" with a handful of hits, and down
 // only for one whose land-side candidate slipped under it.
 const (
@@ -707,10 +706,6 @@ func closedCoastlineRing(ctx context.Context, sub [][2]float64, probes *landProb
 // likely to represent the water immediately adjacent to the coastline;
 // the larger candidate would over-claim. Logged at Debug so operators
 // can see the tiebreak when it happens.
-//
-// Replaces the prior unanimous-probe and single-midpoint-probe rules,
-// both of which inherited a local right-hand-water assumption that
-// some OSM coastline ways violate (root cause of solvent-streets-yrr0).
 func closeOpenSubChain(ctx context.Context, sub [][2]float64, bbox [4]float64, probes *landProbeIndex) ([][2]float64, bool) {
 	head := sub[0]
 	tail := sub[len(sub)-1]
