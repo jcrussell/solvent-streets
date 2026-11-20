@@ -30,7 +30,7 @@ import (
 //   - an env override that changes stored results (PVMT_HEX_EDGE_M) changes
 //     the hash, so its results never pass for the file's;
 //   - a presentation-, forecast- or ingest-only edit (units, [export], tags,
-//     names, display.min_hex_area, any [forecast] setting or PVMT_FORECAST_*
+//     names, grid.min_hex_area, any [forecast] setting or PVMT_FORECAST_*
 //     override, sources) changes nothing;
 //   - bumping ComputeEpoch changes every hash.
 //
@@ -46,7 +46,7 @@ import (
 //
 // Deliberately not hashed:
 //
-//   - Presentation / export-time settings: display.units, display.min_hex_area
+//   - Presentation / export-time settings: display.units, grid.min_hex_area
 //     and the per-city min_hex_area (the sliver filter runs at export, over
 //     stored hex stats), every [export] field, tags, the city name (also an
 //     ingest input, below), facility names and [[services]].travel_threshold_s

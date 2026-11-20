@@ -21,6 +21,8 @@ var renamedKeys = map[string]string{
 
 	"forecast.cost_overhead":        "forecast.cost_multiplier",
 	"cities.forecast.cost_overhead": "cities.forecast.cost_multiplier",
+
+	"display.min_hex_area": "grid.min_hex_area",
 }
 
 // CityPath is how a message addresses one [[cities]] entry: cities[<slug>],

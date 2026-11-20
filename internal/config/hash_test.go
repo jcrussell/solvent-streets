@@ -284,14 +284,14 @@ func TestCityHash_EnvOverridesMoveTheHash(t *testing.T) {
 func TestCityHash_PresentationAndIngestEditsDoNotMove(t *testing.T) {
 	base := "[[cities]]\nname = \"Reno, NV\"\noverpass = true\n"
 	for name, data := range map[string]string{
-		"display.units":        "[display]\nunits = \"metric\"\n" + base,
-		"display.min_hex_area": "[display]\nmin_hex_area = 500\n" + base,
-		"export":               "[export]\ntitle = \"T\"\ncoordinate_decimals = 6\nboundary_simplify_m = 25\n" + base,
-		"tags":                 base + "tags = [\"West\", \"state:NV\"]\n",
-		"city min_hex_area":    base + "min_hex_area = 300\n",
-		"sources":              base + "arcgis_url = \"https://example.com/arcgis\"\nallow_private_arcgis = true\nboundary_relation_id = 42\n",
-		"travel_threshold_s":   "[[services]]\nname = \"fire\"\ntravel_threshold_s = 300\n" + base,
-		"facility name":        base + "[[cities.facilities]]\nservice = \"fire\"\nlat = 39.5\nlon = -119.8\n",
+		"display.units":      "[display]\nunits = \"metric\"\n" + base,
+		"grid.min_hex_area":  "[grid]\nmin_hex_area = 500\n" + base,
+		"export":             "[export]\ntitle = \"T\"\ncoordinate_decimals = 6\nboundary_simplify_m = 25\n" + base,
+		"tags":               base + "tags = [\"West\", \"state:NV\"]\n",
+		"city min_hex_area":  base + "min_hex_area = 300\n",
+		"sources":            base + "arcgis_url = \"https://example.com/arcgis\"\nallow_private_arcgis = true\nboundary_relation_id = 42\n",
+		"travel_threshold_s": "[[services]]\nname = \"fire\"\ntravel_threshold_s = 300\n" + base,
+		"facility name":      base + "[[cities.facilities]]\nservice = \"fire\"\nlat = 39.5\nlon = -119.8\n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			ref := base
@@ -584,8 +584,8 @@ var configFieldRules = map[string]fieldRule{
 
 	"GridConfig.HexEdgeM": {hashed, func(c *Config) { c.Grid.HexEdgeM = 250 }},
 
-	"DisplayConfig.Units":      {presentation, func(c *Config) { c.Display.Units = "metric" }},
-	"DisplayConfig.MinHexArea": {presentation, func(c *Config) { c.Display.MinHexArea = 500 }},
+	"DisplayConfig.Units":   {presentation, func(c *Config) { c.Display.Units = "metric" }},
+	"GridConfig.MinHexArea": {presentation, func(c *Config) { c.Grid.MinHexArea = 500 }},
 
 	// The cache TTL only decides whether a response is re-fetched; what is
 	// stored comes from the response, so it is ingest-class.

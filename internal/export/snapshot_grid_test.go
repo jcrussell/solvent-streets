@@ -150,7 +150,7 @@ func TestSnapshot_RendersOnItsOwnEdgeAndBoundary(t *testing.T) {
 // TestSliverThresholdWarning: min_hex_area is checked against the edge the
 // snapshot renders at, which can be finer than the config's.
 func TestSliverThresholdWarning(t *testing.T) {
-	cfg := &config.Config{Display: config.DisplayConfig{MinHexArea: 10000}}
+	cfg := &config.Config{Grid: config.GridConfig{MinHexArea: 10000}}
 	entry := CityEntry{Config: cfg, City: config.CityConfig{Name: "Fine City"}}
 	// 100 m hexes are ~26k m², 50 m ones ~6.5k m².
 	if w := sliverThresholdWarning(entry, 100); w != "" {

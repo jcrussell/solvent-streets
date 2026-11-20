@@ -48,7 +48,7 @@ const (
 	// meters) below which a clipped boundary sliver is dropped from the
 	// heatmap. A single feature inside a tiny clipped hex would render as
 	// 100%-covered and visually misrepresent the edge. Cities with smaller
-	// hex_edge_m may want to tune this via display.min_hex_area.
+	// hex_edge_m may want to tune this via grid.min_hex_area.
 	DefaultMinHexArea = 100.0
 	// DefaultCoordinateDecimals is the precision of [lon, lat] floats
 	// emitted in exported GeoJSON (the hex grid and the display boundary).
@@ -193,11 +193,6 @@ type CacheConfig struct {
 
 type DisplayConfig struct {
 	Units string `toml:"units"` // "metric" or "imperial" (default: "imperial")
-	// MinHexArea drops boundary-sliver hexes from the heatmap (see
-	// DefaultMinHexArea). Resolve via Config.MinHexArea(); a zero
-	// or unset value falls back to the default, which is what most cities
-	// want. Negative values are rejected at config load.
-	MinHexArea float64 `toml:"min_hex_area"`
 }
 
 // MinHexArea returns the effective top-level heatmap sliver threshold in
@@ -213,7 +208,7 @@ func (c *Config) MinHexArea() float64 {
 // ResolvedHexEdge, to which it is coupled — the threshold is an area in the
 // same projected units the hex edge sizes, so a city that tunes hex_edge_m
 // usually has to tune min_hex_area with it. There is no env layer (none
-// exists for display.min_hex_area), so the chain is city > file > default.
+// exists for grid.min_hex_area), so the chain is city > file > default.
 func (c *Config) ResolvedMinHexArea(city *CityConfig) float64 {
 	v, _ := c.resolveMinHexAreaForCity(city)
 	return v
@@ -395,12 +390,12 @@ type CityConfig struct {
 	Overpass  bool    `toml:"overpass"`
 	ArcGISURL string  `toml:"arcgis_url"`
 	HexEdgeM  float64 `toml:"hex_edge_m"`
-	// MinHexArea overrides [display].min_hex_area for this city (square
+	// MinHexArea overrides [grid].min_hex_area for this city (square
 	// meters; see DefaultMinHexArea). It exists because the threshold is
 	// coupled to HexEdgeM — a finer grid needs a smaller sliver threshold —
 	// and HexEdgeM is per-city. It is flattened onto the city by the
 	// [[include]] merge alongside hex_edge_m (see effectiveMinHexArea): an
-	// included example's [display].min_hex_area would otherwise be lost,
+	// included example's [grid].min_hex_area would otherwise be lost,
 	// since the including file's top-level tables are the parent's and the
 	// child's are discarded. Resolve via Config.ResolvedMinHexArea; zero or
 	// unset falls back to the top level, then to DefaultMinHexArea.
@@ -520,6 +515,13 @@ type FacilityConfig struct {
 
 type GridConfig struct {
 	HexEdgeM float64 `toml:"hex_edge_m"`
+	// MinHexArea drops boundary-sliver hexes, in square meters, from the map,
+	// the stats and the play board (see DefaultMinHexArea). It sits beside
+	// HexEdgeM because the two are coupled: a threshold above a full hex's
+	// area drops every hex. Resolve via Config.MinHexArea(); a zero or unset
+	// value falls back to the default, which is what most cities want.
+	// Negative values are rejected at config load.
+	MinHexArea float64 `toml:"min_hex_area"`
 }
 
 // HexEdge returns the top-level grid hex-edge length in meters.
@@ -903,23 +905,24 @@ func (c *Config) validate(requireCities bool) error {
 	// and post-merge, where Include is still populated and the top-level tables
 	// are unchanged, so it stays satisfied.
 	//
-	// display.min_hex_area is gated for the same reason, and gated *because*
-	// hex_edge_m is: the two are coupled (effectiveMinHexArea), so a parent
-	// threshold sized for the default 100 m grid can silently blank a metro that
-	// flattened a fine hex edge — greater-boston's 60 m Cambridge grid has ~9.4k
-	// m² hexes, and filterHexSlivers drops every one of them under a 20k parent
-	// threshold with no error from BuildHexGeoJSON. The gate is field-scoped, not
-	// table-scoped: display.units carries no per-city layer and stays legal in an
-	// including file (examples/all relies on the rest of [display]/[export]).
+	// grid.min_hex_area is gated with hex_edge_m because the two are coupled
+	// (effectiveMinHexArea): a parent threshold sized for the default 100 m
+	// grid can silently blank a metro that flattened a fine hex edge —
+	// greater-boston's 60 m Cambridge grid has ~9.4k m² hexes, and
+	// filterHexSlivers drops every one of them under a 20k parent threshold
+	// with no error from BuildHexGeoJSON. [display] and [export] carry no
+	// per-city layer and stay legal in an including file (examples/all relies
+	// on them).
 	//
-	// forecast.horizon_years is the exception: it is not a per-city calibration but
-	// the config's one horizon, which included files must already agree with
-	// (checkIncludedHorizon), so stating it here re-calibrates nothing.
+	// forecast.horizon_years is the exception: it is not a per-city
+	// calibration but the config's one horizon, which included files must
+	// already agree with (checkIncludedHorizon), so stating it here
+	// re-calibrates nothing.
 	calibration := c.Forecast
 	calibration.HorizonYears = 0
-	if len(c.Include) > 0 && (!forecastIsZero(calibration) || c.Grid.HexEdgeM > 0 || c.Display.MinHexArea > 0) {
+	if len(c.Include) > 0 && (!forecastIsZero(calibration) || c.Grid.HexEdgeM > 0 || c.Grid.MinHexArea > 0) {
 		return errors.Join(ErrInvalidConfig, errors.New(
-			"a config with [[include]] must keep top-level [grid]/[forecast] (other than forecast.horizon_years) and display.min_hex_area empty; "+
+			"a config with [[include]] must keep top-level [grid] and [forecast] (other than forecast.horizon_years) empty; "+
 				"they would silently re-calibrate included cities (set per-city or per-example instead)"))
 	}
 	// nonFinite is load-bearing here, not tidiness. resolveHexEdge gates on
@@ -944,9 +947,9 @@ func (c *Config) validate(requireCities bool) error {
 	if err := c.validateIngestTables(); err != nil {
 		return err
 	}
-	if nonFinite(c.Display.MinHexArea) || c.Display.MinHexArea < 0 {
+	if nonFinite(c.Grid.MinHexArea) || c.Grid.MinHexArea < 0 {
 		return errors.Join(ErrInvalidConfig,
-			fmt.Errorf("display.min_hex_area %g must be a non-negative finite number", c.Display.MinHexArea))
+			fmt.Errorf("grid.min_hex_area %g must be a non-negative finite number", c.Grid.MinHexArea))
 	}
 	// export.coordinate_decimals feeds CoordinateDecimals(), which silently
 	// falls back to DefaultCoordinateDecimals for any non-positive value — so a
@@ -1098,7 +1101,7 @@ func validateCityFields(i int, city CityConfig) error {
 			"%s.hex_edge_m %g is below the %g m floor; hex count grows as 1/edge² and a grid "+
 				"this fine will exhaust memory on a city-sized bbox", at, city.HexEdgeM, MinHexEdgeM))
 	}
-	// Mirrors the top-level display.min_hex_area check in validate: a negative
+	// Mirrors the top-level grid.min_hex_area check in validate: a negative
 	// literal would fall through ResolvedMinHexArea's `> 0` guard to the
 	// top-level/default value with no diagnostic, silently discarding the
 	// threshold the author meant to set. 0 is allowed (means "inherit").

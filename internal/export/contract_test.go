@@ -402,7 +402,7 @@ func TestResolvedTOML_StripsZeroCurrentBudget(t *testing.T) {
 // a misleading published artifact.
 func TestResolvedTOML_ShowsPerCityMinHexArea(t *testing.T) {
 	cfg := &config.Config{
-		Display: config.DisplayConfig{MinHexArea: 40},
+		Grid: config.GridConfig{MinHexArea: 40},
 		Cities: []config.CityConfig{
 			{Name: "Inherits"},
 			{Name: "Fine City", HexEdgeM: 25, MinHexArea: 5},

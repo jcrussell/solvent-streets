@@ -560,8 +560,8 @@ func resolvedConfig(cfg *config.Config, hexEdges map[string]float64) config.Conf
 	// Display defaults: resolve via UnitSystem() so PVMT_UNITS env wins
 	// over an empty file value (same precedence config show --sources uses).
 	resolved.Display.Units = cfg.UnitSystem().String()
-	if resolved.Display.MinHexArea <= 0 {
-		resolved.Display.MinHexArea = config.DefaultMinHexArea
+	if resolved.Grid.MinHexArea <= 0 {
+		resolved.Grid.MinHexArea = config.DefaultMinHexArea
 	}
 	// Export defaults resolve lazily through the accessors, and ExportConfig
 	// emits both fields unconditionally (no omitempty), so an unset [export]

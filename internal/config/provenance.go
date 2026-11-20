@@ -137,11 +137,11 @@ func (c *Config) resolveHexEdgeForCity(city *CityConfig) (float64, Source) {
 }
 
 // resolveMinHexArea returns the top-level heatmap sliver threshold and its
-// source. There is no PVMT_ env override for display.min_hex_area, so the
+// source. There is no PVMT_ env override for grid.min_hex_area, so the
 // chain is file > default — one layer shorter than resolveHexEdge's.
 func (c *Config) resolveMinHexArea() (float64, Source) {
-	if c.Display.MinHexArea > 0 {
-		return c.Display.MinHexArea, Source{Kind: SourceFile, Detail: "display.min_hex_area"}
+	if c.Grid.MinHexArea > 0 {
+		return c.Grid.MinHexArea, Source{Kind: SourceFile, Detail: "grid.min_hex_area"}
 	}
 	return DefaultMinHexArea, Source{Kind: SourceDefault}
 }
@@ -389,7 +389,7 @@ func (c *Config) Resolve(flagUnits string) []ResolvedField {
 	fields = append(fields, ResolvedField{Key: "grid.hex_edge_m", Value: hexVal, Source: hexSrc})
 
 	areaVal, areaSrc := c.resolveMinHexArea()
-	fields = append(fields, ResolvedField{Key: "display.min_hex_area", Value: areaVal, Source: areaSrc})
+	fields = append(fields, ResolvedField{Key: "grid.min_hex_area", Value: areaVal, Source: areaSrc})
 
 	fc, fprov := c.resolveForecast(nil)
 	fields = append(fields,

@@ -197,7 +197,7 @@ func TestCityHexGrid_HonorsPerCityMinHexArea(t *testing.T) {
 	// produce the identical grid — the per-city layer is an override, not a
 	// separate mechanism.
 	topLevel := hexEntry(t, nil, nil)
-	topLevel.Config.Display.MinHexArea = 100_000
+	topLevel.Config.Grid.MinHexArea = 100_000
 	viaTop, err := cityHexGrid(ctx, topLevel, proj)
 	if err != nil {
 		t.Fatalf("cityHexGrid (top-level threshold): %v", err)

@@ -214,7 +214,7 @@ func TestConfig_MinHexArea_FallsBackToDefault(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			c := &Config{Display: DisplayConfig{MinHexArea: tc.set}}
+			c := &Config{Grid: GridConfig{MinHexArea: tc.set}}
 			if got := c.MinHexArea(); got != tc.want {
 				t.Errorf("MinHexArea() = %v; want %v", got, tc.want)
 			}
@@ -505,8 +505,8 @@ func TestOverpassURL_Precedence(t *testing.T) {
 
 func TestConfig_Validate_MinHexArea_RejectsNegative(t *testing.T) {
 	cfg := Config{
-		Display: DisplayConfig{MinHexArea: -1},
-		Cities:  []CityConfig{{Name: "Oakland", Overpass: true}},
+		Grid:   GridConfig{MinHexArea: -1},
+		Cities: []CityConfig{{Name: "Oakland", Overpass: true}},
 	}
 	err := cfg.Validate()
 	if err == nil {
@@ -563,7 +563,7 @@ func TestConfig_ResolvedMinHexArea(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			c := &Config{Display: DisplayConfig{MinHexArea: tc.top}}
+			c := &Config{Grid: GridConfig{MinHexArea: tc.top}}
 			if got := c.ResolvedMinHexArea(tc.city); got != tc.want {
 				t.Errorf("ResolvedMinHexArea() = %v; want %v", got, tc.want)
 			}
@@ -750,7 +750,7 @@ func TestConfig_Validate_ErrChainsErrInvalidConfig(t *testing.T) {
 //
 // Before the finite guards, this sweep passed for six of the eight knobs below:
 // forecast.{decay_rate,growth_rate,current_budget,treatment_cycle_years,
-// initial_pci} and display.min_hex_area all loaded clean with a NaN value, and
+// initial_pci} and grid.min_hex_area all loaded clean with a NaN value, and
 // grid.hex_edge_m accepted +Inf. Only forecast.cost_multiplier and
 // export.boundary_simplify_m (its own test above) rejected anything.
 //
@@ -765,7 +765,7 @@ func TestLoadFS_RejectsNonFiniteFloatKnobs(t *testing.T) {
 		"forecast.current_budget":        "[forecast]\ncurrent_budget = %s\n",
 		"forecast.treatment_cycle_years": "[forecast]\ntreatment_cycle_years = %s\n",
 		"forecast.cost_multiplier":       "[forecast]\ncost_multiplier = %s\n",
-		"display.min_hex_area":           "[display]\nmin_hex_area = %s\n",
+		"grid.min_hex_area":              "[grid]\nmin_hex_area = %s\n",
 		"grid.hex_edge_m":                "[grid]\nhex_edge_m = %s\n",
 	}
 	const city = "\n[[cities]]\nname = \"Oakland, CA\"\noverpass = true\n"
@@ -1021,6 +1021,10 @@ func TestLoad_RenamedKeys(t *testing.T) {
 		"per-city years": {
 			toml: city + "[cities.forecast]\nyears = 20\n",
 			want: "cities[oakland-ca].forecast.years was renamed to forecast.horizon_years",
+		},
+		"display min_hex_area": {
+			toml: "[display]\nmin_hex_area = 200\n" + city,
+			want: "display.min_hex_area was renamed to grid.min_hex_area",
 		},
 		"top-level cost_overhead": {
 			toml: "[forecast]\ncost_overhead = 1.5\n" + city,

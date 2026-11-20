@@ -69,6 +69,7 @@ Only names that existed in v0.4.x are listed. Fields of the commands and files t
 | `forecast` | `resourceType`, `treatmentCost`, `treatmentTier` | `resource_type`, `annual_need`, `cost_tier`; new `city` |
 | `export` | `total` | `file_count` |
 | `validate` | `break_even`; `passed`, `failed`, `context` | `break_even_budget`; `pass_count`, `fail_count`, `context_count` |
+| `config show` | `key` and the file `source.detail`: `units`, `display.min_hex_area`, `forecast.years`, `forecast.cost_overhead`, `cities[<slug>].forecast.cost_overhead` | `display.units`, `grid.min_hex_area`, `forecast.horizon_years`, `forecast.cost_multiplier`, `cities[<slug>].forecast.cost_multiplier` (the config keys of step 12); `--sources` prints the same keys |
 
 #### `pvmt serve` API
 
@@ -140,6 +141,7 @@ Some `pvmt.toml` keys and environment variables have new names, so each setting 
 |--------|--------|
 | `[forecast] years` | `[forecast] horizon_years` |
 | `PVMT_FORECAST_YEARS` | `PVMT_FORECAST_HORIZON_YEARS` |
+| `[display] min_hex_area` | `[grid] min_hex_area`, beside the `hex_edge_m` it is sized for; the per-city `min_hex_area` is unchanged (a config with `[[include]]` still may not set it at the top level) |
 | `[forecast] cost_overhead` (and per city) | `[forecast] cost_multiplier`; the same factor, named as the dashboard's Cost multiplier slider |
 
 ### Known issues

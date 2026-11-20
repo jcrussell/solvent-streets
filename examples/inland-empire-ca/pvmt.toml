@@ -9,7 +9,7 @@
 #   - Climate-tuned decay_rate (0.035) for high heat / UV exposure.
 #   - growth_rate (0.015) models the fast-expanding network.
 #   - Per-city hex_edge_m overrides for the two largest cities.
-#   - min_hex_area scaled with hex area at both scopes: [display] for the
+#   - min_hex_area scaled with hex area at both scopes: [grid] for the
 #     125 m grid, per city for the two larger edges.
 #
 # Minimal config: every city runs on the top-level [forecast] defaults (no
@@ -21,15 +21,13 @@ config_id = "inland-empire-ca"
 
 [grid]
 hex_edge_m = 125
+# The 100 m² sliver cutoff is set for a 100 m hex; scaled with hex area
+# (100 x 1.25²), slivers on this 125 m grid are judged at the same share.
+min_hex_area = 156
 
 [forecast]
 decay_rate = 0.035
 growth_rate = 0.015
-
-[display]
-# The 100 m² sliver cutoff is set for a 100 m hex; scaled with hex area
-# (100 x 1.25²), slivers on this 125 m grid are judged at the same share.
-min_hex_area = 156
 
 [export]
 title = "Inland Empire Pavement Analysis"

@@ -293,7 +293,6 @@ func TestInclude_IdenticalCalibrationIsSilent(t *testing.T) {
 	body := `
 [grid]
 hex_edge_m = 80
-[display]
 min_hex_area = 20
 [forecast]
 decay_rate = 0.04
@@ -367,7 +366,6 @@ func TestInclude_SupersededWarningNamesEverything(t *testing.T) {
 	writeTOML(t, dir, "metro/pvmt.toml", `
 [grid]
 hex_edge_m = 125
-[display]
 min_hex_area = 20
 [forecast]
 decay_rate = 0.03
@@ -383,7 +381,6 @@ overpass = true
 	writeTOML(t, dir, "national/pvmt.toml", `
 [grid]
 hex_edge_m = 150
-[display]
 min_hex_area = 60
 [forecast]
 growth_rate = 0.005
@@ -463,7 +460,6 @@ func TestInclude_BackfillsUnsetFieldsSilently(t *testing.T) {
 	writeTOML(t, dir, "metro/pvmt.toml", `
 [grid]
 hex_edge_m = 125
-[display]
 min_hex_area = 20
 [forecast]
 decay_rate = 0.03
@@ -543,7 +539,6 @@ func TestInclude_NoFieldIsDroppedSilently(t *testing.T) {
 	writeTOML(t, dir, "second/pvmt.toml", `
 [grid]
 hex_edge_m = 55
-[display]
 min_hex_area = 60
 [forecast]
 initial_pci = 63
@@ -1247,7 +1242,7 @@ hex_edge_m = 55
 }
 
 // TestInclude_FlattensMinHexArea pins l51o: an included example's
-// [display].min_hex_area is carried onto each of its cities by the merge, the
+// [grid].min_hex_area is carried onto each of its cities by the merge, the
 // way hex_edge_m is. Without the flatten the child's [display] is discarded
 // with the rest of its non-[[cities]] settings and every city silently falls
 // back to the parent/default threshold — which is wrong precisely because the
@@ -1257,7 +1252,6 @@ func TestInclude_FlattensMinHexArea(t *testing.T) {
 	writeTOML(t, dir, "leaf/pvmt.toml", `
 [grid]
 hex_edge_m = 40
-[display]
 min_hex_area = 20
 [[cities]]
 name = "Reno, NV"
@@ -1274,12 +1268,12 @@ min_hex_area = 5
 	}
 	// The merged parent's own [display] is empty, so an unflattened threshold
 	// would resolve to DefaultMinHexArea (100), not 20.
-	if cfg.Display.MinHexArea != 0 {
-		t.Fatalf("merged top-level display.min_hex_area = %g; want 0 (parent's own, child's discarded)", cfg.Display.MinHexArea)
+	if cfg.Grid.MinHexArea != 0 {
+		t.Fatalf("merged top-level grid.min_hex_area = %g; want 0 (parent's own, child's discarded)", cfg.Grid.MinHexArea)
 	}
 	reno := cityBySlug(t, cfg, "reno-nv")
 	if got := cfg.ResolvedMinHexArea(&reno); got != 20 {
-		t.Errorf("Reno min hex area = %g; want 20 (flattened from leaf [display])", got)
+		t.Errorf("Reno min hex area = %g; want 20 (flattened from leaf [grid])", got)
 	}
 	// The coupled hex edge travels with it.
 	if got := cfg.ResolvedHexEdge(&reno); got != 40 {
@@ -1313,7 +1307,7 @@ overpass = true
 		dir := t.TempDir()
 		writeTOML(t, dir, "leaf/pvmt.toml", leaf)
 		top := writeTOML(t, dir, "all/pvmt.toml", `
-[display]
+[grid]
 min_hex_area = 20000
 [[include]]
 path = "../leaf/pvmt.toml"
@@ -1355,7 +1349,7 @@ path = "../leaf/pvmt.toml"
 func TestInclude_PerCityMinHexAreaBeatsParent(t *testing.T) {
 	dir := t.TempDir()
 	writeTOML(t, dir, "leaf/pvmt.toml", `
-[display]
+[grid]
 min_hex_area = 20
 [[cities]]
 name = "Reno, NV"
@@ -1372,7 +1366,7 @@ overpass = true
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	cfg.Display.MinHexArea = 500
+	cfg.Grid.MinHexArea = 500
 
 	reno := cityBySlug(t, cfg, "reno-nv")
 	if got := cfg.ResolvedMinHexArea(&reno); got != 20 {
@@ -1414,7 +1408,7 @@ path = "../b/pvmt.toml"
 	}
 
 	t.Run("conflict keeps the first include and warns", func(t *testing.T) {
-		top := writeThree(t, "[display]\nmin_hex_area = 20\n", "[display]\nmin_hex_area = 60\n")
+		top := writeThree(t, "[grid]\nmin_hex_area = 20\n", "[grid]\nmin_hex_area = 60\n")
 		cfg, err := Load(top)
 		if err != nil {
 			t.Fatalf("conflicting min_hex_area should load with a warning, got %v", err)
@@ -1429,7 +1423,7 @@ path = "../b/pvmt.toml"
 	})
 
 	t.Run("identical is fine", func(t *testing.T) {
-		top := writeThree(t, "[display]\nmin_hex_area = 20\n", "[display]\nmin_hex_area = 20\n")
+		top := writeThree(t, "[grid]\nmin_hex_area = 20\n", "[grid]\nmin_hex_area = 20\n")
 		cfg, err := Load(top)
 		if err != nil {
 			t.Fatalf("identical min_hex_area should merge cleanly, got %v", err)
@@ -1444,7 +1438,7 @@ path = "../b/pvmt.toml"
 	})
 
 	t.Run("unset on second defers to first", func(t *testing.T) {
-		top := writeThree(t, "[display]\nmin_hex_area = 20\n", "")
+		top := writeThree(t, "[grid]\nmin_hex_area = 20\n", "")
 		cfg, err := Load(top)
 		if err != nil {
 			t.Fatalf("unset second min_hex_area should merge cleanly, got %v", err)
@@ -1855,7 +1849,6 @@ hex_edge_m = 60
 config_id = "coarse"
 [grid]
 hex_edge_m = 300
-[display]
 min_hex_area = 20000
 [[cities]]
 name = "Livermore, CA"

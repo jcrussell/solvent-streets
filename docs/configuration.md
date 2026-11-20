@@ -139,9 +139,8 @@ first. When two includes set the same field to different values, the load
 prints a `warning:` naming the city, the field, both values and both files.
 
 An included file's calibration is flattened into per-city values. So the
-including file may not set top-level `[grid]`, `[forecast]` or
-`[display].min_hex_area`, because those would silently recalibrate the
-included cities. The exception is `[forecast].horizon_years`, the one horizon every
+including file may not set top-level `[grid]` or `[forecast]`, because those
+would silently recalibrate the included cities. The exception is `[forecast].horizon_years`, the one horizon every
 included file must already agree with ([Forecast](#forecast)). Its `[display].units` and `[export]` apply as usual. An
 included file's `[display].units` and `[export]` are not carried over. Its
 `[[services]]` apply to its own cities: an included city's coverage is
@@ -249,9 +248,9 @@ The default is 100 and the minimum is 10. Hex count grows with the square of
 the inverse edge, so large cities run coarser: the examples range from 60 m to
 300 m.
 
-**`min_hex_area`** drops boundary slivers smaller than this many m² from the
-map, the stats and the play board. Set it in `[display]` or per city; the
-default is 100. It is coupled to the edge: a threshold above a full hex's area
+**`min_hex_area`** drops boundary slivers smaller than this many square meters
+(m², whatever `[display].units` shows) from the map, the stats and the play
+board. Set it in `[grid]` or per city; the default is 100. It is coupled to the edge: a threshold above a full hex's area
 (`3√3/2 · edge²`) drops every hex. A snapshot is drawn at the edge it was
 computed at, so export checks the threshold against that edge and warns when
 it would drop every hex.

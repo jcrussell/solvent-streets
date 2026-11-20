@@ -312,7 +312,7 @@ func TestResolve_EmitsExpectedFields(t *testing.T) {
 // that only ever prints when configured teaches the user nothing.
 func TestResolve_EmitsMinHexArea(t *testing.T) {
 	cfg := &Config{
-		Display: DisplayConfig{MinHexArea: 40},
+		Grid: GridConfig{MinHexArea: 40},
 		Cities: []CityConfig{
 			{Name: "Fine City", MinHexArea: 5},
 			{Name: "Inherits"},
@@ -323,12 +323,12 @@ func TestResolve_EmitsMinHexArea(t *testing.T) {
 		byKey[f.Key] = f
 	}
 
-	top, ok := byKey["display.min_hex_area"]
+	top, ok := byKey["grid.min_hex_area"]
 	if !ok {
-		t.Fatalf("Resolve did not emit display.min_hex_area; got keys %v", keysOf(byKey))
+		t.Fatalf("Resolve did not emit grid.min_hex_area; got keys %v", keysOf(byKey))
 	}
-	if top.Value != 40.0 || top.Source.String() != "file:display.min_hex_area" {
-		t.Errorf("display.min_hex_area = %v (%s); want 40 (file:display.min_hex_area)", top.Value, top.Source)
+	if top.Value != 40.0 || top.Source.String() != "file:grid.min_hex_area" {
+		t.Errorf("grid.min_hex_area = %v (%s); want 40 (file:grid.min_hex_area)", top.Value, top.Source)
 	}
 
 	city, ok := byKey["cities[fine-city].min_hex_area"]
@@ -347,11 +347,11 @@ func TestResolve_EmitsMinHexArea(t *testing.T) {
 	// Nothing configured anywhere → the default, reported as such.
 	bare := &Config{Cities: []CityConfig{{Name: "Nowhere"}}}
 	for _, f := range bare.Resolve("") {
-		if f.Key != "display.min_hex_area" {
+		if f.Key != "grid.min_hex_area" {
 			continue
 		}
 		if f.Value != DefaultMinHexArea || f.Source.Kind != SourceDefault {
-			t.Errorf("unset display.min_hex_area = %v (%s); want %v (default)", f.Value, f.Source, DefaultMinHexArea)
+			t.Errorf("unset grid.min_hex_area = %v (%s); want %v (default)", f.Value, f.Source, DefaultMinHexArea)
 		}
 	}
 }
