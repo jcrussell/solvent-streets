@@ -926,7 +926,7 @@
         }
 
         function fmtNum(n) {
-            return Math.round(n).toLocaleString();
+            return Math.round(n).toLocaleString('en-US');
         }
         // fmtNum1 is fmtNum to one decimal place, thousands separated like it.
         /** @param {number} n */
@@ -1153,7 +1153,7 @@
                     '<div class="stat-row"><span class="stat-label">Area (' + areaLargeUnit() + ')</span><span class="stat-value">' + fmtNum1(areaLargeVal) + '</span></div>' +
                     '<div class="stat-row"><span class="stat-label">Area (' + areaVeryLargeUnit() + ')</span><span class="stat-value">' + toAreaVeryLarge(s.area).toFixed(2) + '</span></div>' +
                     // Parking only: a unitless count, so no units conversion.
-                    (s.estimated_spaces > 0 ? '<div class="stat-row"><span class="stat-label">Est. Spaces</span><span class="stat-value">' + s.estimated_spaces.toLocaleString() + '</span></div>' : '') +
+                    (s.estimated_spaces > 0 ? '<div class="stat-row"><span class="stat-label">Est. Spaces</span><span class="stat-value">' + s.estimated_spaces.toLocaleString('en-US') + '</span></div>' : '') +
                     (partial.includes(s.resource_type) ? '<div class="stat-row stat-note">Partial: no ' + esc(sourceNames(failures[s.resource_type])) + ' data (its last ingest failed)</div>' : '') +
                     '</div>';
             });
@@ -1170,7 +1170,7 @@
                     // Hexes on the road network no point of service reaches:
                     // left blank on the map (they have no time), but counted
                     // against the share above.
-                    (s.unreachable_count > 0 ? '<div class="stat-row"><span class="stat-label">Unreachable hexes</span><span class="stat-value">' + s.unreachable_count.toLocaleString() + '</span></div>' : '') +
+                    (s.unreachable_count > 0 ? '<div class="stat-row"><span class="stat-label">Unreachable hexes</span><span class="stat-value">' + s.unreachable_count.toLocaleString('en-US') + '</span></div>' : '') +
                     // The median and range are over the painted hexes, not
                     // the city as a whole: say so.
                     '<div class="stat-row"><span class="stat-label">Median per hex</span><span class="stat-value">' + fmtMetric(s.median, s.format) + '</span></div>' +
@@ -1369,8 +1369,10 @@
 
             // Load hex cost summary: map[scope]map[resource]{...}, scope in
             // {city, all}. "city" is omitted when the city has no :city rows.
+            // A city exported without one draws its map without the cost
+            // colorings, so its absence is not reported.
             {
-                const cs = await loadJSON(dataURL(prefix, 'hex-cost-summary.json'));
+                const cs = await loadJSON(dataURL(prefix, 'hex-cost-summary.json'), { silent404: true });
                 if (gen !== cityLoadGen) return; // a newer load superseded us
                 if (cs) {
                     costSummaryByScope.city = cs.city || {};
@@ -1547,7 +1549,7 @@
                         '<strong>Coverage:</strong> ' + (p.share != null ? Math.round(p.share * 100) : 0) + '%<br>' +
                         '<strong>Area:</strong> ' + fmtArea(p.area || 0) + '<br>' +
                         '<strong>Est. year-1 cost:</strong> ' + fmtMoney(p.year1_need || 0) +
-                        (p.spaces > 0 ? '<br><strong>Est. Parking Spaces:</strong> ' + Math.round(p.spaces).toLocaleString() : '') +
+                        (p.spaces > 0 ? '<br><strong>Est. Parking Spaces:</strong> ' + Math.round(p.spaces).toLocaleString('en-US') : '') +
                         metricTooltipLine(p);
                     tooltip.style.display = 'block';
                     tooltip.style.left = (e.point.x + 12) + 'px';
@@ -1602,7 +1604,7 @@
                 rows +
                 '<tr class="total-row"><td>Total</td><td>' + fmtArea(totalArea) + '</td><td>' + Math.min(Math.round(totalPct), 100) + '%</td><td>' + fmtMoney(totalCost) + '</td></tr>' +
                 '</table>' +
-                (totalSpaces > 0 ? '<div class="stat-row"><span class="stat-label">Est. Parking Spaces</span><span class="stat-value">' + Math.round(totalSpaces).toLocaleString() + '</span></div>' : '') +
+                (totalSpaces > 0 ? '<div class="stat-row"><span class="stat-label">Est. Parking Spaces</span><span class="stat-value">' + Math.round(totalSpaces).toLocaleString('en-US') + '</span></div>' : '') +
                 '</div>';
         }
         registerHexHandlers();
@@ -1776,8 +1778,8 @@
                 case 'usd': return fmtMoney(v);
                 case 'percent': return Math.round(v * 100) + '%';
                 case 'area': return fmtArea(v);
-                case 'density': return Math.round(densityInUnit(v)).toLocaleString() + ' / ' + areaVeryLargeUnit();
-                default: return Math.round(v).toLocaleString();
+                case 'density': return Math.round(densityInUnit(v)).toLocaleString('en-US') + ' / ' + areaVeryLargeUnit();
+                default: return Math.round(v).toLocaleString('en-US');
             }
         }
 
@@ -1814,7 +1816,7 @@
             if (format === 'usd') return '$' + compactNum(v);
             // A count reads in whole units: an apportioned 6.3 housing
             // units is "6", not "6.3"; large counts still compact ("1.2K").
-            if (format === 'int') return Math.abs(v) < 1000 ? Math.round(v).toLocaleString() : compactNum(v);
+            if (format === 'int') return Math.abs(v) < 1000 ? Math.round(v).toLocaleString('en-US') : compactNum(v);
             return fmtMetric(v, format);
         }
 
@@ -2967,6 +2969,7 @@
             if (gen !== financialsLoadGen) return; // a newer load superseded us
             scenarioData = loadedScenarios;
             if (!scenarioData) {
+                destroyCharts();
                 showNoData('charts', 'No financial data available. Run <code>pvmt forecast</code> and <code>pvmt export</code> first.');
                 return;
             }
@@ -2980,6 +2983,7 @@
             const scenarios = scenariosForScope(scenarioData, currentScope);
 
             if (!scenarios || scenarios.length === 0) {
+                destroyCharts();
                 showNoData('charts', 'No scenario data found.');
                 return;
             }
@@ -3213,7 +3217,7 @@
             document.getElementById('hl-mix').textContent = fmtMass(avgMix) + '/yr';
             document.getElementById('hl-binder').textContent = fmtMass(avgBinder) + '/yr';
             document.getElementById('hl-oil').textContent = fmtBarrels(avgOil) + '/yr';
-            document.getElementById('hl-mix-sub').textContent = 'Avg/yr under "' + esc(best.scenario.label) + '"';
+            document.getElementById('hl-mix-sub').textContent = 'Avg/yr under "' + best.scenario.label + '"';
             document.getElementById('hl-oil-sub').textContent = '~' + Number(perTonneToDisplay(barrelsPerTonBinder).toFixed(1)) +
                 ' bbl per ' + massUnitSingular() + ' binder';
             document.getElementById('materials-headlines').style.display = '';
@@ -5049,7 +5053,7 @@
                     '<div class="sb-row"><span>Parking</span><span>' + fmtNum(m.parkingAreaLarge) + ' ' + areaLargeUnit() + '</span></div>' +
                     '<div class="sb-row"><span>Sidewalks</span><span>' + m.sidewalksAreaLarge.toFixed(1) + ' ' + areaLargeUnit() + '</span></div>' +
                     '<div class="sb-row"><span>Sidewalk/Road</span><span>' + m.sidewalkToRoadPct.toFixed(1) + '%</span></div>' +
-                    (m.parkingSpaces > 0 ? '<div class="sb-row"><span>Parking Spaces (est.)</span><span>' + m.parkingSpaces.toLocaleString() + '</span></div>' : '') +
+                    (m.parkingSpaces > 0 ? '<div class="sb-row"><span>Parking Spaces (est.)</span><span>' + m.parkingSpaces.toLocaleString('en-US') + '</span></div>' : '') +
                     '<div class="sb-row"><span>City-Owned</span><span>' + m.cityPct.toFixed(0) + '%</span></div>' +
                     '<div class="sb-row"><span>Blended Decay</span><span>' + (m.blendedDecay * 100).toFixed(2) + '%/yr</span></div>';
             }
@@ -5091,7 +5095,7 @@
                 { key: 'sidewalkToRoadPct', needs: ['roads', 'sidewalks'],  label: 'Walkability (Sidewalk-to-Road Ratio)', award: 'Most Walkable', higher: true, fmt: function(v) { return v.toFixed(1) + '%'; }, color: '#10b981' },
                 { key: 'parkingAreaLarge', needs: ['parking'],  label: 'Parking Infrastructure', award: 'Most Parking', higher: true, fmt: function(v) { return fmtNum(v) + ' ' + areaLargeUnit(); }, color: '#3b82f6' },
                 // No award of its own: "Most Parking" above already crowns parking, and two parking medals would be noise.
-                { key: 'parkingSpaces', needs: ['parking'],  label: 'Parking Spaces (est.)', higher: true, filter: function(m) { return m.parkingSpaces > 0; }, fmt: function(v) { return v.toLocaleString(); }, color: '#60a5fa', note: 'Estimated vehicle capacity of mapped lots and garages: the OSM capacity tag where present, otherwise lot footprint ÷ 30 m² per space (× levels for structured parking). On-street parking is not counted. Cities computed before the estimate existed are omitted.' },
+                { key: 'parkingSpaces', needs: ['parking'],  label: 'Parking Spaces (est.)', higher: true, filter: function(m) { return m.parkingSpaces > 0; }, fmt: function(v) { return v.toLocaleString('en-US'); }, color: '#60a5fa', note: 'Estimated vehicle capacity of mapped lots and garages: the OSM capacity tag where present, otherwise lot footprint ÷ 30 m² per space (× levels for structured parking). On-street parking is not counted. Cities computed before the estimate existed are omitted.' },
                 { key: 'cityPct', needs: ['roads', 'parking', 'sidewalks'],  label: 'City Ownership Share', award: 'Most City-Owned', higher: true, fmt: function(v) { return v.toFixed(0) + '%'; }, color: '#8b5cf6' },
                 { key: 'blendedDecay', needs: ['roads', 'parking', 'sidewalks'],  label: 'Blended Decay Rate (lower is better)', award: 'Slowest Decay', higher: false, fmt: function(v) { return (v * 100).toFixed(2) + '%/yr'; }, color: '#ef4444' },
                 { key: 'year1PerAreaUnit', needs: ['roads', 'parking', 'sidewalks'],  rowNote: function(m) { return perAreaNote(m, m.year1AreaLarge); }, note: PER_AREA_TIP, label: 'Year 1 Maintenance Cost per ' + areaLargeUnitSingular(), award: 'Lowest Cost per ' + areaLargeUnitSingular(), higher: false, fmt: function(v) { return fmtMoney(v); }, color: '#ec4899' },

@@ -222,3 +222,12 @@ test('clicking the Materials tab button opens the tab and renders its charts', a
   assert.ok($('#materials-tab').classList.contains('active'), 'clicking the button did not open the Materials tab');
   assert.ok($$('#materials-charts h3').length > 0, 'opening the Materials tab rendered no charts');
 });
+
+// The headline names the scenario as text, so a label is shown as written,
+// not HTML-escaped a second time.
+test('the mix headline shows a scenario label as written', async () => {
+  const scenarios = readFixture('scenarios.json');
+  for (const scope of ['city', 'all']) for (const s of scenarios[scope]) s.scenario.label = 'Fund & <Fix>';
+  const { win } = await ready({ ...fullData, 'scenarios.json': scenarios });
+  assert.equal(win.document.getElementById('hl-mix-sub').textContent, 'Avg/yr under "Fund & <Fix>"');
+});

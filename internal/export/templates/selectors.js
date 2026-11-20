@@ -282,7 +282,6 @@ window.PvmtSelectors = (function () {
     }
 
     return {
-        DEFAULT_DIM: DEFAULT_DIM,
         normalizeTag: normalizeTag,
         dimensionOf: dimensionOf,
         parseTags: parseTags,
@@ -291,7 +290,6 @@ window.PvmtSelectors = (function () {
         filterCities: filterCities,
         readFilters: readFilters,
         writeFilters: writeFilters,
-        narrowFilters: narrowFilters,
         sameFilters: sameFilters,
         rebuildCitySelect: rebuildCitySelect,
         byName: byName,

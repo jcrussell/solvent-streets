@@ -199,3 +199,16 @@ test('a hex-metrics.json of another format is refused', async () => {
   assert.ok(!h.$$('#hex-metric option').map((o) => o.value).includes('population'), 'an unknown format must not be read');
   assert.match(h.$$('#error-banner-list li').map((li) => li.textContent).join('\n'), /unsupported hex-metrics format \(expected v2\)/);
 });
+
+// hex-cost-summary.json is optional: a city without one draws its map
+// without a banner line for it.
+test('a missing hex-cost-summary.json raises no error banner', async () => {
+  const data = { 'meta.json': metaJSON, 'hexgrid.geojson': grid };
+  const h = load({ data });
+  await h.flush();
+  await h.win.loadCityData();
+  await h.flush();
+  assert.ok(h.fetches().some((f) => f.endsWith('hex-cost-summary.json')), 'the summary was never fetched');
+  // The fixture lacks other files too; only the summary's line matters here.
+  assert.doesNotMatch(h.doc.getElementById('error-banner-list').textContent, /hex-cost-summary/, 'a missing summary raised the banner');
+});

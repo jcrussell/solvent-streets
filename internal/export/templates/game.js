@@ -407,7 +407,7 @@
                     row('Years', (s.year != null ? s.year.toFixed(1) : '—')) +
                     row('Final PCI', (s.network_pci != null ? String(finalPCI(s)) : '—')) +
                     row('Total spent', fmtMoney(s.total_spend)) +
-                    row('Treatments', (s.treatment_count || 0).toLocaleString()) +
+                    row('Treatments', (s.treatment_count || 0).toLocaleString('en-US')) +
                     row('Gravel', gravelPct.toFixed(0) + '%') +
                     row('Peak backlog', fmtMoney(peakBacklog)) +
                 '</div>' +

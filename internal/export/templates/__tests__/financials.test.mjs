@@ -254,3 +254,24 @@ test('the Financials files are fetched together and render once all land', async
   await flush();
   assert.equal($$('#charts h3').length, 4, 'Financials did not render once every file landed');
 });
+
+// A city with no scenarios shows the no-data message, and the previous
+// city's charts are destroyed with it rather than left alive behind it.
+test('a city without scenarios destroys the previous city\'s charts', async () => {
+  for (const scenarios of [undefined, { all: [] }]) {
+    const data = { ...fullData };
+    const { win, get, flush } = await ready({ data });
+    const before = get('currentCharts').slice();
+    assert.ok(before.length > 0, 'the first city drew no Financials charts');
+    let destroyed = 0;
+    for (const c of before) c.destroy = () => { destroyed++; };
+
+    if (scenarios === undefined) delete data['scenarios.json'];
+    else data['scenarios.json'] = scenarios;
+    await win.loadFinancials();
+    await flush();
+    assert.match(win.document.getElementById('charts').textContent, /No (financial|scenario) data/);
+    assert.equal(destroyed, before.length, 'the previous charts were not destroyed');
+    assert.equal(get('currentCharts').length, 0);
+  }
+});
