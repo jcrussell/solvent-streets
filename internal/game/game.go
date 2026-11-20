@@ -91,7 +91,7 @@ type Config struct {
 	// horizon, so play continues until a loss condition triggers (sandbox mode).
 	// HorizonYears must still be > 0 — it is used only for the insolvency
 	// projection, not as a finish line. A huge HorizonYears must NOT be used
-	// to fake endless: recomputeInsolvency runs a per-year forecast over it.
+	// to fake endless: ProjectInsolvency runs a per-year forecast over it.
 	Endless bool `json:"endless"`
 }
 
@@ -142,14 +142,8 @@ type Game struct {
 	// the "can't afford anything" (out-of-funds) test in StateJSON.
 	minTierCost float64
 
-	// macro is the macro forecast's inputs, re-run at the current budgetRate
-	// by recomputeInsolvency. cycleYears is its treatment cycle, resolved.
-	macro      forecast.Inputs
+	// cycleYears is the treatment cycle, resolved.
 	cycleYears float64
-
-	// cached macro insolvency headline
-	insolvencyYear int
-	insolvencyOK   bool
 
 	// Insolvency, on the forecast's definition (forecast.InsolvencyThreshold)
 	// applied to the player's own network. Each sim-year the hold-steady need of
@@ -173,7 +167,7 @@ var inputNames = map[string]string{
 }
 
 // forecastInputs is the macro forecast's view of cfg at the given annual
-// budget: what New validates and what insolvencyFromForecast simulates. The
+// budget: what New validates and what ProjectInsolvency simulates. The
 // cost overhead is left unset because the game prices bare (see
 // insolvencyFromForecast).
 func (cfg Config) forecastInputs(budget float64) forecast.Inputs {
@@ -274,7 +268,6 @@ func New(cfg Config) (*Game, error) {
 		cost:       &forecast.TieredCostProjector{Tiers: tiers},
 		tiers:      tiers,
 		initialPCI: cfg.InitialPCI,
-		macro:      cfg.forecastInputs(startBudget),
 		cycleYears: forecast.ResolveCycleYears(cfg.TreatmentCycleYears),
 	}
 
@@ -319,9 +312,6 @@ func New(cfg Config) (*Game, error) {
 	for i := range tiers {
 		g.tierRanks[i] = tierCostRank(tiers, i)
 	}
-
-	// Initial macro insolvency headline from the real engine.
-	g.recomputeInsolvency()
 	return g, nil
 }
 
@@ -367,21 +357,6 @@ func (g *Game) Tick(dt float64) {
 	g.recomputeStatus()
 }
 
-// Treat applies a treatment of the given tier (by label, as found in cost_tiers)
-// to one hex. If the treasury cannot afford tier.CostPerSqM * road_area, it is a
-// no-op and returns false. Otherwise it debits the treasury, draws the spend down
-// against the backlog, and raises the hex's PCI toward 100 by a fraction set by
-// the tier's cost rank: the priciest tier (reconstruction) restores to 100, the
-// cheapest (preventive) gives the smallest lift. Any treatment that lifts a closed
-// hex back above ClosureEpsilon reopens it (reconstruction always does).
-func (g *Game) Treat(hexID, tier string) bool {
-	applied := g.treatOne(hexID, tier)
-	if applied {
-		g.recomputeStatus()
-	}
-	return applied
-}
-
 // TreatBatch treats many hexes with one status recompute, for the paint brush: a
 // single drag-move can cover dozens of hexes, and recomputing status (O(hexes))
 // per hex would be quadratic. It applies treatOne to each id (each affordable hex
@@ -401,7 +376,12 @@ func (g *Game) TreatBatch(hexIDs []string, tier string) int {
 }
 
 // treatOne applies a single treatment WITHOUT recomputing status (the caller
-// does, once). tier is a cost_tiers label, or the sentinel "auto" to let the
+// does, once). If the treasury cannot afford the tier's cost over the hex's
+// road area, it is a no-op. Otherwise it debits the treasury and raises the
+// hex's PCI toward 100 by a fraction set by the tier's cost rank: the priciest
+// tier (reconstruction) restores to 100, the cheapest (preventive) gives the
+// smallest lift, and a treatment that lifts a closed hex above ClosureEpsilon
+// reopens it. tier is a cost_tiers label, or the sentinel "auto" to let the
 // engine pick the tier whose [MinPCI, MaxPCI) band contains the hex's current
 // PCI — so the front-end never has to choose preventive/rehab/reconstruction per
 // hex. Returns false (no-op) if the game is over, the tier/hex is unknown, or the
@@ -437,29 +417,9 @@ func (g *Game) treatOne(hexID, tier string) bool {
 	return true
 }
 
-// SetBudget sets the annual funding rate and recomputes the macro insolvency year
-// by running the real forecast engine (worst-first, current cohorts, this rate).
-func (g *Game) SetBudget(rate float64) {
-	// Ignore non-finite rates: a NaN/Inf rate would poison the treasury on the
-	// next Tick (treasury += budgetRate*dt).
-	if !finite(rate) {
-		return
-	}
-	g.budgetRate = noDebt(rate)
-	g.recomputeInsolvency()
-}
-
-// recomputeInsolvency runs forecast.Simulate (worst-first) with the configured
-// cohorts at the current budgetRate and caches InsolvencyYear's verdict.
-func (g *Game) recomputeInsolvency() {
-	in := g.macro
-	in.Budget = g.budgetRate
-	g.insolvencyYear, g.insolvencyOK = insolvencyFromForecast(in)
-}
-
-// ProjectInsolvency runs the same worst-first macro forecast as
-// (*Game).recomputeInsolvency but straight from a Config, without building a
-// board. It backs the pregame budget preview: given the cohorts, cost tiers,
+// ProjectInsolvency runs the worst-first macro forecast straight from a
+// Config, without building a board. It backs the pregame budget preview:
+// given the cohorts, cost tiers,
 // horizon, and a candidate annual budget, it returns the projected insolvency
 // year (year, true) or (0, false) when the network stays solvent through the
 // horizon. cfg.Hexes is ignored, so no validation/New is required.
@@ -467,15 +427,14 @@ func ProjectInsolvency(cfg Config) (year int, ok bool) {
 	return insolvencyFromForecast(cfg.forecastInputs(noDebt(cfg.StartingBudget)))
 }
 
-// insolvencyFromForecast is the shared forecast core behind recomputeInsolvency
-// (live) and ProjectInsolvency (pregame preview): it spreads the cohorts, runs
-// forecast.Simulate worst-first at in.Budget over the horizon, and returns
-// InsolvencyYear's verdict. An empty cohort set is treated as solvent
-// (0, false) — there is nothing to forecast.
+// insolvencyFromForecast is the forecast core behind ProjectInsolvency: it
+// spreads the cohorts, runs forecast.Simulate worst-first at in.Budget over
+// the horizon, and returns InsolvencyYear's verdict. An empty cohort set is
+// treated as solvent (0, false) — there is nothing to forecast.
 //
-// ProjectInsolvency reaches here straight from an untrusted Config (the WASM
+// It is reached straight from an untrusted Config (the WASM
 // gameProjectInsolvency export) without going through New, so the inputs are
-// validated here too, against the same bounds. Inputs outside them return the
+// validated here, against the bounds New holds a Config to. Inputs outside them return the
 // "no result" signal (0, false) rather than a garbage preview or, for the
 // horizon, a crash: forecast.Simulate allocates per year, so a non-positive
 // horizon panics and a huge one exhausts the WASM runtime.
@@ -593,20 +552,18 @@ func (g *Game) networkPCI() float64 {
 // --- StateJSON + delta ---
 
 type changedHex struct {
-	ID     string  `json:"id"`
-	Band   int     `json:"band"`
-	PCI    float64 `json:"pci"`
-	Closed bool    `json:"closed"`
+	ID     string `json:"id"`
+	Band   int    `json:"band"`
+	Closed bool   `json:"closed"`
 }
 
 type stateOut struct {
-	Year           float64 `json:"year"`
-	Treasury       float64 `json:"treasury"`
-	BudgetRate     float64 `json:"budget_rate"`
-	NetworkPCI     float64 `json:"network_pci"`
-	Backlog        float64 `json:"deferred_backlog"`
-	InsolvencyYear *int    `json:"insolvency_year,omitempty"`
-	Status         string  `json:"status"`
+	Year       float64 `json:"year"`
+	Treasury   float64 `json:"treasury"`
+	BudgetRate float64 `json:"budget_rate"`
+	NetworkPCI float64 `json:"network_pci"`
+	Backlog    float64 `json:"deferred_backlog"`
+	Status     string  `json:"status"`
 	// LossReason is the LossXxx condition that ended a lost game; omitted
 	// while the game is running or won.
 	LossReason string `json:"loss_reason,omitempty"`
@@ -623,8 +580,7 @@ type stateOut struct {
 
 // StateJSON marshals the HUD fields plus a delta: only hexes whose quantized
 // color band or closed state changed since the last StateJSON call. The first
-// call returns every hex (initial paint). insolvency_year is omitted while the
-// network stays solvent through the horizon.
+// call returns every hex (initial paint).
 func (g *Game) StateJSON() ([]byte, error) {
 	out := stateOut{
 		Year:       g.simYears,
@@ -638,11 +594,6 @@ func (g *Game) StateJSON() ([]byte, error) {
 		Treatments: g.treatments,
 		Changed:    []changedHex{},
 	}
-	if g.insolvencyOK {
-		y := g.insolvencyYear
-		out.InsolvencyYear = &y
-	}
-
 	minOpenArea := math.Inf(1)
 	for i := range g.hexes {
 		h := &g.hexes[i]
@@ -658,7 +609,6 @@ func (g *Game) StateJSON() ([]byte, error) {
 		out.Changed = append(out.Changed, changedHex{
 			ID:     h.id,
 			Band:   band,
-			PCI:    h.pci,
 			Closed: h.closed,
 		})
 		h.paintedBand = band

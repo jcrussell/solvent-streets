@@ -99,19 +99,6 @@ func gameTick(_ js.Value, args []js.Value) any {
 	return stateJSON()
 }
 
-// gameTreat applies a treatment tier to a hex and returns the new StateJSON
-// delta. The returned state already reflects whether the treatment applied.
-func gameTreat(_ js.Value, args []js.Value) any {
-	if currentGame == nil {
-		return errJSON("game not initialized")
-	}
-	if len(args) < 2 || args[0].Type() != js.TypeString || args[1].Type() != js.TypeString {
-		return errJSON("gameTreat: expected (hexID, tier) string arguments")
-	}
-	currentGame.Treat(args[0].String(), args[1].String())
-	return stateJSON()
-}
-
 // gameTreatBatch applies one tier (or "auto") to many hexes in a single call —
 // the paint brush sends every hex under the cursor each drag-move. args are
 // (idsJSON, tier): idsJSON is a JSON string array of hex ids. One StateJSON delta
@@ -153,27 +140,11 @@ func gameProjectInsolvency(_ js.Value, args []js.Value) any {
 	return js.ValueOf(string(b))
 }
 
-// gameSetBudget sets the funding rate (recomputing the insolvency headline) and
-// returns the new StateJSON delta.
-func gameSetBudget(_ js.Value, args []js.Value) any {
-	if currentGame == nil {
-		return errJSON("game not initialized")
-	}
-	rate, ok := finiteNumberArg(args)
-	if !ok {
-		return errJSON("gameSetBudget: rate must be a finite number")
-	}
-	currentGame.SetBudget(rate)
-	return stateJSON()
-}
-
 func main() {
 	js.Global().Set("simulateForecast", js.FuncOf(simulateForecast))
 	js.Global().Set("gameInit", js.FuncOf(gameInit))
 	js.Global().Set("gameTick", js.FuncOf(gameTick))
-	js.Global().Set("gameTreat", js.FuncOf(gameTreat))
 	js.Global().Set("gameTreatBatch", js.FuncOf(gameTreatBatch))
-	js.Global().Set("gameSetBudget", js.FuncOf(gameSetBudget))
 	js.Global().Set("gameProjectInsolvency", js.FuncOf(gameProjectInsolvency))
 	// Keep the Go runtime alive.
 	select {}

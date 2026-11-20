@@ -38,6 +38,12 @@ func baseConfig() Config {
 	}
 }
 
+// treat applies one treatment through TreatBatch, the engine's only treatment
+// entry point, and reports whether it was applied.
+func treat(g *Game, hexID, tier string) bool {
+	return g.TreatBatch([]string{hexID}, tier) == 1
+}
+
 func newGame(t *testing.T, cfg Config) *Game {
 	t.Helper()
 	g, err := New(cfg)
@@ -146,7 +152,7 @@ func TestTreatDebitsLiftsAndReopens(t *testing.T) {
 	g.hexes[0].closed = true
 
 	treasuryBefore := g.treasury
-	if !g.Treat("a", "reconstruction") {
+	if !treat(g, "a", "reconstruction") {
 		t.Fatal("reconstruction should be affordable")
 	}
 	cost := 150.0 * 1000.0
@@ -164,7 +170,7 @@ func TestTreatDebitsLiftsAndReopens(t *testing.T) {
 func TestTreatPreventiveSmallLift(t *testing.T) {
 	g := newGame(t, baseConfig())
 	before := g.hexes[1].pci // 80
-	if !g.Treat("b", "preventive") {
+	if !treat(g, "b", "preventive") {
 		t.Fatal("preventive should be affordable")
 	}
 	after := g.hexes[1].pci
@@ -181,7 +187,7 @@ func TestTreatUnaffordableRejected(t *testing.T) {
 	cfg := baseConfig()
 	cfg.StartingBudget = 100 // tiny treasury
 	g := newGame(t, cfg)
-	if g.Treat("a", "reconstruction") {
+	if treat(g, "a", "reconstruction") {
 		t.Fatal("expected rejection when unaffordable")
 	}
 	if g.treasury != 100 {
@@ -191,10 +197,10 @@ func TestTreatUnaffordableRejected(t *testing.T) {
 
 func TestTreatUnknownTierOrHex(t *testing.T) {
 	g := newGame(t, baseConfig())
-	if g.Treat("a", "nope") {
+	if treat(g, "a", "nope") {
 		t.Fatal("unknown tier should be rejected")
 	}
-	if g.Treat("zzz", "preventive") {
+	if treat(g, "zzz", "preventive") {
 		t.Fatal("unknown hex should be rejected")
 	}
 }
@@ -229,7 +235,7 @@ func TestTierCostRankBreaksTiesStably(t *testing.T) {
 	// (b) the highest-index priciest tier ("top") restores a gravel hex to ~100.
 	g.hexes[0].pci = 0
 	g.hexes[0].closed = true
-	if !g.Treat("a", "top") {
+	if !treat(g, "a", "top") {
 		t.Fatal("top tier should be affordable")
 	}
 	if g.hexes[0].pci < 99.999 {
@@ -238,7 +244,7 @@ func TestTierCostRankBreaksTiesStably(t *testing.T) {
 
 	// A same-cost lower-index tier ("mid") gets a smaller frac, not a full restore.
 	g.hexes[1].pci = 0
-	if !g.Treat("b", "mid") {
+	if !treat(g, "b", "mid") {
 		t.Fatal("mid tier should be affordable")
 	}
 	if g.hexes[1].pci >= 99.999 {
@@ -296,63 +302,10 @@ func TestTickNonFiniteIsNoOp(t *testing.T) {
 	}
 }
 
-// TestSetBudgetNonFiniteIgnored asserts a NaN/Inf rate is ignored (budgetRate
-// untouched) so it cannot poison the treasury on the next Tick.
-func TestSetBudgetNonFiniteIgnored(t *testing.T) {
-	for _, rate := range []float64{math.NaN(), math.Inf(1), math.Inf(-1)} {
-		g := newGame(t, baseConfig())
-		rateBefore := g.budgetRate
-		g.SetBudget(rate)
-		if g.budgetRate != rateBefore {
-			t.Fatalf("non-finite rate %v changed budgetRate to %v", rate, g.budgetRate)
-		}
-		g.Tick(1)
-		if math.IsNaN(g.treasury) || math.IsInf(g.treasury, 0) {
-			t.Fatalf("treasury non-finite after Tick: %v", g.treasury)
-		}
-	}
-}
-
-// TestSetBudgetNegativeClamped asserts a negative rate is clamped to 0 (no debt
-// model), so the treasury does not bleed below zero over ticks.
-func TestSetBudgetNegativeClamped(t *testing.T) {
-	g := newGame(t, baseConfig())
-	g.SetBudget(-1_000_000)
-	if g.budgetRate != 0 {
-		t.Fatalf("negative budget should clamp to 0, got %v", g.budgetRate)
-	}
-	treasuryBefore := g.treasury
-	g.Tick(1)
-	if g.treasury < treasuryBefore {
-		t.Fatalf("treasury bled with clamped budget: %v < %v", g.treasury, treasuryBefore)
-	}
-}
-
-func TestSetBudgetChangesInsolvencyYear(t *testing.T) {
-	g := newGame(t, baseConfig())
-
-	g.SetBudget(0) // do-nothing-ish: should be insolvent within horizon
-	lowYear, lowOK := g.insolvencyYear, g.insolvencyOK
-	if !lowOK {
-		t.Fatal("expected insolvency within horizon at budget 0")
-	}
-
-	g.SetBudget(1e12) // massive budget: should stay solvent through horizon
-	if g.insolvencyOK {
-		t.Fatalf("expected solvent-through-horizon at huge budget, got year %d", g.insolvencyYear)
-	}
-
-	// And a modest budget should push insolvency later than budget 0 (or solvent).
-	g.SetBudget(500_000)
-	if g.insolvencyOK && g.insolvencyYear < lowYear {
-		t.Fatalf("more budget should not make insolvency earlier: %d < %d", g.insolvencyYear, lowYear)
-	}
-}
-
-// TestProjectInsolvency asserts the board-free pregame projection agrees with
-// the live (*Game).recomputeInsolvency verdict and moves the right way with
-// budget: a starving budget is insolvent within the horizon, an ample budget is
-// solvent, and it needs no hexes (pregame has cohorts but no board yet).
+// TestProjectInsolvency asserts the board-free pregame projection moves the
+// right way with budget: a starving budget is insolvent within the horizon, an
+// ample budget is solvent, and it needs no hexes (pregame has cohorts but no
+// board yet).
 func TestProjectInsolvency(t *testing.T) {
 	cfg := baseConfig()
 
@@ -370,17 +323,8 @@ func TestProjectInsolvency(t *testing.T) {
 		t.Fatal("expected solvent-through-horizon at a huge budget")
 	}
 
-	// It must match the live path: a game built at the same starving budget
-	// caches the same verdict recomputeInsolvency produces.
-	cfg.StartingBudget = 0
-	g := newGame(t, cfg)
-	pYear, pOK := ProjectInsolvency(cfg)
-	if pOK != g.insolvencyOK || (pOK && pYear != g.insolvencyYear) {
-		t.Fatalf("ProjectInsolvency (%d,%v) != recomputeInsolvency (%d,%v)",
-			pYear, pOK, g.insolvencyYear, g.insolvencyOK)
-	}
-
 	// No board required: cohorts drive the projection, hexes are ignored.
+	cfg.StartingBudget = 0
 	cfg.Hexes = nil
 	if _, ok := ProjectInsolvency(cfg); !ok {
 		t.Fatal("expected insolvency at budget 0 even with no hexes")
@@ -449,8 +393,8 @@ func TestProjectInsolvencyTinyCycleIgnoresBudget(t *testing.T) {
 	}
 }
 
-// TestNewNegativeBudgetClamped mirrors TestSetBudgetNegativeClamped: a negative
-// StartingBudget must seed treasury/budgetRate at >= 0 (no debt model).
+// TestNewNegativeBudgetClamped: a negative StartingBudget must seed
+// treasury/budgetRate at >= 0 (no debt model).
 func TestNewNegativeBudgetClamped(t *testing.T) {
 	cfg := baseConfig()
 	cfg.StartingBudget = -1_000_000
@@ -551,14 +495,20 @@ func TestStateJSONShape(t *testing.T) {
 			t.Fatalf("StateJSON missing key %q", k)
 		}
 	}
-}
-
-func TestInsolvencyOmittedWhenSolvent(t *testing.T) {
-	g := newGame(t, baseConfig())
-	g.SetBudget(1e12)
-	st := decodeState(t, g)
-	if st.InsolvencyYear != nil {
-		t.Fatalf("expected no insolvency_year when solvent, got %v", *st.InsolvencyYear)
+	// The pregame projection owns the insolvency year, and the front-end
+	// colours hexes by band, so neither is in the live state.
+	if _, ok := m["insolvency_year"]; ok {
+		t.Error("StateJSON carries insolvency_year")
+	}
+	var changed []map[string]json.RawMessage
+	if err := json.Unmarshal(m["changed"], &changed); err != nil {
+		t.Fatal(err)
+	}
+	if len(changed) == 0 {
+		t.Fatal("first StateJSON carries no changed hexes")
+	}
+	if _, ok := changed[0]["pci"]; ok {
+		t.Error("changed hexes carry pci")
 	}
 }
 
@@ -586,18 +536,17 @@ func TestBandForPCI(t *testing.T) {
 // --- helpers ---
 
 type stateView struct {
-	Year           float64      `json:"year"`
-	Treasury       float64      `json:"treasury"`
-	BudgetRate     float64      `json:"budget_rate"`
-	NetworkPCI     float64      `json:"network_pci"`
-	Backlog        float64      `json:"deferred_backlog"`
-	InsolvencyYear *int         `json:"insolvency_year"`
-	Status         string       `json:"status"`
-	LossReason     string       `json:"loss_reason"`
-	Spent          float64      `json:"total_spend"`
-	Treatments     int          `json:"treatment_count"`
-	ClosedCount    int          `json:"closed_count"`
-	Changed        []changedHex `json:"changed"`
+	Year        float64      `json:"year"`
+	Treasury    float64      `json:"treasury"`
+	BudgetRate  float64      `json:"budget_rate"`
+	NetworkPCI  float64      `json:"network_pci"`
+	Backlog     float64      `json:"deferred_backlog"`
+	Status      string       `json:"status"`
+	LossReason  string       `json:"loss_reason"`
+	Spent       float64      `json:"total_spend"`
+	Treatments  int          `json:"treatment_count"`
+	ClosedCount int          `json:"closed_count"`
+	Changed     []changedHex `json:"changed"`
 }
 
 func decodeState(t *testing.T, g *Game) stateView {
@@ -648,7 +597,7 @@ func TestTreatAutoReopensClosedHex(t *testing.T) {
 	g := newGame(t, baseConfig())
 	g.hexes[0].pci = 0
 	g.hexes[0].closed = true
-	if !g.Treat("a", "auto") {
+	if !treat(g, "a", "auto") {
 		t.Fatal("auto on a gravel hex should pick reconstruction and apply")
 	}
 	if g.hexes[0].closed {
@@ -690,13 +639,13 @@ func TestSpentAndTreatmentsAccounting(t *testing.T) {
 	if g.spent != 0 || g.treatments != 0 {
 		t.Fatalf("fresh game must start at 0 spent/treatments, got %v/%d", g.spent, g.treatments)
 	}
-	g.Treat("a", "preventive") // 5 * 1000
-	g.Treat("b", "preventive") // 5 * 2000
+	treat(g, "a", "preventive") // 5 * 1000
+	treat(g, "b", "preventive") // 5 * 2000
 	if g.treatments != 2 || math.Abs(g.spent-15000) > 1e-6 {
 		t.Fatalf("after 2 treats: spent=%v treatments=%d, want 15000/2", g.spent, g.treatments)
 	}
 	g.treasury = 0 // make the next treat unaffordable
-	if g.Treat("a", "reconstruction") {
+	if treat(g, "a", "reconstruction") {
 		t.Fatal("treat should be rejected with empty treasury")
 	}
 	if g.treatments != 2 || math.Abs(g.spent-15000) > 1e-6 {
@@ -722,7 +671,7 @@ func TestTreatBatch(t *testing.T) {
 func TestStateJSONSummaryFields(t *testing.T) {
 	g := newGame(t, baseConfig())
 	g.hexes[0].closed = true // 1 of 2 closed (under the 50% loss threshold)
-	g.Treat("b", "preventive")
+	treat(g, "b", "preventive")
 	st := decodeState(t, g)
 	if st.ClosedCount != 1 {
 		t.Fatalf("closed_count = %d, want 1", st.ClosedCount)
@@ -884,7 +833,7 @@ func TestFundedYearDefersNothing(t *testing.T) {
 	g := newGame(t, idleConfig(1_000_000))
 	g.Tick(0.5)
 	for _, id := range []string{"a", "b"} {
-		if !g.Treat(id, "auto") {
+		if !treat(g, id, "auto") {
 			t.Fatalf("treat %s failed", id)
 		}
 	}

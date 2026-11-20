@@ -128,8 +128,6 @@ interface Window {
   simulateForecast?: WasmFn;
   gameInit?: WasmFn;
   gameTick?: WasmFn;
-  gameTreat?: WasmFn;
   gameTreatBatch?: WasmFn;
-  gameSetBudget?: WasmFn;
   gameProjectInsolvency?: WasmFn;
 }
