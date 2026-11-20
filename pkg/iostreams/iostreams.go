@@ -34,7 +34,7 @@ const noTimestamp = "never"
 // Rule of thumb: scripting consumers run `cmd | …` and expect Out to
 // contain only data. Humans see ErrOut interleaved on their terminal
 // regardless. When in doubt, route to ErrOut — that strictly preserves
-// pipe semantics. Empty-state messages ("No cities in database") also
+// pipe semantics. Empty-state messages also
 // go to ErrOut so `cmd | wc -l` is 0 when there is nothing to emit.
 type IOStreams struct {
 	In io.ReadCloser

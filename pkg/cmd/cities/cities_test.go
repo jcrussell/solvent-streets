@@ -7,6 +7,7 @@ import (
 
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
+	"github.com/jcrussell/solvent-streets/internal/hint"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/internal/results"
 	"github.com/jcrussell/solvent-streets/internal/units"
@@ -154,11 +155,9 @@ func TestCityRow_ExportData_TotalPavedNeedsACompute(t *testing.T) {
 	}
 }
 
-// TestRunCities_EmptyDatabase locks in Out/ErrOut routing for an
-// empty-state message: the "No cities" hint is chatter, not data, so it
-// must land on ErrOut. The contract is what makes `pvmt cities | wc -l`
-// return 0 instead of 1 when the database is empty — scripted consumers
-// rely on Out being silent in that case.
+// TestRunCities_EmptyDatabase: an empty database is a missing prerequisite
+// (exit 3, naming 'pvmt all ingest'), and Out stays silent so
+// `pvmt cities | wc -l` is 0 — scripted consumers rely on that.
 func TestRunCities_EmptyDatabase(t *testing.T) {
 	root := &dbtest.MockRootStore{
 		ListCitiesFunc: func(_ context.Context) ([]db.City, error) {
@@ -173,13 +172,14 @@ func TestRunCities_EmptyDatabase(t *testing.T) {
 		UnitSystem: func() units.System { return units.Imperial },
 	}
 
-	if err := runCities(context.Background(), opts); err != nil {
-		t.Fatal(err)
+	err := runCities(context.Background(), opts)
+	if !cmdutil.OnlyPrereqs(err) {
+		t.Fatalf("err = %v, want a missing prerequisite (exit 3)", err)
 	}
-	if got := stdout.String(); got != "" {
-		t.Errorf("stdout should be empty for empty-state; got: %q", got)
+	if got := strings.Join(hint.Hints(err), "\n"); !strings.Contains(got, "pvmt all ingest") {
+		t.Errorf("hint = %q, want it to name 'pvmt all ingest'", got)
 	}
-	if !strings.Contains(stderr.String(), "No cities") {
-		t.Errorf("expected empty-db hint on stderr, got: %s", stderr.String())
+	if got := stdout.String() + stderr.String(); got != "" {
+		t.Errorf("output for empty-state = %q, want none (the error carries the message)", got)
 	}
 }

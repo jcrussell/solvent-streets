@@ -2,6 +2,7 @@ package cities
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"time"
@@ -79,7 +80,7 @@ func NewCmdCities(f *cmdutil.Factory, runF func(context.Context, *Options) error
 		Use:   "cities",
 		Args:  cobra.NoArgs,
 		Short: "List cities in the database",
-		Long:  "List all cities stored in the shared pvmt database with per-resource ingested feature counts\n(everything the bounding-box fetch returned, before the boundary clip).",
+		Long:  "List all cities stored in the shared pvmt database with per-resource ingested feature counts\n(everything the bounding-box fetch returned, before the boundary clip).\nWith no cities stored it exits 3 and names 'pvmt all ingest'; with --json it writes [] and exits 0.",
 		Example: `  # Table of cities with per-resource feature counts
   pvmt cities
 
@@ -121,10 +122,9 @@ func runCities(ctx context.Context, opts *Options) error {
 	}
 
 	if len(rows) == 0 {
-		// Empty-state message is chatter, not data: route to ErrOut so
-		// `pvmt cities | wc -l` is 0 when there are no cities to list.
-		fmt.Fprintln(ios.ErrOut, "No cities in database. Run 'pvmt all ingest' to populate.")
-		return nil
+		// Nothing to list until something is ingested: exit 3 with the step
+		// to run, on stderr, so `pvmt cities | wc -l` is 0.
+		return cmdutil.NeedsFirst(errors.New("no cities in the database"), "pvmt all ingest")
 	}
 
 	sys := opts.UnitSystem()
