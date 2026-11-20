@@ -698,8 +698,8 @@ name = "Oakland, CA"
 			toml:    "[[services]]\nname = \"fire\"\nturnout = 60\n[[cities]]\nname = \"Oakland, CA\"\noverpass = true\n",
 			wantKey: "services[fire].turnout (did you mean turnout_s?)",
 		},
-		// The removed [[layers]] config (solvent-streets 2a7n.15) must now be
-		// caught by the unknown-key guard instead of silently no-op'ing.
+		// A [[layers]] section is not a config key, so the unknown-key guard
+		// catches it rather than letting it silently no-op.
 		"removed layers section": {
 			toml: `[[layers]]
 name = "sidewalks"

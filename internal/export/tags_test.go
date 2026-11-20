@@ -108,7 +108,7 @@ func TestGroupCitiesByTag(t *testing.T) {
 		t.Errorf("untagged cities = %v; want [Aspen Zephyr]", names)
 	}
 
-	// Why the index DATA_PREFIX alignment matters (bead yvlv.24): the selector's
+	// Why the index DATA_PREFIX alignment matters: the selector's
 	// first DOM <option> — the first city of the first tag group here, "Alameda"
 	// — differs from the flat alphabetical first city ("Aspen") that seeds
 	// CITIES[0]/DATA_PREFIX. Without the boot-time realignment the page would

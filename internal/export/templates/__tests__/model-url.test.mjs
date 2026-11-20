@@ -117,7 +117,7 @@ test('the settings are written on the Financials tab only', async () => {
   assert.ok(params(win).get('pci'));
 });
 
-test('settings linked on another tab are not applied, as that tab never writes them (solvent-streets-oalt)', async () => {
+test('settings linked on another tab are not applied, as that tab never writes them', async () => {
   const h = load({ data: fullData, url: 'https://example.test/index.html?tab=map-tab&pci=' + PCI + '&cost=' + COST + '&budget=1000' });
   await h.flush();
   h.win.onWasmReady();

@@ -51,7 +51,7 @@ jobs:
   test-js:
     name: Test JS
     runs-on: ubuntu-latest
-    # The executing jsdom tests for app.js (solvent-streets-azdu). Separate from
+    # The executing jsdom tests for app.js. Separate from
     # the Go `test` job because the specs need node + node_modules, and separate
     # from `lint-js` because they need Go: the DOM they run against is rendered
     # from index.html.tmpl by internal/export's TestJS, so a hand-written HTML
@@ -187,7 +187,7 @@ jobs:
 
       # setup-go above reads go.mod's go line, so this scans the
       # standard library the release job compiles with; a stdlib finding
-      # is fixed by bumping that line. (byob-security.1 / byob-security.2)
+      # is fixed by bumping that line.
       - name: Run govulncheck
         run: make vuln
 
@@ -235,5 +235,5 @@ jobs:
       - name: Check GoReleaser config
         uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7
         with:
-          version: v2.14.1 # pinned; bump deliberately and re-run goreleaser check (solvent-streets-6q9k)
+          version: v2.14.1 # pinned; bump deliberately and re-run goreleaser check
           args: check

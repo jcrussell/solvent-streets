@@ -88,7 +88,7 @@ func TestCityEntry_InfoMapsTags(t *testing.T) {
 	}
 }
 
-// TestRunSingleCity_ReusesExportedMetaAndSeed is the 7ou7.11 regression:
+// TestRunSingleCity_ReusesExportedMetaAndSeed:
 // runSingleCity must render index.html from the very MetaJSON + forecast seed
 // that exportCityData already built and wrote, not a second from-scratch
 // rebuild. We assert equivalence by reading the written data files back and

@@ -216,7 +216,7 @@ func TestBuildMeta_FallsBackToSumWhenCombinedMissing(t *testing.T) {
 	}
 }
 
-// TestBuildMeta_SnapshotDateUsesPinnedComputedAt is the yvlv.30 regression:
+// TestBuildMeta_SnapshotDateUsesPinnedComputedAt:
 // for a pinned snapshot (snapshotID > 0) the snapshot_date must reflect that
 // snapshot's computed_at, not today — otherwise the time-travel UI shows the
 // render date for a months-old snapshot (and freezes it in the lifetime cache).

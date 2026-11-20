@@ -164,7 +164,7 @@ func TestRunStatus_CitySummary(t *testing.T) {
 		t.Errorf("expected City Area on stdout, got: %s", output)
 	}
 	// No combined compute row is stubbed here, so the paved figure is the
-	// per-resource sum and carries the double-count asterisk (yvlv.37).
+	// per-resource sum and carries the double-count asterisk.
 	if !strings.Contains(output, "Paved Area*:") {
 		t.Errorf("expected Paved Area (fallback, asterisked) on stdout, got: %s", output)
 	}
@@ -196,7 +196,7 @@ func TestRunStatus_ComputeReadErrorFails(t *testing.T) {
 	}
 }
 
-// TestRunStatus_CitySummary_PrefersCombined pins yvlv.37: when the combined
+// TestRunStatus_CitySummary_PrefersCombined: when the combined
 // (de-duplicated) compute row is present, the City Summary paved figure comes
 // from it — NOT the per-resource sum, which double-counts buffer overlap.
 func TestRunStatus_CitySummary_PrefersCombined(t *testing.T) {
@@ -258,7 +258,7 @@ func TestRunStatus_CitySummary_FallsBackToSum(t *testing.T) {
 }
 
 // TestRunStatus_CitySummary_SingleResourceIgnoresCombined pins the
-// single-resource path of yvlv.37: `pvmt <res> status` shows only that
+// single-resource path of TestRunStatus_CitySummary_PrefersCombined: `pvmt <res> status` shows only that
 // resource's area (no cross-resource overlap to de-duplicate), so it must NOT
 // pull the combined union row (which would mismatch the single-row table) and
 // must NOT emit the double-count footnote.

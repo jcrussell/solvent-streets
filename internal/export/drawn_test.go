@@ -125,7 +125,7 @@ func TestHexMetrics_CoverExactlyTheDrawnHexes(t *testing.T) {
 	}
 }
 
-// TestDrawnGrid_OneGridGivesEqualIDSets is the ern4.33 invariant on a shared
+// TestDrawnGrid_OneGridGivesEqualIDSets pins the equal-id-set invariant on a shared
 // grid, as an export and the live server build the files: with a metric row
 // on every hex of the lattice (slivers and an id outside the grid included),
 // hex-metrics.json's ids are exactly hexgrid.geojson's, built on one

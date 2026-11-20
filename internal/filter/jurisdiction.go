@@ -162,8 +162,7 @@ var (
 	// because federalRefRe runs earlier, which puts a large silent move one
 	// reordering away. Enumerating the six leaves nothing to reorder.
 	//
-	// Measured over 8741198 road features, settling the per-prefix
-	// determination the m0qa bead left open:
+	// Measured over 8741198 road features, per prefix:
 	//
 	//	M  2355  Michigan (Detroit). "M 1" is Woodward Ave, MDOT;
 	//	         also M 5, M 3, M 53, M 85, M 153.                  -> State
@@ -217,7 +216,7 @@ var (
 	//        ingested corpus finds it only in Lakewood, CO and Minneapolis, MN
 	//        (CH 19/23/30/34/35/42/44/77/93/94, 172 features).
 	//   CC — Clark County, NV. "CC 215" is the Bruce Woodbury Beltway
-	//        (133 features, Las Vegas). Not in the bead; found by measuring.
+	//        (133 features, Las Vegas). Found by measuring.
 	//        Currently INERT on the corpus: every CC 215 way is tagged
 	//        highway=motorway, and ClassifyJurisdiction's motorway rule runs
 	//        ahead of the ref checks, so those 133 resolve Federal -- arguably

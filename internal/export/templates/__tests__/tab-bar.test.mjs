@@ -52,7 +52,7 @@ function stubScroll(win, el, content, box, left) {
 }
 const fades = (el) => ['fade-left', 'fade-right'].filter((c) => el.classList.contains(c));
 
-test('the phone tab strip fades only the edges with more tabs beyond them (solvent-streets-eaqn)', async () => {
+test('the phone tab strip fades only the edges with more tabs beyond them', async () => {
   const { win, $ } = await page();
   const strip = $('.tab-list');
   stubScroll(win, strip, 600, 360, 0);

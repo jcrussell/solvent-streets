@@ -146,7 +146,7 @@ test('the region panel stays open and closable after a resource toggle and follo
   assert.equal(perResidentArea(h), '122 sq ft');
 });
 
-test('the region hex count does not depend on Color by (solvent-streets-jjcz)', async () => {
+test('the region hex count does not depend on Color by', async () => {
   // A third hex with residents but no pavement: a stored metric brings it
   // onto the map, but it holds nothing to total.
   const empty = { type: 'Feature', geometry: grid.features[0].geometry, properties: { id: 'hex:0:2', all: {} } };

@@ -48,7 +48,7 @@ func TestForecastRow_ExportData_AllFieldsPopulated(t *testing.T) {
 	}
 }
 
-// TestForecastAllResources_PropagatesNonNoRowsError guards yvlv.38: a genuine
+// TestForecastAllResources_PropagatesNonNoRowsError: a genuine
 // query failure (locked DB, dropped table) must propagate, not fold into the
 // "no compute results, skipping" path, which exits 0.
 func TestForecastAllResources_PropagatesNonNoRowsError(t *testing.T) {
@@ -75,7 +75,7 @@ func TestForecastAllResources_PropagatesNonNoRowsError(t *testing.T) {
 	}
 }
 
-// TestForecastAllResources_AllSkippedReturnsNoResults guards yvlv.38: when every
+// TestForecastAllResources_AllSkippedReturnsNoResults: when every
 // resource is un-computed (no city totals) the command returns ErrNoResults
 // (exit 3), not (nil, nil) → exit 0.
 func TestForecastAllResources_AllSkippedReturnsNoResults(t *testing.T) {

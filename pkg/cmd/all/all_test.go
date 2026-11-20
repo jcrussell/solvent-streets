@@ -423,7 +423,7 @@ const combinedTestBoundary = `{"type":"Polygon","coordinates":[[[-120.003,37.998
 
 // computeFactory builds a factory for `all compute` over a store that has real
 // geometry, so every per-resource pass produces a result instead of short-
-// circuiting on ErrNoResults. That is what the q48z.6 regression needs: resErr
+// circuiting on ErrNoResults. That is what TestAllCompute_CombinedFailureIsFatal needs: resErr
 // must be nil for the combined pass's error to be the only thing left to
 // report.
 func computeFactory(ios *iostreams.IOStreams, store db.Store) *cmdutil.Factory {
@@ -463,11 +463,11 @@ func combinedTestStore(saveCombined func([]db.CityMetric) error) *dbtest.MockSto
 	}
 }
 
-// TestAllCompute_CombinedFailureIsFatal pins q48z.6. Before the fix, a failing
-// combined pass was a stderr warning and `all compute` returned resErr — nil
-// whenever the three per-resource passes succeeded. So `pvmt all compute &&
-// pvmt export` exited 0 and published a site whose cross-resource paved-area
-// total was the previous run's, or absent.
+// TestAllCompute_CombinedFailureIsFatal: a failing combined pass fails
+// `all compute`, even when the three per-resource passes succeed. As a mere
+// stderr warning, `pvmt all compute && pvmt export` would exit 0 and publish
+// a site whose cross-resource paved-area total was the previous run's, or
+// absent.
 //
 // The store here fails ONLY the combined write, so every per-resource pass
 // succeeds and resErr is nil. That isolates the regression: if the command

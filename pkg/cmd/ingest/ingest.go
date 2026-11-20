@@ -678,8 +678,8 @@ func fmtArcgis(url string, rt resource.Source) string {
 
 // nominatimFetcher abstracts the by-name Nominatim search so tests
 // can inject canned responses without spinning up an httptest server
-// inside the consumer test file. Narrow.1
-// (define in consumer, not in internal/ingest).
+// inside the consumer test file. Keep it narrow: define it in the consumer,
+// not in internal/ingest.
 type nominatimFetcher func(ctx context.Context, client *http.Client, cityName string) (string, error)
 
 // relationFetcher abstracts the Overpass-relation-by-id fetch with

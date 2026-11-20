@@ -35,7 +35,7 @@ test('the Config tab shows the city in view and switches with the city select', 
   assert.match($('#config-city-toml').textContent, /name = "Beta, CA"/);
 });
 
-test('a city whose meta.json fails to load keeps nothing of the previous city (solvent-streets-06q4)', async () => {
+test('a city whose meta.json fails to load keeps nothing of the previous city', async () => {
   const data = { ...fullData };
   const { win, $, flush, fireMap } = load({ data, url: 'https://example.test/index.html?city=alpha-ca&tab=config-tab' });
   fireMap('style.load'); await flush(10);
@@ -48,7 +48,7 @@ test('a city whose meta.json fails to load keeps nothing of the previous city (s
   assert.equal($('#stats').innerHTML, '');
 });
 
-test('a failed meta.json leaves no previous-city date in the subtitle (solvent-streets-06q4)', async () => {
+test('a failed meta.json leaves no previous-city date in the subtitle', async () => {
   const data = { ...fullData, 'meta.json': { ...metaJSON, snapshot_date: '1999-01-01' } };
   const { win, $, flush, fireMap } = load({ data, url: 'https://example.test/index.html?city=alpha-ca' });
   fireMap('style.load'); await flush(10);

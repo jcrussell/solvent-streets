@@ -85,7 +85,6 @@ changelog:
       # and a bare "^test:" does not match "test(export):" — those fell
       # through to the catch-all "Other" group and shipped in the release notes.
       # [^)]+ rather than .+ so the scope cannot run past its closing paren.
-      # solvent-streets-riwf.
       #
       # NO optional bang: a breaking commit of any type ("refactor(db)!:")
       # must never be filtered out. With "!?" here it vanished from the
@@ -108,7 +107,6 @@ changelog:
     # or "," fell out of its group into "Other". Live, not hypothetical — three
     # commits in v0.3.0..HEAD do it ("fix(export/cmd):",
     # "fix(cmdutil,db,ingest,checksite):", "fix(cache/server/tui/geo):").
-    # solvent-streets-riwf.
     #
     # Breaking changes lead, for any type: the subject's "!" is the only
     # marker GoReleaser sees (a BREAKING CHANGE: footer is in the body, which

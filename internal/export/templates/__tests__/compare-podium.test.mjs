@@ -100,21 +100,21 @@ function lbBlock(doc, label) {
 }
 const lbMedals = (block) => Array.from(block.querySelectorAll('.lb-row .lb-medal')).map((e) => e.textContent);
 
-test('a Street Funding Gap row takes a medal only at a Solvency Score of 50 (solvent-streets-4nlz)', async () => {
+test('a Street Funding Gap row takes a medal only at a Solvency Score of 50', async () => {
   const { doc } = await renderWith([city('alpha-ca', 120), city('beta-ca', 60), city('gamma-or', 3)]);
   const gap = lbBlock(doc, 'Street Funding Gap');
   assert.deepEqual(lbMedals(gap), [MEDALS[0], MEDALS[1], '3.'], 'a +3233% gap must not take bronze');
   assert.ok(gap.querySelector('.lb-award'), 'the best gap is still a fair winner');
 });
 
-test('when every gap is poor, the Street Funding Gap board gives no medal and no award (solvent-streets-4nlz)', async () => {
+test('when every gap is poor, the Street Funding Gap board gives no medal and no award', async () => {
   const { doc } = await renderWith([city('alpha-ca', 30), city('beta-ca', 10)]);
   const gap = lbBlock(doc, 'Street Funding Gap');
   assert.deepEqual(lbMedals(gap), ['1.', '2.']);
   assert.equal(gap.querySelector('.lb-award'), null, 'a +233% gap must not be crowned');
 });
 
-test('Years to Insolvency medals follow the same floor (solvent-streets-4nlz)', async () => {
+test('Years to Insolvency medals follow the same floor', async () => {
   const { doc } = await renderWith([city('alpha-ca', 60, 20), city('beta-ca', 20, 12), city('gamma-or', 10, 8)]);
   const ins = lbBlock(doc, 'Years to Insolvency');
   assert.deepEqual(lbMedals(ins), [MEDALS[0], '2.', '3.']);
@@ -124,7 +124,7 @@ test('Years to Insolvency medals follow the same floor (solvent-streets-4nlz)', 
 // That board sorts by insolvency year, not by score, so its leader can fail
 // the floor while the runner-up passes. Medals stop at the first city under
 // the floor: no silver without a gold, and no award (4nlz peer review).
-test('Years to Insolvency shows no silver under an unmedalled leader (solvent-streets-4nlz)', async () => {
+test('Years to Insolvency shows no silver under an unmedalled leader', async () => {
   const { doc } = await renderWith([city('alpha-ca', 40, 20), city('beta-ca', 60, 12)]);
   const ins = lbBlock(doc, 'Years to Insolvency');
   assert.deepEqual(lbMedals(ins), ['1.', '2.']);
@@ -148,7 +148,7 @@ test('Compare follows the scope toggle, and a units round trip leaves it unchang
   assert.equal(text(), all, 'a units round trip changed Compare');
 });
 
-test('back to an entry in another scope re-renders Compare in that scope (solvent-streets-aeia)', async () => {
+test('back to an entry in another scope re-renders Compare in that scope', async () => {
   const { win, $, flush } = load({ data: { ...fullData, 'compare.json': readFixture('compare.json') },
     url: 'https://example.test/index.html?city=alpha-ca&tab=compare-tab' });
   await flush(12);

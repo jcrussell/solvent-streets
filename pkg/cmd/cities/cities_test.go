@@ -79,7 +79,7 @@ func TestRunCities_ListsCitiesWithStats(t *testing.T) {
 	}
 }
 
-// TestRunCities_PrefersCombinedArea pins yvlv.37: TotalPaved comes from the
+// TestRunCities_PrefersCombinedArea: TotalPaved comes from the
 // combined (de-duplicated) compute row when present, not the per-resource sum
 // which double-counts road/parking/sidewalk buffer overlap.
 func TestRunCities_PrefersCombinedArea(t *testing.T) {
@@ -177,7 +177,7 @@ func TestRunCities_EmptyDatabase(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got := stdout.String(); got != "" {
-		t.Errorf("stdout should be empty for empty-state (byob-iostreams.3); got: %q", got)
+		t.Errorf("stdout should be empty for empty-state; got: %q", got)
 	}
 	if !strings.Contains(stderr.String(), "No cities") {
 		t.Errorf("expected empty-db hint on stderr, got: %s", stderr.String())

@@ -192,13 +192,13 @@ test('fmtMetric rounds to whole seconds before splitting minutes', async () => {
   assert.equal(win.fmtMetric(1234.5, 'int'), '1,235');
 });
 
-test('the Color-by select is named by its visible label (solvent-streets-jjcz)', async () => {
+test('the Color-by select is named by its visible label', async () => {
   const { $ } = await loadWithMetrics();
   assert.equal($('#hex-metric').getAttribute('aria-label'), null, 'an aria-label overrides the visible "Color by" (WCAG 2.5.3)');
   assert.equal($('label[for="hex-metric"]').textContent, 'Color by');
 });
 
-test('an unknown hex-metrics.json version is refused with the error banner (solvent-streets-jjcz)', async () => {
+test('an unknown hex-metrics.json version is refused with the error banner', async () => {
   const saved = data['hex-metrics.json'];
   data['hex-metrics.json'] = { ...saved, v: 99 };
   try {

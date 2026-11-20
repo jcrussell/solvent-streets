@@ -262,9 +262,9 @@ test('scope selection round-trips only while the scope row is visible', async ()
 });
 
 test('back to a different tab of the same city does not reload the city', async () => {
-  // Deep-link a city so every history entry carries ?city=: the bug was gating
-  // the reload on the entry having a city at all (yvlv.21), which a same-city
-  // back navigation always does.
+  // Deep-link a city so every history entry carries ?city=: the reload must not
+  // be gated on the entry having a city at all, which a same-city back
+  // navigation always does.
   const { win, fetches, fireMap, flush } = load({
     data: fullData,
     url: 'https://example.test/index.html?city=beta-ca',
@@ -335,7 +335,7 @@ test('no matching city shows the no-match panel; clearing restores the city', as
   assert.notEqual($('#city-select').value, '', 'clearing the filters selects a city again');
 });
 
-test('a history entry whose tab is no valid selector is ignored (solvent-streets-ern4.39)', async () => {
+test('a history entry whose tab is no valid selector is ignored', async () => {
   const errors = [];
   const { win, $, flush } = load({ data: fullData,
     before: (w) => w.addEventListener('error', (e) => errors.push(String(e.message))) });

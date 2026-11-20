@@ -596,7 +596,7 @@ func TestMigrateFS_AcceptsCustomFS(t *testing.T) {
 	}
 }
 
-// TestMigrateFS_NumericVersionOrder pins the yvlv.14 fix: migrations must
+// TestMigrateFS_NumericVersionOrder: migrations must
 // apply in ascending numeric version order, not lexical filename order.
 // Lexically "10_*.sql" < "2_*.sql", so a lexical sort would run version 10
 // before version 2 and apply dependency-ordered DDL backwards. Here
@@ -725,10 +725,8 @@ INSERT INTO does_not_exist (id) VALUES (1);
 }
 
 // TestMigrateFS_SchemaVersionUniqueFromTheStart pins that the one-row-per-
-// migration index exists before any migration runs. It used to arrive with
-// migration 002, which also had to repair duplicates a concurrent first run
-// could already have recorded (q48z.3); created up front, the duplicate can
-// never be written.
+// migration index exists before any migration runs, so a concurrent first run
+// can never record a duplicate.
 func TestMigrateFS_SchemaVersionUniqueFromTheStart(t *testing.T) {
 	ctx := context.Background()
 	d, err := sql.Open("sqlite", ":memory:")
@@ -998,8 +996,7 @@ func TestOpen_StampsAndReopensCurrentGeneration(t *testing.T) {
 	}
 }
 
-// TestApplyMigration_SkipsAlreadyRecordedVersion pins the other half of the
-// q48z.3 fix: applyMigration re-reads the applied version INSIDE its
+// TestApplyMigration_SkipsAlreadyRecordedVersion: applyMigration re-reads the applied version INSIDE its
 // transaction, so a migration whose version another process recorded between
 // migrateFS's unsynchronized MAX(version) probe and this call is a no-op rather
 // than a second row.

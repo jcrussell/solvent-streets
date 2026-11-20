@@ -112,7 +112,7 @@ test('back across a snapshot change keeps the entry\'s Color-by', async () => {
   assert.equal(new URLSearchParams(win.location.search).get('metric'), 'population');
 });
 
-test('a cold ?snapshot= deep link selects that snapshot and keeps it in the URL (solvent-streets-6wyp)', async () => {
+test('a cold ?snapshot= deep link selects that snapshot and keeps it in the URL', async () => {
   const { win, $, flush, fetchURLs } = load({ page: 'index-live', data: { ...fullData, snapshots },
     url: 'https://example.test/index-live.html?snapshot=v0.5.0' });
   await flush(12);
@@ -121,7 +121,7 @@ test('a cold ?snapshot= deep link selects that snapshot and keeps it in the URL 
   assert.ok(fetchURLs().some((u) => u.includes('snapshot=v0.5.0')), 'no data request named the snapshot');
 });
 
-test('a late snapshot list for the city just left does not replace the new city\'s (solvent-streets-9cnm)', async () => {
+test('a late snapshot list for the city just left does not replace the new city\'s', async () => {
   const alphaSnaps = [{ id: 9, name: 'alpha-only', created_at: '2026-11-01T00:00:00Z', parts: [] }];
   const betaSnaps = [{ id: 7, name: 'beta-only', created_at: '2026-11-02T00:00:00Z', parts: [] }];
   const h = load({ page: 'index-live', data: { 'alpha-ca/snapshots': alphaSnaps, 'beta-ca/snapshots': betaSnaps, ...fullData },
@@ -133,7 +133,7 @@ test('a late snapshot list for the city just left does not replace the new city\
   assert.ok(opts.includes('beta-only') && !opts.includes('alpha-only'), 'picker holds ' + opts);
 });
 
-test('back across a city switch restores the entry\'s snapshot (solvent-streets-6wyp)', async () => {
+test('back across a city switch restores the entry\'s snapshot', async () => {
   const { win, $, flush } = load({ page: 'index-live', data: { ...fullData, snapshots },
     url: 'https://example.test/index-live.html?city=alpha-ca' });
   await flush(12);

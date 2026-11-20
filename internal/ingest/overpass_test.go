@@ -439,7 +439,7 @@ func TestCoordsToPolygonGeoJSON(t *testing.T) {
 	}
 }
 
-// TestIsParseError_BodyTooLarge pins the q48z.4 fix. An oversized response body
+// TestIsParseError_BodyTooLarge: an oversized response body
 // belongs to the "response unusable, shrink the bbox and retry" class that
 // fetchSplitting splits quadrants for. Both routes to the sentinel must be
 // recognised: this package's own ReadAllLimit call, and the cache transport's,
@@ -473,12 +473,11 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
-// TestFetch_OversizedBodySplitsQuadrants is the behavioral half of the q48z.4
-// fix: a first response over the size cap must drive the quadrant split, not
-// abort the whole resource. Before the fix the oversized body surfaced as
-// httpio.ErrBodyTooLarge, isParseError returned false, and fetchSplitting
-// returned the error straight out — which fetchFromSources then turned into
-// ErrAllSourcesFailed for a city that used to succeed after splitting.
+// TestFetch_OversizedBodySplitsQuadrants is the behavioral half of
+// TestIsParseError_BodyTooLarge: a first response over the size cap must drive
+// the quadrant split, not abort the whole resource. Returned straight out, the
+// httpio.ErrBodyTooLarge would become ErrAllSourcesFailed in fetchFromSources
+// for a city that succeeds after splitting.
 func TestFetch_OversizedBodySplitsQuadrants(t *testing.T) {
 	prev := maxResponseBodyBytes
 	maxResponseBodyBytes = 256

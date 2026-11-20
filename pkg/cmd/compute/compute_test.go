@@ -282,8 +282,7 @@ func roadsFeaturesFunc(_ context.Context, _ resource.Type) ([]db.Feature, error)
 	}, nil
 }
 
-// TestRunCompute_PrebuiltGridMatchesInline pins the 7ou7.4 grid-sharing
-// refactor: computing a resource with an injected PrebuiltGrid must produce
+// TestRunCompute_PrebuiltGridMatchesInline pins grid sharing: computing a resource with an injected PrebuiltGrid must produce
 // byte-identical saved hex stats to computing it with the grid built inline.
 // This is the equivalence guardrail for `all compute` reusing one clipped grid
 // across the per-resource passes instead of rebuilding it each time.

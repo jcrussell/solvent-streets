@@ -98,7 +98,7 @@ func TestDashboardNarrowViewportCSS(t *testing.T) {
 	if !strings.Contains(out, "@media (max-width: 640px)") {
 		t.Fatal("missing narrow-viewport media query")
 	}
-	// Spot-check that the grids the bead calls out (financials cards and
+	// Spot-check that the narrow-screen grids (financials cards and
 	// chart grids) actually collapse to a single column inside the block.
 	for _, s := range []string{
 		".headlines { grid-template-columns: 1fr;",

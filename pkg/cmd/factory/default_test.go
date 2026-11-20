@@ -31,7 +31,7 @@ import (
 // TestNewPVMTTransport_TunedTimeouts locks in the transport
 // timeout contract. The exact values are picked deliberately (10s connect/handshake,
 // 30s response-header, 90s idle) — drift here is a behavior change that should
-// be a conscious bead update, not a silent edit. The most load-bearing item
+// be a deliberate change, not a silent edit. The most load-bearing item
 // is ResponseHeaderTimeout: http.DefaultTransport sets it to zero, leaving
 // a stalled server able to pin the connection forever.
 func TestNewPVMTTransport_TunedTimeouts(t *testing.T) {
@@ -326,7 +326,7 @@ func TestHttpClientFactory_TransportChainIsCacheWrapped(t *testing.T) {
 	}
 	gotType := fmt.Sprintf("%T", client.Transport)
 	if gotType != "*cache.CachingTransport" {
-		t.Errorf("outermost transport = %s; want *cache.CachingTransport (byob-http-client.1 chain order: cache wraps ingest wraps base)", gotType)
+		t.Errorf("outermost transport = %s; want *cache.CachingTransport (chain order: cache wraps ingest wraps base)", gotType)
 	}
 }
 

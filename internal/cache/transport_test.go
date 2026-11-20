@@ -514,7 +514,7 @@ func postRequest(ctx context.Context, url, body string) *http.Request {
 	return req
 }
 
-// TestCachingTransport_POSTCachedByBody pins yvlv.32: POSTs are cached,
+// TestCachingTransport_POSTCachedByBody: POSTs are cached,
 // keyed by method+url+body. Two identical POSTs to the same URL result
 // in a single upstream call (the second is a cache hit), while a POST
 // with a different body to the same URL is a distinct entry (a miss).
@@ -645,7 +645,7 @@ func TestCachingTransport_POSTBypass(t *testing.T) {
 	})
 }
 
-// TestCachingTransport_TTL0NoRevalidate pins yvlv.35: with TTL=0 the
+// TestCachingTransport_TTL0NoRevalidate: with TTL=0 the
 // cache is fully disabled — no conditional validators are sent and no
 // cached body is served, even when the handler emits an ETag. The prior
 // TTL=0 test only passed because its handler emitted no validator; this

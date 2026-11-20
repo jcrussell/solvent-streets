@@ -113,7 +113,7 @@ func TestShow_DefaultEmitsTOML(t *testing.T) {
 		t.Errorf("TOML output missing resolved default min_hex_area = 100: %q", got)
 	}
 	if errs := bufs.errOut.String(); errs != "" {
-		t.Errorf("stderr should be empty for pure-data command (byob-iostreams.3); got: %q", errs)
+		t.Errorf("stderr should be empty for pure-data command; got: %q", errs)
 	}
 }
 

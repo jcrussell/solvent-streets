@@ -3106,7 +3106,7 @@
                 return {
                     year: y.year,
                     // The material tier the tonnes were priced at, which a
-                    // city's own cost tiers need not match (ern4.25).
+                    // city's own cost tiers need not match.
                     tier: y.material_tier || y.cost_tier,
                     mixTonnes: y.materials.mix_tonnes,
                     binderTonnes: y.materials.binder_tonnes,

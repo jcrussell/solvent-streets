@@ -473,8 +473,7 @@ const latestSnapshotParam = db.LatestComputeName
 //   - absent → returns (0, true): caller serves the pinned view.
 //   - "latest" → returns (latestSnapshot, true).
 //   - an invalid name, or a snapshot that does not cover this city → writes
-//     404 and returns (_, false); the bead spec wants unknown snapshots to
-//     404, not 500.
+//     404 and returns (_, false): an unknown snapshot is a 404, not a 500.
 //   - a snapshot covering this city → returns (its id, true). Responses
 //     cache under the id, so a snapshot deleted and created again under the
 //     same name never serves the old one's cache.

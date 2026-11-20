@@ -27,7 +27,7 @@ jobs:
       - name: Build snapshot binary
         uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7
         with:
-          version: v2.14.1 # pinned; bump deliberately and re-run goreleaser check (solvent-streets-6q9k)
+          version: v2.14.1 # pinned; bump deliberately and re-run goreleaser check
           args: build --snapshot --single-target --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -60,10 +60,9 @@ jobs:
           # ci.yaml builds with release flags), resolves its XDG data dir on a
           # cold machine, and exits 0.
           #
-          # Runs against a shipped example rather than a config invented here:
-          # the inline one this replaces sat unmaintained for three months
-          # while config validation moved on, then blocked a release
-          # (solvent-streets-mv2p). examples/livermore-ca is pinned by name in
+          # Runs against a shipped example rather than a config invented here,
+          # which would sit unmaintained while config validation moves on and
+          # then block a release. examples/livermore-ca is pinned by name in
           # integration/examples_test.go, which also loads every shipped
           # example — so a rename or a new validation rule fails on the PR
           # rather than at tag time.
@@ -114,7 +113,7 @@ jobs:
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7
         with:
-          version: v2.14.1 # pinned; bump deliberately and re-run goreleaser check (solvent-streets-6q9k)
+          version: v2.14.1 # pinned; bump deliberately and re-run goreleaser check
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -227,8 +227,7 @@ func makeArcGISNullPage(n, startOID int, exceeded bool) []byte {
 	return data
 }
 
-// TestFetch_PaginationContinuesPastAllNullPage pins the fix for the pagination
-// bug (yvlv.10): a page whose rows are all dropped by the null-geometry guard
+// TestFetch_PaginationContinuesPastAllNullPage: a page whose rows are all dropped by the null-geometry guard
 // contributes zero post-filter features, but exceededTransferLimit is set. The
 // loop must keep paging (off the raw row count) instead of terminating, and the
 // offset must advance by the raw count so page 2 is not re-read.
@@ -282,7 +281,7 @@ func TestFetch_PaginationContinuesPastAllNullPage(t *testing.T) {
 	}
 }
 
-// TestParseArcGISGeoJSON_LargeNumericFormatting pins the fix for yvlv.11: JSON
+// TestParseArcGISGeoJSON_LargeNumericFormatting: JSON
 // numbers decode to float64, so a large integral OBJECTID or numeric property
 // must render as plain decimal, not scientific notation.
 func TestParseArcGISGeoJSON_LargeNumericFormatting(t *testing.T) {
@@ -312,7 +311,7 @@ func TestParseArcGISGeoJSON_LargeNumericFormatting(t *testing.T) {
 	}
 }
 
-// TestFetch_PreservesEndpointQueryString pins the fix for yvlv.12: an
+// TestFetch_PreservesEndpointQueryString: an
 // arcgis_url that already carries a query string (e.g. ?token=...) must have
 // its params preserved while the pagination params are merged in.
 func TestFetch_PreservesEndpointQueryString(t *testing.T) {

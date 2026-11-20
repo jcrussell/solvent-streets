@@ -125,7 +125,7 @@ func TestUpsertFeatures_ScopedBySourcePreservesOtherSources(t *testing.T) {
 	}
 }
 
-// TestCityStoreClose_KeepsPoolOpen pins the yvlv.15 fix: city-scoped stores
+// TestCityStoreClose_KeepsPoolOpen: city-scoped stores
 // returned by ForCity share the RootStore's single *sql.DB pool, so
 // sqliteStore.Close must be a no-op. Closing one city store must leave the
 // other city store and the RootStore fully usable.

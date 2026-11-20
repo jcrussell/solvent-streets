@@ -206,7 +206,7 @@ func TestUserAgentTransport_SetsHeader(t *testing.T) {
 	// `go test` (e.g. CI builds with -ldflags). The base prefix must match
 	// exactly.
 	if got != want && !strings.HasPrefix(got, want+" commit=") {
-		t.Errorf("User-Agent did not match byob-http-client.5 format:\n got: %q\nwant: %q (optionally followed by ' commit=<sha>')", got, want)
+		t.Errorf("User-Agent did not match the expected format:\n got: %q\nwant: %q (optionally followed by ' commit=<sha>')", got, want)
 	}
 }
 

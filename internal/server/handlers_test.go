@@ -775,7 +775,7 @@ func TestServeHexGridGeoJSON_DBErrorEvicts(t *testing.T) {
 // error inside the scenarios build (the city-metrics read)
 // surfaces so serveJSONCached evicts the scenarios:slug thunk and the next
 // request retries against a recovered store — rather than locking in a
-// zero-area/synthetic payload for the server's lifetime (yvlv.29).
+// zero-area/synthetic payload for the server's lifetime.
 func TestServeScenariosJSON_DBErrorEvicts(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
 	boundary := `{"type":"Polygon","coordinates":[[[-121.84,37.64],[-121.68,37.64],[-121.68,37.72],[-121.84,37.72],[-121.84,37.64]]]}`
@@ -816,8 +816,7 @@ func TestServeScenariosJSON_DBErrorEvicts(t *testing.T) {
 
 // TestServeScenariosJSON_NoRowsIsEmpty verifies that no rows (the normal
 // "nothing computed yet" state) is tolerated as an empty 200 rather than
-// surfaced as a 500 — the flip side of TestServeScenariosJSON_DBErrorEvicts
-// (yvlv.29).
+// surfaced as a 500 — the flip side of TestServeScenariosJSON_DBErrorEvicts.
 func TestServeScenariosJSON_NoRowsIsEmpty(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
 	boundary := `{"type":"Polygon","coordinates":[[[-121.84,37.64],[-121.68,37.64],[-121.68,37.72],[-121.84,37.72],[-121.84,37.64]]]}`
@@ -835,7 +834,7 @@ func TestServeScenariosJSON_NoRowsIsEmpty(t *testing.T) {
 	}
 }
 
-// TestRenderGame_TransientRecovers is the yvlv.28 regression: a transient DB
+// TestRenderGame_TransientRecovers: a transient DB
 // error building the REQUESTED city must not permanently cache the fallback
 // city under the requested slug's key. Once the store recovers, re-requesting
 // the same slug must return the correct city, not the pinned fallback.
@@ -894,8 +893,7 @@ func TestRenderGame_TransientRecovers(t *testing.T) {
 	}
 }
 
-// TestBuildIndexData_TransientCityErrorLoggedAndPropagated is the yvlv.31
-// regression: a transient e.Info error for a sibling city in the dropdown loop
+// TestBuildIndexData_TransientCityErrorLoggedAndPropagated: a transient e.Info error for a sibling city in the dropdown loop
 // is (a) logged naming the city and (b) propagated (so renderCachedPage evicts
 // and retries), rather than silently dropped into the lifetime-cached HTML.
 // A genuinely-unconfigured city (ErrNoBoundary) is skipped-with-a-log instead.
@@ -930,7 +928,7 @@ func TestBuildIndexData_TransientCityErrorLoggedAndPropagated(t *testing.T) {
 
 // TestBuildIndexData_UnconfiguredCityLogged verifies that a genuinely
 // unconfigured sibling city (ErrNoBoundary) is skipped from the dropdown but
-// LOGGED naming the city, closing the silent-drop gap in yvlv.31.
+// LOGGED naming the city, not dropped silently.
 func TestBuildIndexData_UnconfiguredCityLogged(t *testing.T) {
 	boundary := `{"type":"Polygon","coordinates":[[[-121.84,37.64],[-121.68,37.64],[-121.68,37.72],[-121.84,37.72],[-121.84,37.64]]]}`
 	storeA := &dbtest.MockStore{

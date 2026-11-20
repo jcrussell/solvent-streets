@@ -48,6 +48,6 @@ func TestNewCmdVersion_DefaultPrintsVersion(t *testing.T) {
 		t.Errorf("expected output to start with 'pvmt ', got: %q", out)
 	}
 	if got := stderr.String(); got != "" {
-		t.Errorf("stderr should be empty for pure-data command (byob-iostreams.3); got: %q", got)
+		t.Errorf("stderr should be empty for pure-data command; got: %q", got)
 	}
 }
