@@ -644,12 +644,6 @@
         // HEXGRID_VERSION is the hexgrid.geojson "v" this page reads
         // (export.HexGridFileVersion, injected); app.js gates on the same value.
         const HEXGRID_VERSION = PVMT_CONFIG.hexgrid_version;
-        // MIN_PLAY_AREA is the smallest road area a board hex is given, m². The
-        // map rounds areas to 2dp, so a hex clipping only the tip of a road can
-        // read 0.00; k says it holds road, and a zero-area open hex would pin
-        // the engine's out-of-funds bound (cost x 0) false for the whole city.
-        const MIN_PLAY_AREA = 0.01;
-
         /**
          * playHex reads one hexgrid feature's properties as a board hex
          * {id, roads_area, decay_rate}, or null when it is not on the board. A
@@ -664,7 +658,7 @@
             const city = props.city_same ? props.all : props.city;
             const roads = city && city.roads;
             if (!roads || !(roads.area >= 0)) return null;
-            return { id: props.id, roads_area: Math.max(roads.area, MIN_PLAY_AREA), decay_rate: props.k };
+            return { id: props.id, roads_area: roads.area, decay_rate: props.k };
         }
 
         async function boot() {

@@ -55,9 +55,14 @@ func newGame(t *testing.T, cfg Config) *Game {
 
 func TestNewValidation(t *testing.T) {
 	cases := map[string]func(*Config){
-		"no hexes":       func(c *Config) { c.Hexes = nil },
-		"bad k":          func(c *Config) { c.Hexes[0].DecayRate = 0 },
-		"neg area":       func(c *Config) { c.Hexes[0].RoadsArea = -1 },
+		"no hexes": func(c *Config) { c.Hexes = nil },
+		"bad k":    func(c *Config) { c.Hexes[0].DecayRate = 0 },
+		"neg area": func(c *Config) { c.Hexes[0].RoadsArea = -1 },
+		"no road area": func(c *Config) {
+			for i := range c.Hexes {
+				c.Hexes[i].RoadsArea = 0
+			}
+		},
 		"bad horizon":    func(c *Config) { c.HorizonYears = 0 },
 		"no cost tiers":  func(c *Config) { c.CostTiers = nil },
 		"empty id":       func(c *Config) { c.Hexes[0].ID = "" },
@@ -546,6 +551,7 @@ type stateView struct {
 	Backlog      float64      `json:"deferred_backlog"`
 	Status       string       `json:"status"`
 	LossReason   string       `json:"loss_reason"`
+	OutOfFunds   bool         `json:"out_of_funds"`
 	Spent        float64      `json:"total_spend"`
 	Treatments   int          `json:"treatment_count"`
 	ClosedCount  int          `json:"closed_count"`
@@ -954,5 +960,69 @@ func TestCostOverheadLoadsEveryCost(t *testing.T) {
 			t.Errorf("budget %g: loaded projection (%d,%v), bare at budget/overhead (%d,%v)",
 				budget, gotYear, gotOK, wantYear, wantOK)
 		}
+	}
+}
+
+// TestOutOfFunds: the warning fires when nothing the brush would treat is
+// affordable. A sliver hex the map rounds to a fraction of a square metre does
+// not hold it off, and each hex is priced at the tier its condition calls for.
+func TestOutOfFunds(t *testing.T) {
+	cfg := baseConfig()
+	cfg.Hexes = []HexConfig{
+		{ID: "a", RoadsArea: 1000, DecayRate: 0.02},
+		{ID: "b", RoadsArea: 2000, DecayRate: 0.02},
+		{ID: "sliver", RoadsArea: 0.01, DecayRate: 0.02},
+	}
+	g := newGame(t, cfg) // PCI 80: preventive at $5/m^2, $5,000 for "a"
+
+	g.treasury = 4_000
+	if !decodeState(t, g).OutOfFunds {
+		t.Error("$4,000 treats no road hex, but a sliver held the warning off")
+	}
+	g.treasury = 6_000
+	if decodeState(t, g).OutOfFunds {
+		t.Error("$6,000 treats hex a, but the warning is up")
+	}
+	// At PCI 20 the brush applies reconstruction ($150/m^2), so $6,000 buys
+	// nothing, though it would cover preventive work.
+	for i := range g.hexes {
+		g.hexes[i].pci = 20
+	}
+	if !decodeState(t, g).OutOfFunds {
+		t.Error("$6,000 cannot reconstruct any hex, but the warning is down")
+	}
+
+	// A board of nothing but slivers is judged on them.
+	cfg.Hexes = []HexConfig{{ID: "s", RoadsArea: 0.01, DecayRate: 0.02}}
+	g = newGame(t, cfg)
+	g.treasury = 1
+	if decodeState(t, g).OutOfFunds {
+		t.Error("$1 treats the only hex, but the warning is up")
+	}
+}
+
+// TestOutOfFundsIgnoresZeroAreaHexes: hexes the map rounds to 0 m² cost
+// nothing to treat, so they neither hold the warning off nor, when they are
+// most of the board, drag the sliver threshold to zero.
+func TestOutOfFundsIgnoresZeroAreaHexes(t *testing.T) {
+	cfg := baseConfig()
+	cfg.Hexes = []HexConfig{
+		{ID: "z1", RoadsArea: 0, DecayRate: 0.02},
+		{ID: "z2", RoadsArea: 0, DecayRate: 0.02},
+		{ID: "z3", RoadsArea: 0, DecayRate: 0.02},
+		{ID: "sliver", RoadsArea: 0.01, DecayRate: 0.02},
+		{ID: "a", RoadsArea: 1000, DecayRate: 0.02},
+	}
+	g := newGame(t, cfg) // PCI 80: preventive at $5/m^2, $5,000 for "a"
+	if got, want := g.sliverArea, SliverAreaShare*500.005; math.Abs(got-want) > 1e-9 {
+		t.Errorf("sliver threshold = %v, want %v (the median of the hexes holding road)", got, want)
+	}
+	g.treasury = 4_000
+	if !decodeState(t, g).OutOfFunds {
+		t.Error("$4,000 treats no road hex, but zero-area hexes held the warning off")
+	}
+	g.treasury = 6_000
+	if decodeState(t, g).OutOfFunds {
+		t.Error("$6,000 treats hex a, but the warning is up")
 	}
 }

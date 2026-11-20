@@ -129,13 +129,15 @@ test('play: board hexes take road area and k from hexgrid', async () => {
   })));
 });
 
-test('play: a road hex the map rounds to zero area keeps a positive board area', async () => {
+// The map rounds areas to 2dp, so a hex clipping only the tip of a road can
+// read 0.00; k says it holds road, so it stays on the board as it reads.
+test('play: a road hex the map rounds to zero area stays on the board', async () => {
   const grid = structuredClone(hexgridJSON);
   const sliver = grid.features.find((f) => f.properties.k > 0 && f.properties.city);
   sliver.properties.city.roads.area = 0;
   const { get } = await bootBoard({ ...boardData(seedJSON), 'hexgrid.geojson': grid });
   const hex = get('gameConfig').hexes.find((h) => h.id === sliver.properties.id);
-  assert.equal(hex.roads_area, 0.01);
+  assert.equal(hex.roads_area, 0);
 });
 
 test('play: a hexgrid of another format is refused', async () => {

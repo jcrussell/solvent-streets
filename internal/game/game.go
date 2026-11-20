@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"math"
+	"slices"
 
 	"github.com/jcrussell/solvent-streets/internal/forecast"
 )
@@ -40,6 +41,12 @@ const (
 	// LoseClosedFraction: if more than this fraction of hexes have closed, the
 	// game is lost.
 	LoseClosedFraction = 0.5
+
+	// SliverAreaShare is the share of the median board hex's road area below
+	// which a hex is a sliver: the tip of a road clipped by the hex edge, a
+	// target the brush rarely means to treat. The out-of-funds test leaves
+	// slivers out, or a city whose board holds one would never be out of funds.
+	SliverAreaShare = 0.05
 )
 
 // --- Config: the JSON contract decoded from the browser at gameInit ---
@@ -144,10 +151,9 @@ type Game struct {
 	tierRanks  []int // ascending cost rank per tier (see tierCostRank); fixed at New
 	initialPCI float64
 
-	// minTierCost is the cheapest tier's $/m^2. Combined with the smallest open
-	// hex's area it gives a lower bound on any single treatment's cost, which is
-	// the "can't afford anything" (out-of-funds) test in StateJSON.
-	minTierCost float64
+	// sliverArea is the road area below which a hex is a sliver
+	// (SliverAreaShare of the median hex), left out of the out-of-funds test.
+	sliverArea float64
 
 	// cycleYears is the treatment cycle, resolved.
 	cycleYears float64
@@ -250,8 +256,11 @@ func validateConfig(cfg Config) error {
 }
 
 // validateHexes checks the board: every hex has an id, a positive decay rate
-// and a non-negative road area.
+// and a non-negative road area, and the board holds some road. A hex the map
+// rounds to 0 m² may sit on the board, but a board of nothing else has no
+// network to keep.
 func validateHexes(hexes []HexConfig) error {
+	var total float64
 	for i, h := range hexes {
 		if h.ID == "" {
 			return fmt.Errorf("game: hex %d has empty id", i)
@@ -262,6 +271,10 @@ func validateHexes(hexes []HexConfig) error {
 		if !finite(h.RoadsArea) || h.RoadsArea < 0 {
 			return fmt.Errorf("game: hex %q has invalid roads_area %g (want finite >= 0)", h.ID, h.RoadsArea)
 		}
+		total += h.RoadsArea
+	}
+	if total <= 0 {
+		return errors.New("game: the board's hexes hold no road area")
 	}
 	return nil
 }
@@ -292,14 +305,6 @@ func New(cfg Config) (*Game, error) {
 		cycleYears:   forecast.ResolveCycleYears(cfg.TreatmentCycleYears),
 	}
 
-	minCost := math.Inf(1)
-	for _, t := range tiers {
-		if t.CostPerSqM < minCost {
-			minCost = t.CostPerSqM
-		}
-	}
-	g.minTierCost = minCost
-
 	g.hexes = make([]hexState, len(cfg.Hexes))
 	g.hexByID = make(map[string]*hexState, len(cfg.Hexes))
 	var totalArea float64
@@ -320,6 +325,7 @@ func New(cfg Config) (*Game, error) {
 		}
 		totalArea += h.RoadsArea
 	}
+	g.sliverArea = SliverAreaShare * medianRoadArea(cfg.Hexes)
 	// One cycle of the board's year-1 need, priced as the forecast prices it:
 	// each hex at its PCI after one year's decay.
 	var year1Need float64
@@ -573,8 +579,8 @@ type stateOut struct {
 	// LossReason is the LossXxx condition that ended a lost game; omitted
 	// while the game is running or won.
 	LossReason string `json:"loss_reason,omitempty"`
-	// OutOfFunds is true when the treasury can't afford even the cheapest possible
-	// treatment on the board (cheapest tier x smallest open hex). The front-end
+	// OutOfFunds is true when the treasury can't afford the treatment the brush
+	// would apply to any hex on the board (see outOfFunds). The front-end
 	// surfaces this as the live "out of funds" HUD warning.
 	OutOfFunds bool `json:"out_of_funds"`
 	// Run totals for the end-of-game summary (cumulative, not deltas).
@@ -600,13 +606,10 @@ func (g *Game) StateJSON() ([]byte, error) {
 		Treatments:   g.treatments,
 		Changed:      []changedHex{},
 	}
-	minOpenArea := math.Inf(1)
 	for i := range g.hexes {
 		h := &g.hexes[i]
 		if h.closed {
 			out.ClosedCount++
-		} else if h.roadArea < minOpenArea {
-			minOpenArea = h.roadArea
 		}
 		band := BandForPCI(h.pci)
 		if band == h.paintedBand && h.closed == h.paintedClosed {
@@ -621,14 +624,57 @@ func (g *Game) StateJSON() ([]byte, error) {
 		h.paintedClosed = h.closed
 	}
 
-	// Out of funds: at least one open hex remains but the treasury can't cover the
-	// cheapest treatment possible (cheapest tier x smallest open hex). A lower
-	// bound on cost, so a true verdict means no treatment is affordable anywhere.
-	if !math.IsInf(minOpenArea, 1) {
-		out.OutOfFunds = g.treasury < g.minTierCost*minOpenArea
-	}
+	out.OutOfFunds = g.outOfFunds()
 
 	return json.Marshal(out)
+}
+
+// outOfFunds reports whether the treasury can't pay for the treatment the
+// "auto" brush would apply to any hex that is not a sliver: each hex at the
+// tier its condition calls for (a closed hex's is reconstruction), over its
+// road area. Slivers are left out because a sliver's treatment costs next to
+// nothing, which would hold the verdict false for a city whose board holds
+// one; a board of nothing but slivers is judged on them all. A hex with no
+// road area costs nothing to treat and is never judged.
+func (g *Game) outOfFunds() bool {
+	cheapest, cheapestAny := math.Inf(1), math.Inf(1)
+	for i := range g.hexes {
+		h := &g.hexes[i]
+		ti := g.autoTierIndex(h.pci)
+		if ti < 0 || h.roadArea <= 0 {
+			continue
+		}
+		cost := g.tiers[ti].CostPerSqM * h.roadArea
+		cheapestAny = math.Min(cheapestAny, cost)
+		if h.roadArea >= g.sliverArea {
+			cheapest = math.Min(cheapest, cost)
+		}
+	}
+	if math.IsInf(cheapest, 1) {
+		cheapest = cheapestAny
+	}
+	return !math.IsInf(cheapest, 1) && g.treasury < cheapest
+}
+
+// medianRoadArea is the median road area over the hexes that hold road (0
+// for none), so a board where most hexes round to 0 m² still has a sliver
+// threshold.
+func medianRoadArea(hexes []HexConfig) float64 {
+	var areas []float64
+	for _, h := range hexes {
+		if h.RoadsArea > 0 {
+			areas = append(areas, h.RoadsArea)
+		}
+	}
+	if len(areas) == 0 {
+		return 0
+	}
+	slices.Sort(areas)
+	mid := len(areas) / 2
+	if len(areas)%2 == 1 {
+		return areas[mid]
+	}
+	return (areas[mid-1] + areas[mid]) / 2
 }
 
 // BandForPCI quantizes a PCI value (0..100) into one of BandCount equal-width
