@@ -616,16 +616,22 @@ func ownedRuns(ctx context.Context, q queryer, cityID int64, runIDs []int64) ([]
 	if err != nil {
 		return nil, fmt.Errorf("query runs: %w", err)
 	}
+	return scanIDs(rows, "run")
+}
+
+// scanIDs reads and closes rows of one integer id column, wrapping a scan
+// failure with what (a noun for the ids).
+func scanIDs(rows *sql.Rows, what string) ([]int64, error) {
 	defer func() { _ = rows.Close() }()
-	var out []int64
+	var ids []int64
 	for rows.Next() {
 		var id int64
 		if err := rows.Scan(&id); err != nil {
-			return nil, fmt.Errorf("scan run: %w", err)
+			return nil, fmt.Errorf("scan %s: %w", what, err)
 		}
-		out = append(out, id)
+		ids = append(ids, id)
 	}
-	return out, rows.Err()
+	return ids, rows.Err()
 }
 
 // runArgs converts run ids to bind arguments.
@@ -640,7 +646,7 @@ func runArgs(ids []int64) []any {
 // orphanRuns lists this city's runs that neither a snapshot nor a latest
 // compute committed at computeEpoch or later references and that are older
 // than OrphanRunGrace. A latest compute from an older epoch is superseded
-// (see supersededPartsCount) and holds nothing.
+// (see sqlSupersededParts) and holds nothing.
 func orphanRuns(ctx context.Context, q queryer, cityID int64, computeEpoch int) ([]int64, error) {
 	cutoff := unixSeconds(time.Now().Add(-OrphanRunGrace))
 	rows, err := q.QueryContext(ctx,
@@ -651,21 +657,14 @@ func orphanRuns(ctx context.Context, q queryer, cityID int64, computeEpoch int) 
 	if err != nil {
 		return nil, fmt.Errorf("query orphan runs: %w", err)
 	}
-	defer func() { _ = rows.Close() }()
-	var ids []int64
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			return nil, fmt.Errorf("scan orphan run: %w", err)
-		}
-		ids = append(ids, id)
-	}
-	return ids, rows.Err()
+	return scanIDs(rows, "orphan run")
 }
 
-// supersededPartsCount counts a city's latest-compute parts committed under a
-// ComputeEpoch older than the given one.
-const supersededPartsCount = `SELECT COUNT(*) FROM working_parts WHERE city_id = ? AND compute_epoch < ?`
+// sqlSupersededParts is the filter, bound as (city_id, compute_epoch), for a
+// city's latest-compute parts committed under a ComputeEpoch older than the
+// given one. GCScan counts by it and GCSweep deletes by it, so a dry run
+// reports exactly what the sweep removes.
+const sqlSupersededParts = `FROM working_parts WHERE city_id = ? AND compute_epoch < ?`
 
 // GCScan counts orphan rows for this city without writing anything. See the
 // Store interface for the orphan classes and the empty-keepSources guard.
@@ -677,7 +676,7 @@ func (s *sqliteStore) GCScan(ctx context.Context, keepSources []string, computeE
 			return nil, fmt.Errorf("count stale features: %w", err)
 		}
 	}
-	if err := s.db.QueryRowContext(ctx, supersededPartsCount, s.cityID, computeEpoch).Scan(&report.SupersededParts); err != nil {
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) `+sqlSupersededParts, s.cityID, computeEpoch).Scan(&report.SupersededParts); err != nil {
 		return nil, fmt.Errorf("count superseded latest computes: %w", err)
 	}
 	runs, err := orphanRuns(ctx, s.db, s.cityID, computeEpoch)
@@ -710,7 +709,7 @@ func (s *sqliteStore) GCSweep(ctx context.Context, keepSources []string, compute
 		// Superseded parts go first: their runs are orphans only once no
 		// latest compute row references them.
 		if err := execDeleteCount(ctx, tx, "superseded latest computes",
-			`DELETE FROM working_parts WHERE city_id = ? AND compute_epoch < ?`,
+			`DELETE `+sqlSupersededParts,
 			&report.SupersededParts, s.cityID, computeEpoch); err != nil {
 			return err
 		}
