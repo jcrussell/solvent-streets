@@ -50,8 +50,10 @@ Out of scope:
   Overpass and Nominatim APIs, including an Overpass instance chosen with
   `[overpass] url` or `PVMT_OVERPASS_URL`, ArcGIS feature servers, the
   Census Bureau's TIGERweb). Report those upstream. A configured Overpass
-  endpoint must be `https://` and resolve to public addresses, as
-  `arcgis_url` must.
+  endpoint must be `https://` and resolve to public addresses. So must an
+  `arcgis_url`, unless its city sets `allow_private_arcgis = true`, which
+  also permits `http://` and private addresses for a self-hosted endpoint.
+  pvmt never follows a redirect from `https://` to `http://`.
 - Issues that require a malicious `pvmt.toml` or local SQLite database
   controlled by the attacker; `pvmt` trusts its own configuration and
   on-disk state by design.

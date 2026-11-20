@@ -748,3 +748,28 @@ func TestRootDBFactory_CanceledRequestStopsTheWait(t *testing.T) {
 		t.Errorf("RootDB returned after %v, want soon after the cancel", waited)
 	}
 }
+
+// TestHttpClient_RefusesHTTPSDowngradeRedirect: a redirect from https to
+// plain http is refused, even under AllowPrivate, while http to https and
+// https to https are followed.
+func TestHttpClient_RefusesHTTPSDowngradeRedirect(t *testing.T) {
+	f := newTestFactoryForHTTP(t)
+	client, err := f.HttpClient()
+	if err != nil {
+		t.Fatalf("HttpClient: %v", err)
+	}
+	ctx := ingest.WithAllowPrivate(context.Background())
+	req := func(u string) *http.Request {
+		r, _ := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+		return r
+	}
+	if err := client.CheckRedirect(req("http://10.0.0.1/q"), []*http.Request{req("https://10.0.0.1/q")}); err == nil {
+		t.Error("CheckRedirect followed https to http")
+	}
+	if err := client.CheckRedirect(req("https://10.0.0.1/q"), []*http.Request{req("http://10.0.0.1/q")}); err != nil {
+		t.Errorf("http to https: %v", err)
+	}
+	if err := client.CheckRedirect(req("https://10.0.0.2/q"), []*http.Request{req("https://10.0.0.1/q")}); err != nil {
+		t.Errorf("https to https: %v", err)
+	}
+}

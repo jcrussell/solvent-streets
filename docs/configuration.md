@@ -75,10 +75,11 @@ runs over every city. `--city` picks one, by name or slug. Every city needs a
 OpenStreetMap. `arcgis_url` adds an ArcGIS FeatureServer of road centerlines.
 A city may use both, and features are deduplicated by ID. A city must set at
 least one of them: `overpass` defaults to false, so a city with neither is
-rejected. A private or
-loopback ArcGIS address is refused unless the city also sets
-`allow_private_arcgis = true`, which is for self-hosted or staging endpoints
-only. An `arcgis_url` may carry an access token in its query string
+rejected. An `arcgis_url` must be `https://`, and a private or loopback
+ArcGIS address is refused, unless the city also sets
+`allow_private_arcgis = true`, which allows both and is for self-hosted or
+staging endpoints only. A redirect from `https://` to `http://` is never
+followed. An `arcgis_url` may carry an access token in its query string
 (`?token=...`): pvmt prints and records the URL with the value of every
 parameter named like a token, key, secret, password or signature replaced by
 `REDACTED`, including in the Config tab of an exported site and in `pvmt

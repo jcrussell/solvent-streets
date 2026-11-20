@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"math"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -14,6 +15,8 @@ import (
 	"github.com/BurntSushi/toml"
 
 	"github.com/jcrussell/solvent-streets/internal/forecast"
+	"github.com/jcrussell/solvent-streets/internal/hint"
+	"github.com/jcrussell/solvent-streets/internal/redact"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/internal/units"
 )
@@ -1085,6 +1088,33 @@ func (c *Config) validateCities() error {
 	return nil
 }
 
+// validateArcGISURL requires a set arcgis_url to be an https:// URL with a
+// host, so its token and responses never cross the network in the clear. A
+// city with allow_private_arcgis = true may use http://, for a self-hosted
+// endpoint on an internal network.
+func validateArcGISURL(at string, city CityConfig) error {
+	raw := strings.TrimSpace(city.ArcGISURL)
+	if raw == "" {
+		return nil
+	}
+	u, err := url.Parse(raw)
+	switch {
+	case err != nil || u.Host == "":
+		return errors.Join(ErrInvalidConfig,
+			fmt.Errorf("%s.arcgis_url %q is not a URL with a host", at, redact.URL(raw)))
+	case u.Scheme == "https":
+		return nil
+	case u.Scheme == "http" && city.AllowPrivateArcGIS:
+		return nil
+	case u.Scheme == "http":
+		return errors.Join(ErrInvalidConfig, hint.With(
+			fmt.Errorf("%s.arcgis_url %q must be an https:// URL", at, redact.URL(raw)),
+			"use the layer's https:// URL, or set allow_private_arcgis = true for a self-hosted http:// endpoint"))
+	}
+	return errors.Join(ErrInvalidConfig,
+		fmt.Errorf("%s.arcgis_url %q must be an https:// URL", at, redact.URL(raw)))
+}
+
 // validateCityFields checks the per-city field-shape invariants (hex edge,
 // min hex area, boundary relation, data source, tags, forecast) for one city.
 // Split from validateCities, which keeps the name/slug/uniqueness loop, to hold each
@@ -1125,6 +1155,9 @@ func validateCityFields(i int, city CityConfig) error {
 	if !city.Overpass && strings.TrimSpace(city.ArcGISURL) == "" {
 		return errors.Join(ErrInvalidConfig,
 			fmt.Errorf("%s has no data source; set overpass = true or provide arcgis_url", at))
+	}
+	if err := validateArcGISURL(at, city); err != nil {
+		return err
 	}
 	if err := validateTags(i, city); err != nil {
 		return err

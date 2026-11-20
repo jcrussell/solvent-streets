@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -180,30 +181,35 @@ func httpClientFactory(f *cmdutil.Factory) func() (*http.Client, error) {
 			cacheTTL,
 		)
 		return &http.Client{
-			Transport: transport,
-			Timeout:   0,
-			// Re-run the SSRF guard on every redirect hop. The per-call
-			// ingest.validatePublicHTTPURL only checks the INITIAL URL;
-			// without this, a 302 to 169.254.169.254/127.0.0.1 from a
-			// hostile or MITM'd upstream defeats the guard. This custom
-			// hook REPLACES the stdlib default, so we re-add the 10-hop
-			// cap. The AllowPrivate opt-in is carried on the request
-			// context (set by ArcGISSource.Fetch, propagated across
-			// redirects).
-			CheckRedirect: func(req *http.Request, via []*http.Request) error {
-				if len(via) >= 10 {
-					return errors.New("stopped after 10 redirects")
-				}
-				if ingest.AllowPrivateFromContext(req.Context()) {
-					return nil
-				}
-				if err := ingest.ValidatePublicHTTPURL(req.Context(), req.URL.String()); err != nil {
-					return fmt.Errorf("redirect blocked: %w", err)
-				}
-				return nil
-			},
+			Transport:     transport,
+			Timeout:       0,
+			CheckRedirect: checkRedirect,
 		}, nil
 	})
+}
+
+// checkRedirect re-runs the SSRF guard on every redirect hop. The per-call
+// ingest.validatePublicHTTPURL only checks the INITIAL URL; without this, a
+// 302 to 169.254.169.254/127.0.0.1 from a hostile or MITM'd upstream defeats
+// the guard. This hook REPLACES the stdlib default, so it re-adds the 10-hop
+// cap. The AllowPrivate opt-in is carried on the request context (set by
+// ArcGISSource.Fetch, propagated across redirects). A redirect from https to
+// plain http is refused whatever the context says: the hop would carry the
+// request, an arcgis_url's token among it, in the clear.
+func checkRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) >= 10 {
+		return errors.New("stopped after 10 redirects")
+	}
+	if req.URL.Scheme != "https" && slices.ContainsFunc(via, func(r *http.Request) bool { return r.URL.Scheme == "https" }) {
+		return fmt.Errorf("redirect blocked: refusing to follow https to %s %q", req.URL.Scheme, req.URL.Host)
+	}
+	if ingest.AllowPrivateFromContext(req.Context()) {
+		return nil
+	}
+	if err := ingest.ValidatePublicHTTPURL(req.Context(), req.URL.String()); err != nil {
+		return fmt.Errorf("redirect blocked: %w", err)
+	}
+	return nil
 }
 
 // ensureDirs creates each of pvmt's own dirs (paths.EnsureDir), in order,

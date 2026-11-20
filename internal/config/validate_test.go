@@ -1047,3 +1047,30 @@ func TestLoad_RenamedKeys(t *testing.T) {
 		})
 	}
 }
+
+// TestValidate_ArcGISURLScheme: arcgis_url must be https://, unless the city
+// sets allow_private_arcgis, which also allows http://; the refusal never
+// echoes the token.
+func TestValidate_ArcGISURLScheme(t *testing.T) {
+	cases := []struct {
+		url          string
+		allowPrivate bool
+		ok           bool
+	}{
+		{"https://gis.example/FeatureServer/0/query", false, true},
+		{"http://gis.example/FeatureServer/0/query?token=s3cr3t", false, false},
+		{"http://10.0.0.5/FeatureServer/0/query", true, true},
+		{"ftp://gis.example/query", true, false},
+		{"gis.example/query", false, false},
+	}
+	for _, tc := range cases {
+		cfg := Config{Cities: []CityConfig{{Name: "Oakland", ArcGISURL: tc.url, AllowPrivateArcGIS: tc.allowPrivate}}}
+		err := cfg.Validate()
+		if tc.ok != (err == nil) {
+			t.Errorf("arcgis_url %q (allow_private_arcgis=%v): err = %v, want ok=%v", tc.url, tc.allowPrivate, err, tc.ok)
+		}
+		if err != nil && (!errors.Is(err, ErrInvalidConfig) || strings.Contains(err.Error(), "s3cr3t")) {
+			t.Errorf("arcgis_url %q: err = %v, want an ErrInvalidConfig naming no token", tc.url, err)
+		}
+	}
+}

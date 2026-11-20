@@ -6,7 +6,7 @@ The release notes link here from their header. Their "Breaking Changes" list nam
 
 ## v0.5.0
 
-Upgrading from v0.4.x takes twelve steps. Plan for the first one: it re-fetches every city from the upstream sources.
+Upgrading from v0.4.x takes thirteen steps. Plan for the first one: it re-fetches every city from the upstream sources.
 
 ### 1. Move the database aside and re-ingest
 
@@ -147,6 +147,10 @@ Some `pvmt.toml` keys and environment variables have new names, so each setting 
 | `PVMT_FORECAST_YEARS` | `PVMT_FORECAST_HORIZON_YEARS` |
 | `[display] min_hex_area` | `[grid] min_hex_area`, beside the `hex_edge_m` it is sized for; the per-city `min_hex_area` is unchanged (a config with `[[include]]` still may not set it at the top level) |
 | `[forecast] cost_overhead` (and per city) | `[forecast] cost_multiplier`; the same factor, named as the dashboard's Cost multiplier slider |
+
+### 13. Use an https:// arcgis_url
+
+An `arcgis_url` that is not `https://` fails to load with exit 2. Switch it to the layer's `https://` URL; a self-hosted endpoint that only serves `http://` on an internal network needs `allow_private_arcgis = true` on its city ([Data sources](configuration.md#cities)). A redirect from `https://` to `http://` is refused, whatever the city sets.
 
 ### Known issues
 
