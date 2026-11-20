@@ -117,7 +117,7 @@ func fetchCityBoundaryFromRelation(ctx context.Context, client *http.Client, bas
 	logs.From(ctx).Info("boundary relation fetched",
 		"relation", relationID, "polygons", len(polys),
 	)
-	return polysToMultiPolygonGeoJSON(polys), nil
+	return polysToMultiPolygonGeoJSON(polys)
 }
 
 // memberBBoxSpanDeg returns the larger of the lon/lat dimensions of

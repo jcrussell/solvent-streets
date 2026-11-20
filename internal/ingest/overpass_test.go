@@ -398,7 +398,7 @@ func TestParseOverpassResponse_BenignRemarkIgnored(t *testing.T) {
 
 func TestCoordsToLineStringGeoJSON(t *testing.T) {
 	coords := [][2]float64{{-121.77, 37.68}, {-121.76, 37.69}}
-	result := coordsToLineStringGeoJSON(coords)
+	result := mustGeoJSON(t)(coordsToLineStringGeoJSON(coords))
 	var obj struct {
 		Type        string       `json:"type"`
 		Coordinates [][2]float64 `json:"coordinates"`
@@ -420,7 +420,7 @@ func TestCoordsToPolygonGeoJSON(t *testing.T) {
 		{-121.76, 37.69}, {-121.77, 37.69},
 		{-121.77, 37.68},
 	}
-	result := coordsToPolygonGeoJSON(coords)
+	result := mustGeoJSON(t)(coordsToPolygonGeoJSON(coords))
 	var obj struct {
 		Type        string         `json:"type"`
 		Coordinates [][][2]float64 `json:"coordinates"`

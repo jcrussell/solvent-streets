@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -314,10 +313,14 @@ func buildFeatureFromWay(e overpassElement, nodes map[int64][2]float64, resource
 	}
 
 	var geojson string
+	var err error
 	if geojsonType == geomPolygon {
-		geojson = coordsToPolygonGeoJSON(coords)
+		geojson, err = coordsToPolygonGeoJSON(coords)
 	} else {
-		geojson = coordsToLineStringGeoJSON(coords)
+		geojson, err = coordsToLineStringGeoJSON(coords)
+	}
+	if err != nil {
+		return db.Feature{}, false
 	}
 
 	return db.Feature{
@@ -341,13 +344,17 @@ func buildFeatureFromRelation(ctx context.Context, e overpassElement, resourceTy
 	if len(polys) == 0 {
 		return db.Feature{}, false
 	}
+	geojson, err := polysToMultiPolygonGeoJSON(polys)
+	if err != nil {
+		return db.Feature{}, false
+	}
 
 	return db.Feature{
 		ID:           fmt.Sprintf("osm:relation:%d", e.ID),
 		ResourceType: resourceType,
 		Name:         featureName(e.Tags),
 		Tags:         e.Tags,
-		GeometryJSON: polysToMultiPolygonGeoJSON(polys),
+		GeometryJSON: geojson,
 		SourceAPI:    resource.SourceOverpass,
 		FetchedAt:    time.Now(),
 	}, true
@@ -364,12 +371,16 @@ func parseFacilityElements(ctx context.Context, elements []overpassElement, node
 		if !ok {
 			continue
 		}
+		geojson, err := coordToPointGeoJSON(c)
+		if err != nil {
+			continue
+		}
 		features = append(features, db.Feature{
 			ID:           fmt.Sprintf("osm:%s:%d", e.Type, e.ID),
 			ResourceType: resourceType,
 			Name:         featureName(e.Tags),
 			Tags:         e.Tags,
-			GeometryJSON: coordToPointGeoJSON(c),
+			GeometryJSON: geojson,
 			SourceAPI:    resource.SourceOverpass,
 			FetchedAt:    time.Now(),
 		})
@@ -424,30 +435,6 @@ func vertexCentroid(coords [][2]float64) ([2]float64, bool) {
 	return [2]float64{sx / n, sy / n}, true
 }
 
-// coordDecimals is the precision ingest writes coordinates at: 7 decimal
-// degrees, about a centimetre and the precision OSM stores.
-const coordDecimals = 7
-
-// coordJSON is one GeoJSON position, "[lon,lat]".
-func coordJSON(c [2]float64) string {
-	return "[" + strconv.FormatFloat(c[0], 'f', coordDecimals, 64) + "," +
-		strconv.FormatFloat(c[1], 'f', coordDecimals, 64) + "]"
-}
-
-// coordListJSON is a GeoJSON position array (a line or a ring), brackets
-// included.
-func coordListJSON(coords [][2]float64) string {
-	parts := make([]string, len(coords))
-	for i, c := range coords {
-		parts[i] = coordJSON(c)
-	}
-	return "[" + strings.Join(parts, ",") + "]"
-}
-
-func coordToPointGeoJSON(c [2]float64) string {
-	return fmt.Sprintf(`{"type":"%s","coordinates":%s}`, geomPoint, coordJSON(c))
-}
-
 func resolveWayCoords(e overpassElement, nodes map[int64][2]float64) [][2]float64 {
 	// Try geometry field first (if out geom was used)
 	if len(e.Geometry) > 0 {
@@ -466,14 +453,6 @@ func resolveWayCoords(e overpassElement, nodes map[int64][2]float64) [][2]float6
 		}
 	}
 	return coords
-}
-
-func coordsToLineStringGeoJSON(coords [][2]float64) string {
-	return fmt.Sprintf(`{"type":"LineString","coordinates":%s}`, coordListJSON(coords))
-}
-
-func coordsToPolygonGeoJSON(coords [][2]float64) string {
-	return fmt.Sprintf(`{"type":"Polygon","coordinates":[%s]}`, coordListJSON(coords))
 }
 
 // errSnippetMaxLen bounds how much of an upstream error-response body is folded

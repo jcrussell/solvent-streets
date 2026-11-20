@@ -86,8 +86,8 @@ func TestClipWaterToBBox_SubtractUnchanged(t *testing.T) {
 		}
 	}
 
-	full, fullArea := subtractArea(t, boundary, polysToMultiPolygonGeoJSON([]waterPolygon{lake}))
-	cut, cutArea := subtractArea(t, boundary, polysToMultiPolygonGeoJSON(clipped))
+	full, fullArea := subtractArea(t, boundary, mustGeoJSON(t)(polysToMultiPolygonGeoJSON([]waterPolygon{lake})))
+	cut, cutArea := subtractArea(t, boundary, mustGeoJSON(t)(polysToMultiPolygonGeoJSON(clipped)))
 	if math.Abs(fullArea-cutArea) > 1e-6*fullArea {
 		t.Errorf("stripped area %.3f with the clip, %.3f without", cutArea, fullArea)
 	}
@@ -133,7 +133,7 @@ func BenchmarkSubtract_500kVertexLake(b *testing.B) {
 		{"clipped", clipWaterToBBox(context.Background(), []waterPolygon{lake}, bbox)},
 		{"unclipped", []waterPolygon{lake}},
 	} {
-		water := polysToMultiPolygonGeoJSON(c.polys)
+		water := mustGeoJSON(b)(polysToMultiPolygonGeoJSON(c.polys))
 		b.Run(c.name, func(b *testing.B) {
 			for b.Loop() {
 				subtractArea(b, boundary, water)

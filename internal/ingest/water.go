@@ -200,7 +200,7 @@ func assembleWaterGeoJSON(ctx context.Context, elements []overpassElement, bbox 
 	if len(polys) == 0 {
 		return "", nil
 	}
-	return polysToMultiPolygonGeoJSON(polys), nil
+	return polysToMultiPolygonGeoJSON(polys)
 }
 
 // classifyWaterElement handles one Overpass element. For coastlines it
@@ -501,19 +501,6 @@ func polygonsFromRelation(ctx context.Context, e overpassElement, bboxArea float
 		}
 		return ok
 	})
-}
-
-func polysToMultiPolygonGeoJSON(polys []waterPolygon) string {
-	parts := make([]string, len(polys))
-	for i, p := range polys {
-		rings := make([]string, 0, 1+len(p.holes))
-		rings = append(rings, coordListJSON(p.outer))
-		for _, h := range p.holes {
-			rings = append(rings, coordListJSON(h))
-		}
-		parts[i] = "[" + strings.Join(rings, ",") + "]"
-	}
-	return fmt.Sprintf(`{"type":"MultiPolygon","coordinates":[%s]}`, strings.Join(parts, ","))
 }
 
 // stitchCoastlineChains chains coastline ways head-to-tail preserving

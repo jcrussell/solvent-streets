@@ -71,7 +71,7 @@ func TestOverpassGeometryIsStorable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	features = append(features, db.Feature{ID: "pt", GeometryJSON: coordToPointGeoJSON([2]float64{-121.75, 37.65})})
+	features = append(features, db.Feature{ID: "pt", GeometryJSON: mustGeoJSON(t)(coordToPointGeoJSON([2]float64{-121.75, 37.65}))})
 	if len(features) != 4 {
 		t.Fatalf("built %d features, want 4", len(features))
 	}
