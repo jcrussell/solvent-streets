@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -28,6 +29,7 @@ var messageArg = map[string]int{
 	"cmdutil.FlagErrorf":  0,
 	"hint.With":           1,
 	"hint.Withf":          1,
+	"hint.Addf":           1,
 	"cmdutil.Warnf":       1,
 	"cmdutil.FprintWarnf": 1,
 	"Warnf":               1,
@@ -167,11 +169,17 @@ func checkMessage(msg string) string {
 	if strings.Contains(msg, " — run ") {
 		return "puts its fix after a dash; attach it with hint.Withf or cmdutil.NeedsFirst"
 	}
-	if strings.Contains(msg, "`pvmt") {
-		return "quotes a command in backticks; use 'pvmt ...'"
+	if strings.Contains(msg, "`") {
+		return "quotes in backticks; quote a command 'pvmt ...' and a value with %q"
+	}
+	if retryAside.MatchString(msg) {
+		return "puts its fix in parentheses; attach it with hint.Withf"
 	}
 	return ""
 }
+
+// retryAside is a fix tucked into the message: "(retry: pvmt ...)".
+var retryAside = regexp.MustCompile(`\((retry|run|try): *'?pvmt `)
 
 func startsWithProperNoun(s string) bool {
 	for _, p := range properNouns {

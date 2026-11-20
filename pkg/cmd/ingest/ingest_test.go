@@ -2145,7 +2145,7 @@ func TestRunIngest_ParkingFailsOnBoundaryRoadsSaveFailure(t *testing.T) {
 		Source:       cmdutil.SourceAll,
 	})
 	if err == nil || errors.Is(err, cmdutil.ErrNoResults) || !strings.Contains(err.Error(), "disk full") ||
-		!strings.Contains(err.Error(), "retry: pvmt --city "+city.Slug()+" roads ingest") {
+		!slices.Contains(hint.Hints(err), "retry it with 'pvmt --city "+city.Slug()+" roads ingest'") {
 		t.Fatalf("parking ingest = %v, want the roads save failure with its retry command", err)
 	}
 }
@@ -2187,7 +2187,7 @@ func TestReportBoundaryRoads(t *testing.T) {
 				t.Errorf("err = %v, want the roads save failure, not an empty run", err)
 			}
 			warned := strings.Contains(errOut.String(), "overpass failed") &&
-				strings.Contains(errOut.String(), "retry: pvmt --city "+city.Slug()+" roads ingest")
+				strings.Contains(errOut.String(), "hint: retry it with 'pvmt --city "+city.Slug()+" roads ingest'")
 			if warned != c.wantWarn {
 				t.Errorf("stderr = %q, want the failed-source warning: %v", errOut, c.wantWarn)
 			}

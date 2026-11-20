@@ -68,7 +68,7 @@ func rejectCity(set func() bool, verb string) error {
 	if set == nil || !set() {
 		return nil
 	}
-	return cmdutil.FlagErrorf("--city is not supported by `snapshots %s`: a snapshot covers every configured city", verb)
+	return cmdutil.FlagErrorf("--city is not supported by 'pvmt snapshots %s': a snapshot covers every configured city", verb)
 }
 
 // snapshotNameArgs requires n arguments, each a valid snapshot name

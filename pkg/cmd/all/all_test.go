@@ -15,6 +15,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
+	"github.com/jcrussell/solvent-streets/internal/hint"
 	"github.com/jcrussell/solvent-streets/internal/logs"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/internal/tui"
@@ -647,14 +648,18 @@ func TestAllIngest_FailuresFailTheRunWithRetryCommands(t *testing.T) {
 	if err == nil || errors.Is(err, cmdutil.ErrNoResults) {
 		t.Fatalf("all ingest = %v; want a failure", err)
 	}
-	for _, want := range []string{
-		"retry: pvmt --city " + city.Slug() + " roads ingest",
-		"retry: pvmt --city " + city.Slug() + " sidewalks ingest",
-		"fire ingest:", "retry: pvmt --city " + city.Slug() + " services ingest",
-		"census ingest:", "retry: pvmt --city " + city.Slug() + " census ingest",
-	} {
+	for _, want := range []string{"fire ingest:", "census ingest:"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error missing %q\ngot: %v", want, err)
+		}
+	}
+	// Each failure's retry command is a hint of its own, all of them printed.
+	var printed strings.Builder
+	hint.Fprint(&printed, err)
+	for _, cmd := range []string{"roads", "sidewalks", "services", "census"} {
+		want := "hint: retry it with 'pvmt --city " + city.Slug() + " " + cmd + " ingest'\n"
+		if !strings.Contains(printed.String(), want) {
+			t.Errorf("hints missing %q\ngot: %s", want, printed.String())
 		}
 	}
 }

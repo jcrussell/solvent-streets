@@ -137,7 +137,7 @@ func ingestCity(ctx context.Context, ios *iostreams.IOStreams, cf *cmdutil.Facto
 		if err == nil || isCancel(err) || errors.Is(err, cmdutil.ErrNoResults) {
 			return err
 		}
-		return fmt.Errorf("%w (retry: pvmt --city %s %s ingest)", err, city.Slug(), cmd)
+		return hint.Addf(err, "retry it with 'pvmt --city %s %s ingest'", city.Slug(), cmd)
 	}
 	err = forEachResource(ios, "ingest", func(rt resource.Source) error {
 		return retry(ingest.RunResourceWithBoundary(ctx, cf, rt, boundary), string(rt.Type()))

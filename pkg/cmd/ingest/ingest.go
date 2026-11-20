@@ -17,6 +17,7 @@ import (
 	ingestpkg "github.com/jcrussell/solvent-streets/internal/ingest"
 	"github.com/jcrussell/solvent-streets/internal/logs"
 	"github.com/jcrussell/solvent-streets/internal/resource"
+	"github.com/jcrussell/solvent-streets/internal/warn"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 
@@ -490,13 +491,15 @@ func reportBoundaryRoads(ios *iostreams.IOStreams, city *config.CityConfig, road
 		return err
 	}
 	if len(roads.failed) > 0 && roads.err == nil {
-		cmdutil.Warnf(ios, "roads fetched with the boundary: %s failed, saved %d roads from %s (retry: pvmt --city %s roads ingest)",
-			strings.Join(roads.failed, ", "), roads.saved, strings.Join(roads.succeeded, ", "), city.Slug())
+		warn.Fprint(ios.ErrOut, hint.Withf(fmt.Errorf("roads fetched with the boundary: %s failed, saved %d roads from %s",
+			strings.Join(roads.failed, ", "), roads.saved, strings.Join(roads.succeeded, ", ")),
+			"retry it with 'pvmt --city %s roads ingest'", city.Slug()))
 	}
 	if roads.err == nil {
 		return err
 	}
-	rerr := fmt.Errorf("roads fetched with the boundary: %w (retry: pvmt --city %s roads ingest)", roads.err, city.Slug())
+	rerr := hint.Addf(fmt.Errorf("roads fetched with the boundary: %w", roads.err),
+		"retry it with 'pvmt --city %s roads ingest'", city.Slug())
 	if err == nil || errors.Is(err, cmdutil.ErrNoResults) {
 		// ErrNoResults would file the run as empty and swallow the failure.
 		return rerr

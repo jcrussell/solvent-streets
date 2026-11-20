@@ -42,6 +42,17 @@ func Withf(err error, format string, a ...any) error {
 	return With(err, fmt.Sprintf(format, a...))
 }
 
+// Addf attaches another hint to err after the ones it carries: they all
+// print together, the carried ones first, so a caller adding a retry command
+// does not hide the cause's own hints (one per branch of a join). Returns
+// nil if err is nil.
+func Addf(err error, format string, a ...any) error {
+	if err == nil {
+		return nil
+	}
+	return With(err, strings.Join(append(Hints(err), fmt.Sprintf(format, a...)), "\n"))
+}
+
 // Fprint writes err's hints to w, each as "hint: " and its first line, then
 // each further line indented to align under it. It is how every command
 // shows a hint, below the error or warning it belongs to. A joined error (a

@@ -105,3 +105,25 @@ func TestHints_EveryBranch(t *testing.T) {
 		t.Error("an error without a hint has hints")
 	}
 }
+
+// TestAddf_KeepsTheCarriedHint: a hint added to an error that carries one
+// prints after it rather than hiding it.
+func TestAddf_KeepsTheCarriedHint(t *testing.T) {
+	if Addf(nil, "x") != nil {
+		t.Error("Addf(nil) is not nil")
+	}
+	if got := Hints(Addf(errors.New("a"), "retry %d", 1)); fmt.Sprint(got) != "[retry 1]" {
+		t.Errorf("no carried hint: %q", got)
+	}
+	err := Addf(With(errors.New("a"), "cause"), "retry")
+	var b strings.Builder
+	Fprint(&b, err)
+	if want := "hint: cause\n      retry\n"; b.String() != want {
+		t.Errorf("printed %q, want %q", b.String(), want)
+	}
+	b.Reset()
+	Fprint(&b, Addf(errors.Join(With(errors.New("a"), "first"), With(errors.New("b"), "second")), "retry"))
+	if want := "hint: first\n      second\n      retry\n"; b.String() != want {
+		t.Errorf("join: printed %q, want %q", b.String(), want)
+	}
+}
