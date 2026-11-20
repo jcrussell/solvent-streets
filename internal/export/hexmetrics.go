@@ -481,10 +481,7 @@ func summarizeMetric(spec hexmetric.Spec, rows []db.HexMetric, unreachable int, 
 // written only when some resource has per-hex coverage (BuildHexGeoJSON). One
 // existence query over every resource and scope, not a load of the rows.
 func hasHexGrid(ctx context.Context, entry CityEntry) (bool, error) {
-	types := make([]resource.Type, 0, 2*len(resource.All))
-	for _, rt := range resource.All {
-		types = append(types, rt.Type(), rt.Type().With(resource.ScopeCity))
-	}
+	types := resource.AllTypes(resource.ScopeAll, resource.ScopeCity)
 	ok, err := results.HasHexCoverage(ctx, entry.Store, types)
 	if err != nil {
 		return false, fmt.Errorf("checking for hex stats: %w", err)

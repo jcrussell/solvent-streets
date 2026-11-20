@@ -121,13 +121,7 @@ var errSkipResource = errors.New("no compute result for resource")
 func BuildForecastsForCity(ctx context.Context, entry CityEntry, fc *config.ForecastConfig, costTiers []forecast.CostTier) ([]ForecastExport, error) {
 	// One batched DB roundtrip reads the totals and cohort splits of the
 	// 3-resource × 2-scope cross-product, per city.
-	allTypes := make([]resource.Type, 0, len(resource.All))
-	cityTypes := make([]resource.Type, 0, len(resource.All))
-	for _, rt := range resource.All {
-		allTypes = append(allTypes, rt.Type())
-		cityTypes = append(cityTypes, rt.Type().With(resource.ScopeCity))
-	}
-	latestByType, cohortStats, err := results.Load(ctx, entry.Store, append(append([]resource.Type{}, allTypes...), cityTypes...))
+	latestByType, cohortStats, err := results.Load(ctx, entry.Store, resource.AllTypes(resource.ScopeAll, resource.ScopeCity))
 	if err != nil {
 		return nil, fmt.Errorf("loading compute results: %w", err)
 	}
@@ -326,12 +320,7 @@ type scenarioAreas struct {
 // row existence for the same resource — a resource with no all-scope row
 // contributes to neither total. One batched DB call collects both scopes.
 func maintainedAreas(ctx context.Context, store results.CityMetricLister) (scenarioAreas, error) {
-	types := make([]resource.Type, 0, 2*len(resource.All))
-	for _, rt := range resource.All {
-		t := rt.Type()
-		types = append(types, t, t.With(resource.ScopeCity))
-	}
-	latestByType, err := results.LoadTotals(ctx, store, types)
+	latestByType, err := results.LoadTotals(ctx, store, resource.AllTypes(resource.ScopeAll, resource.ScopeCity))
 	if err != nil {
 		// A real DB failure is propagated so serveScenariosJSON's cache
 		// evicts and retries instead of locking in a zero-area payload for

@@ -377,13 +377,8 @@ type measures struct {
 // loadMeasures reads every compared result of entry's snapshot.
 func loadMeasures(ctx context.Context, entry export.CityEntry) (measures, error) {
 	m := measures{values: map[measureKey]float64{}}
-	var types []resource.Type
-	for _, scope := range []resource.Scope{resource.ScopeAll, resource.ScopeCity} {
-		for _, rt := range resource.All {
-			types = append(types, rt.Type().With(scope))
-		}
-		types = append(types, resource.TypeCombined.With(scope))
-	}
+	types := append(resource.AllTypes(resource.ScopeAll, resource.ScopeCity),
+		resource.TypeCombined, resource.TypeCombined.With(resource.ScopeCity))
 	totals, err := results.LoadTotals(ctx, entry.Store, types)
 	if err != nil {
 		return m, err

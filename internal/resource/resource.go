@@ -149,6 +149,18 @@ var All = []Source{
 	&Sidewalk{},
 }
 
+// AllTypes returns the Type of every resource in All bound to each of scopes
+// in turn: scope by scope, in All order within a scope.
+func AllTypes(scopes ...Scope) []Type {
+	out := make([]Type, 0, len(scopes)*len(All))
+	for _, scope := range scopes {
+		for _, r := range All {
+			out = append(out, r.Type().With(scope))
+		}
+	}
+	return out
+}
+
 // ByType returns the Source whose Type matches, or nil if none does.
 // Accepts only bare Types (no scope suffix).
 func ByType(t Type) Source {

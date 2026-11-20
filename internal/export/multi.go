@@ -76,10 +76,7 @@ func BuildMultiCityMeta(ctx context.Context, entries []CityEntry, title string) 
 // deleted mid-export fails the export rather than dropping the city from the
 // totals. The same holds for summedBoundaryArea and regionBBox.
 func aggregatePerResourceStats(ctx context.Context, entries []CityEntry) ([]StatJSON, error) {
-	types := make([]resource.Type, 0, len(resource.All))
-	for _, rt := range resource.All {
-		types = append(types, rt.Type())
-	}
+	types := resource.AllTypes(resource.ScopeAll)
 	statByType := make(map[string]*StatJSON)
 	for _, entry := range entries {
 		// One batched lookup per entry. A type missing from the returned map
@@ -235,10 +232,7 @@ func mergeCohortSeeds(ctx context.Context, entries []CityEntry, fc *config.Forec
 	if cityScope {
 		scope = resource.ScopeCity
 	}
-	scopedTypes := make([]resource.Type, 0, len(resource.All))
-	for _, rt := range resource.All {
-		scopedTypes = append(scopedTypes, rt.Type().With(scope))
-	}
+	scopedTypes := resource.AllTypes(scope)
 	for _, entry := range entries {
 		// One batched cohort-stats lookup per entry; a scoped type absent
 		// from the map is skipped, the same as a type with no stats.

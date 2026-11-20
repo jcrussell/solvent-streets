@@ -203,10 +203,7 @@ func LoadTotal(ctx context.Context, s CityMetricLister, t resource.Type) (tot To
 // counts the overlap between road, parking and sidewalk footprints more than
 // once; it stands in until the combined total is computed.
 func PavedArea(ctx context.Context, s CityMetricLister, scope resource.Scope) (area float64, deduped bool, err error) {
-	types := []resource.Type{resource.TypeCombined.With(scope)}
-	for _, rt := range resource.All {
-		types = append(types, rt.Type().With(scope))
-	}
+	types := append([]resource.Type{resource.TypeCombined.With(scope)}, resource.AllTypes(scope)...)
 	totals, err := LoadTotals(ctx, s, types)
 	if err != nil {
 		return 0, false, err

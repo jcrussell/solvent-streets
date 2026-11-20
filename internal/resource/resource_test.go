@@ -1,6 +1,7 @@
 package resource
 
 import (
+	"slices"
 	"testing"
 )
 
@@ -18,6 +19,18 @@ func TestByType(t *testing.T) {
 		if got := ByType(rt); got != All[i] {
 			t.Errorf("ByType(%q) = %T, want All[%d]", rt, got, i)
 		}
+	}
+}
+
+func TestAllTypes_ScopeByScopeInAllOrder(t *testing.T) {
+	got := AllTypes(ScopeAll, ScopeCity)
+	want := []Type{TypeRoads, TypeParking, TypeSidewalks,
+		TypeRoads.With(ScopeCity), TypeParking.With(ScopeCity), TypeSidewalks.With(ScopeCity)}
+	if !slices.Equal(got, want) {
+		t.Errorf("AllTypes(ScopeAll, ScopeCity) = %v, want %v", got, want)
+	}
+	if got := AllTypes(); len(got) != 0 {
+		t.Errorf("AllTypes() = %v, want empty", got)
 	}
 }
 
