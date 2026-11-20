@@ -89,7 +89,7 @@ const jsFixtureBoundary = `{"type":"Polygon","coordinates":[[[-122.3,37.7],[-122
 func jsFixtureForecastConfig(t *testing.T) config.ForecastConfig {
 	t.Helper()
 	fc := exporttest.ForecastConfig()
-	fc.Years = 20
+	fc.HorizonYears = 20
 	fc.CostTiers = slices.Clone(fc.CostTiers)
 	worst := len(fc.CostTiers) - 1
 	if fc.CostTiers[worst].Label != "reconstruct" {

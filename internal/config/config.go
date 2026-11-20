@@ -39,8 +39,8 @@ const (
 	// ~1.5e6 cells -- slow but survivable.
 	MinHexEdgeM       = 10.0
 	DefaultInitialPCI = 85.0
-	// DefaultForecastYears is the forecast horizon when forecast.years is
-	// unset. One config has one horizon: forecast.years is top-level only, and
+	// DefaultForecastYears is the forecast horizon when forecast.horizon_years is
+	// unset. One config has one horizon: forecast.horizon_years is top-level only, and
 	// [[include]]d files must agree with the file that includes them, so
 	// cities compared side by side are always forecast over the same years.
 	DefaultForecastYears = 30
@@ -266,11 +266,11 @@ func (c *Config) BoundarySimplifyM() float64 {
 }
 
 type ForecastConfig struct {
-	InitialPCI float64       `toml:"initial_pci"`    // starting PCI (1-100); 0 means "use default 85"
-	DecayRate  float64       `toml:"decay_rate"`     // PCI decay k-value, 0 = use class defaults
-	GrowthRate float64       `toml:"growth_rate"`    // annual pavement growth rate (0.01 = 1%)
-	Years      int           `toml:"years,omitzero"` // forecast horizon, default 30; top-level only
-	CostTiers  []CostTierCfg `toml:"cost_tiers"`     // custom cost tiers
+	InitialPCI   float64       `toml:"initial_pci"`            // starting PCI (1-100); 0 means "use default 85"
+	DecayRate    float64       `toml:"decay_rate"`             // PCI decay k-value, 0 = use class defaults
+	GrowthRate   float64       `toml:"growth_rate"`            // annual pavement growth rate (0.01 = 1%)
+	HorizonYears int           `toml:"horizon_years,omitzero"` // forecast horizon, default 30; top-level only
+	CostTiers    []CostTierCfg `toml:"cost_tiers"`             // custom cost tiers
 	// TreatmentCycleYears is the pavement treatment cycle N: the model schedules
 	// ~1/N of the network for treatment each year, so annual need = full-network
 	// cost / N. 0 = use forecast.DefaultTreatmentCycleYears (~12); the default is
@@ -345,6 +345,7 @@ func nonFinite(v float64) bool { return math.IsNaN(v) || math.IsInf(v, 0) }
 // forecastInputNames is what pvmt.toml calls the inputs forecast.Inputs
 // validates, where the key differs from the forecast package's name.
 var forecastInputNames = map[string]string{
+	forecast.FieldYears:  "horizon_years",
 	forecast.FieldBudget: "current_budget",
 }
 
@@ -366,14 +367,14 @@ func (fc *ForecastConfig) Validate() error {
 		InitialPCI:   fc.InitialPCI,
 		DecayRate:    fc.DecayRate,
 		GrowthRate:   fc.GrowthRate,
-		Years:        float64(fc.Years),
+		Years:        float64(fc.HorizonYears),
 		Budget:       fc.CurrentBudget,
 		CycleYears:   fc.TreatmentCycleYears,
 		CostOverhead: fc.CostOverhead,
 		CostTiers:    tiers,
 	}
 	// An unset horizon is the default one; a negative one stays out of range.
-	if fc.Years == 0 {
+	if fc.HorizonYears == 0 {
 		in.Years = DefaultForecastYears
 	}
 	if err := in.Validate(forecastInputNames); err != nil {
@@ -598,8 +599,8 @@ func applyForecastDefaults(fc *ForecastConfig) forecastDefaulted {
 	if !validInitialPCI(fc.InitialPCI) {
 		fc.InitialPCI, d.InitialPCI = DefaultInitialPCI, true
 	}
-	if y := horizonOrDefault(fc.Years); y != fc.Years {
-		fc.Years, d.Years = y, true
+	if y := horizonOrDefault(fc.HorizonYears); y != fc.HorizonYears {
+		fc.HorizonYears, d.Years = y, true
 	}
 	if oh := fc.ResolvedCostOverhead(); oh != fc.CostOverhead {
 		fc.CostOverhead, d.CostOverhead = oh, true
@@ -911,14 +912,14 @@ func (c *Config) validate(requireCities bool) error {
 	// table-scoped: display.units carries no per-city layer and stays legal in an
 	// including file (examples/all relies on the rest of [display]/[export]).
 	//
-	// forecast.years is the exception: it is not a per-city calibration but
+	// forecast.horizon_years is the exception: it is not a per-city calibration but
 	// the config's one horizon, which included files must already agree with
 	// (checkIncludedHorizon), so stating it here re-calibrates nothing.
 	calibration := c.Forecast
-	calibration.Years = 0
+	calibration.HorizonYears = 0
 	if len(c.Include) > 0 && (!forecastIsZero(calibration) || c.Grid.HexEdgeM > 0 || c.Display.MinHexArea > 0) {
 		return errors.Join(ErrInvalidConfig, errors.New(
-			"a config with [[include]] must keep top-level [grid]/[forecast] (other than forecast.years) and display.min_hex_area empty; "+
+			"a config with [[include]] must keep top-level [grid]/[forecast] (other than forecast.horizon_years) and display.min_hex_area empty; "+
 				"they would silently re-calibrate included cities (set per-city or per-example instead)"))
 	}
 	// nonFinite is load-bearing here, not tidiness. resolveHexEdge gates on
@@ -1129,9 +1130,9 @@ func validateCityFields(i int, city CityConfig) error {
 		return err
 	}
 	if city.Forecast != nil {
-		if city.Forecast.Years != 0 {
+		if city.Forecast.HorizonYears != 0 {
 			return errors.Join(ErrInvalidConfig, fmt.Errorf(
-				"%s.forecast.years is set per config, not per city; "+
+				"%s.forecast.horizon_years is set per config, not per city; "+
 					"move it to the top-level [forecast] (every city in a config shares one horizon)",
 				at))
 		}

@@ -12,7 +12,7 @@
 # edge) into fully self-describing per-city overrides, so an empty top-level
 # preserves every city's original numbers. Do not add top-level forecast/grid
 # values here — they would silently re-calibrate any city that inherited a
-# package default. The one exception is forecast.years: it is the config's single
+# package default. The one exception is forecast.horizon_years: it is the config's single
 # horizon, not a per-city calibration, and every included example must agree
 # with it. None of them sets it, so all cities share the default 30 years.
 #

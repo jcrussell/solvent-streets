@@ -475,7 +475,7 @@ overpass = true
 	writeTOML(t, dir, "national/pvmt.toml", `
 [forecast]
 growth_rate = 0.005
-years = 30
+horizon_years = 30
 treatment_cycle_years = 8
 [[forecast.cost_tiers]]
 min_pci = 0
@@ -520,8 +520,8 @@ path = "../national/pvmt.toml"
 			t.Errorf("San Diego %s = %g; want %g", c.field, c.got, c.want)
 		}
 	}
-	if fc.Years != 30 {
-		t.Errorf("San Diego years = %d; want 30 (backfilled)", fc.Years)
+	if fc.HorizonYears != 30 {
+		t.Errorf("San Diego years = %d; want 30 (backfilled)", fc.HorizonYears)
 	}
 	if len(fc.CostTiers) != 1 {
 		t.Errorf("San Diego cost_tiers = %d; want 1 (backfilled)", len(fc.CostTiers))
@@ -549,7 +549,7 @@ min_hex_area = 60
 initial_pci = 63
 decay_rate = 0.05
 growth_rate = 0.005
-years = 30
+horizon_years = 30
 treatment_cycle_years = 8
 current_budget = 1234567
 [[forecast.cost_tiers]]
@@ -583,7 +583,7 @@ path = "../second/pvmt.toml"
 		t.Errorf("min_hex_area = %g; want 60 — silently dropped before the union", got)
 	}
 	if fc.InitialPCI != 63 || fc.DecayRate != 0.05 || fc.GrowthRate != 0.005 ||
-		fc.Years != 30 || fc.TreatmentCycleYears != 8 || fc.CurrentBudget != 1234567 ||
+		fc.HorizonYears != 30 || fc.TreatmentCycleYears != 8 || fc.CurrentBudget != 1234567 ||
 		len(fc.CostTiers) != 1 {
 		t.Errorf("forecast did not fully backfill: %+v", fc)
 	}
@@ -765,7 +765,7 @@ overpass = true
 [grid]
 hex_edge_m = 200
 [forecast]
-years = 30
+horizon_years = 30
 [[cities]]
 name = "Reno, NV"
 overpass = true
@@ -802,9 +802,9 @@ path = "../c/pvmt.toml"
 	// Every non-conflicting field still lands, from whichever include set it.
 	reno := cityBySlug(t, cfg, "reno-nv")
 	fc := cfg.ResolvedForecast(&reno)
-	if fc.DecayRate != 0.03 || fc.GrowthRate != 0.005 || fc.Years != 30 {
+	if fc.DecayRate != 0.03 || fc.GrowthRate != 0.005 || fc.HorizonYears != 30 {
 		t.Errorf("Reno forecast = decay %g growth %g years %d; want 0.03 / 0.005 / 30 (one field from each include)",
-			fc.DecayRate, fc.GrowthRate, fc.Years)
+			fc.DecayRate, fc.GrowthRate, fc.HorizonYears)
 	}
 }
 
@@ -1946,27 +1946,27 @@ func TestInclude_OneHorizon(t *testing.T) {
 			t.Fatalf("load: %v", err)
 		}
 		reno := cityBySlug(t, cfg, "reno-nv")
-		if got := cfg.ResolvedForecast(&reno).Years; got != 30 {
+		if got := cfg.ResolvedForecast(&reno).HorizonYears; got != 30 {
 			t.Errorf("Years = %d, want the default 30", got)
 		}
 	})
 	t.Run("agreeing horizons load", func(t *testing.T) {
 		dir := t.TempDir()
-		writeTOML(t, dir, "a/pvmt.toml", "[forecast]\nyears = 25\n"+city("Reno, NV"))
-		top := writeTOML(t, dir, "all/pvmt.toml", "[forecast]\nyears = 25\n[[include]]\npath = \"../a/pvmt.toml\"\n")
+		writeTOML(t, dir, "a/pvmt.toml", "[forecast]\nhorizon_years = 25\n"+city("Reno, NV"))
+		top := writeTOML(t, dir, "all/pvmt.toml", "[forecast]\nhorizon_years = 25\n[[include]]\npath = \"../a/pvmt.toml\"\n")
 		cfg, err := Load(top)
 		if err != nil {
 			t.Fatalf("load: %v", err)
 		}
 		reno := cityBySlug(t, cfg, "reno-nv")
-		if got := cfg.ResolvedForecast(&reno).Years; got != 25 {
+		if got := cfg.ResolvedForecast(&reno).HorizonYears; got != 25 {
 			t.Errorf("Years = %d, want 25", got)
 		}
 	})
 	for name, files := range map[string][2]string{
-		"child sets, parent unset": {"[forecast]\nyears = 15\n", ""},
-		"parent sets, child unset": {"", "[forecast]\nyears = 15\n"},
-		"both set, differently":    {"[forecast]\nyears = 15\n", "[forecast]\nyears = 25\n"},
+		"child sets, parent unset": {"[forecast]\nhorizon_years = 15\n", ""},
+		"parent sets, child unset": {"", "[forecast]\nhorizon_years = 15\n"},
+		"both set, differently":    {"[forecast]\nhorizon_years = 15\n", "[forecast]\nhorizon_years = 25\n"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -1984,7 +1984,7 @@ func TestInclude_OneHorizon(t *testing.T) {
 	}
 }
 
-// TestValidate_PerCityYearsRejected: forecast.years is top-level only.
+// TestValidate_PerCityYearsRejected: forecast.horizon_years is top-level only.
 // A per-city value fails to load with a hint
 // instead of giving one city its own horizon.
 func TestValidate_PerCityYearsRejected(t *testing.T) {
@@ -1993,11 +1993,11 @@ func TestValidate_PerCityYearsRejected(t *testing.T) {
 name = "Reno, NV"
 overpass = true
 [cities.forecast]
-years = 15
+horizon_years = 15
 `)
 	_, err := Load(path)
 	if err == nil {
-		t.Fatal("load succeeded; want per-city forecast.years rejected")
+		t.Fatal("load succeeded; want per-city forecast.horizon_years rejected")
 	}
 	if !errors.Is(err, ErrInvalidConfig) || !strings.Contains(err.Error(), "top-level [forecast]") {
 		t.Errorf("err = %v; want ErrInvalidConfig pointing at the top-level [forecast]", err)

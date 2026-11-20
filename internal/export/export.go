@@ -602,7 +602,7 @@ func resolvedConfig(cfg *config.Config, hexEdges map[string]float64) config.Conf
 			effectiveForecast(&rf)
 			// The horizon is a top-level setting; a city's block does not
 			// carry one.
-			rf.Years = 0
+			rf.HorizonYears = 0
 			cities[i].Forecast = &rf
 			census := cities[i].CensusEnabled()
 			cities[i].Census = &census

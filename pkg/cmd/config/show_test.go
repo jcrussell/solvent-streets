@@ -86,7 +86,7 @@ func TestShow_DefaultEmitsTOML(t *testing.T) {
 	os.Unsetenv("PVMT_UNITS")
 	cfg := &config.Config{
 		Grid:     config.GridConfig{HexEdgeM: 100},
-		Forecast: config.ForecastConfig{Years: 20, InitialPCI: 85},
+		Forecast: config.ForecastConfig{HorizonYears: 20, InitialPCI: 85},
 		Cities:   []config.CityConfig{{Name: "Detroit"}},
 	}
 	f, bufs := buildFactory(cfg)
@@ -120,12 +120,12 @@ func TestShow_DefaultEmitsTOML(t *testing.T) {
 func TestShow_SourcesEmitsKeyValueSourceLines(t *testing.T) {
 	os.Unsetenv("PVMT_UNITS")
 	os.Unsetenv("PVMT_HEX_EDGE_M")
-	os.Unsetenv("PVMT_FORECAST_YEARS")
+	os.Unsetenv("PVMT_FORECAST_HORIZON_YEARS")
 	os.Unsetenv("PVMT_FORECAST_INITIAL_PCI")
 	t.Cleanup(func() {
 		os.Unsetenv("PVMT_UNITS")
 		os.Unsetenv("PVMT_HEX_EDGE_M")
-		os.Unsetenv("PVMT_FORECAST_YEARS")
+		os.Unsetenv("PVMT_FORECAST_HORIZON_YEARS")
 		os.Unsetenv("PVMT_FORECAST_INITIAL_PCI")
 	})
 
@@ -133,7 +133,7 @@ func TestShow_SourcesEmitsKeyValueSourceLines(t *testing.T) {
 	cfg := &config.Config{
 		Display:  config.DisplayConfig{Units: "imperial"},
 		Grid:     config.GridConfig{HexEdgeM: 100},
-		Forecast: config.ForecastConfig{Years: 25},
+		Forecast: config.ForecastConfig{HorizonYears: 25},
 		Cities:   []config.CityConfig{{Name: "Detroit", HexEdgeM: 75}},
 	}
 	f, bufs := buildFactory(cfg)
@@ -145,7 +145,7 @@ func TestShow_SourcesEmitsKeyValueSourceLines(t *testing.T) {
 	wants := []string{
 		"display.units = metric (env:PVMT_UNITS)",
 		"grid.hex_edge_m = 100 (file:grid.hex_edge_m)",
-		"forecast.years = 25 (file:forecast.years)",
+		"forecast.horizon_years = 25 (file:forecast.horizon_years)",
 		"forecast.initial_pci = 85 (default)",
 		"cities[detroit].hex_edge_m = 75 (file:cities[detroit].hex_edge_m)",
 	}
@@ -172,12 +172,12 @@ func TestShow_FlagUnitsReportedAsSource(t *testing.T) {
 func TestShow_JSONEmitsArray(t *testing.T) {
 	os.Unsetenv("PVMT_UNITS")
 	os.Unsetenv("PVMT_HEX_EDGE_M")
-	os.Unsetenv("PVMT_FORECAST_YEARS")
+	os.Unsetenv("PVMT_FORECAST_HORIZON_YEARS")
 	os.Unsetenv("PVMT_FORECAST_INITIAL_PCI")
 	t.Cleanup(func() {
 		os.Unsetenv("PVMT_UNITS")
 		os.Unsetenv("PVMT_HEX_EDGE_M")
-		os.Unsetenv("PVMT_FORECAST_YEARS")
+		os.Unsetenv("PVMT_FORECAST_HORIZON_YEARS")
 		os.Unsetenv("PVMT_FORECAST_INITIAL_PCI")
 	})
 

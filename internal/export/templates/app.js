@@ -2348,7 +2348,7 @@
             if (rank <= 0) return 'pci-good';
             return rank === tiers.length - 1 ? 'pci-poor' : 'pci-fair';
         }
-        // The forecast horizon. A config has one (forecast.years), exported as
+        // The forecast horizon. A config has one (forecast.horizon_years), exported as
         // horizon_years on every city's seed. Every "N-Year" label and every
         // figure "at the horizon" on Financials, Compare and Aggregate goes
         // through the helpers below, so a label and the figure under it name

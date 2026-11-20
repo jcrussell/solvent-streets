@@ -20,8 +20,8 @@ func TestForecastConfig_Validate_RejectsBad(t *testing.T) {
 		"decay too high":      {DecayRate: 1.5},
 		"growth too high":     {GrowthRate: 1.5},
 		"growth too negative": {GrowthRate: -1.0},
-		"years negative":      {Years: -1},
-		"years over maximum":  {Years: forecast.MaxHorizonYears + 1},
+		"years negative":      {HorizonYears: -1},
+		"years over maximum":  {HorizonYears: forecast.MaxHorizonYears + 1},
 		"tier negative cost":  {CostTiers: []CostTierCfg{{MinPCI: 0, MaxPCI: 40, CostPerSqM: -5, Label: "x"}}},
 		"tier zero cost":      {CostTiers: []CostTierCfg{{MinPCI: 0, MaxPCI: 40, CostPerSqM: 0, Label: "x"}}},
 		"tier inverted band":  {CostTiers: []CostTierCfg{{MinPCI: 70, MaxPCI: 40, CostPerSqM: 5, Label: "x"}}},
@@ -62,7 +62,7 @@ func TestForecastConfig_Validate_RejectsBad(t *testing.T) {
 }
 
 func TestForecastConfig_Validate_AcceptsOK(t *testing.T) {
-	ok := ForecastConfig{InitialPCI: 85, DecayRate: 0.05, GrowthRate: 0.02, Years: 20}
+	ok := ForecastConfig{InitialPCI: 85, DecayRate: 0.05, GrowthRate: 0.02, HorizonYears: 20}
 	if err := ok.Validate(); err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -83,7 +83,7 @@ func TestForecastConfig_Validate_AcceptsOK(t *testing.T) {
 	if err := zero.Validate(); err != nil {
 		t.Errorf("zero values must be allowed (used as 'default' sentinels): %v", err)
 	}
-	longest := ForecastConfig{Years: forecast.MaxHorizonYears}
+	longest := ForecastConfig{HorizonYears: forecast.MaxHorizonYears}
 	if err := longest.Validate(); err != nil {
 		t.Errorf("the maximum horizon must be allowed: %v", err)
 	}
@@ -690,6 +690,10 @@ name = "Oakland, CA"
 			toml:    "[[cities]]\nname = \"Oakland, CA\"\noverpass = true\n[cities.forecast]\nbudget = 5\n",
 			wantKey: "cities[oakland-ca].forecast.budget (did you mean current_budget?)",
 		},
+		"near a renamed key": {
+			toml:    "[forecast]\nyeers = 20\n[[cities]]\nname = \"Oakland, CA\"\noverpass = true\n",
+			wantKey: "forecast.yeers (did you mean horizon_years?)",
+		},
 		"service key": {
 			toml:    "[[services]]\nname = \"fire\"\nturnout = 60\n[[cities]]\nname = \"Oakland, CA\"\noverpass = true\n",
 			wantKey: "services[fire].turnout (did you mean turnout_s?)",
@@ -919,7 +923,7 @@ func TestForecastConfig_Validate_NamesTheTOMLKey(t *testing.T) {
 		want string
 	}{
 		{ForecastConfig{InitialPCI: 200}, "forecast.initial_pci 200 out of range (0-100)"},
-		{ForecastConfig{Years: 500}, "forecast.years 500 out of range (1-200)"},
+		{ForecastConfig{HorizonYears: 500}, "forecast.horizon_years 500 out of range (1-200)"},
 		{ForecastConfig{CurrentBudget: -1}, "forecast.current_budget -1 must be a non-negative finite number"},
 		{ForecastConfig{TreatmentCycleYears: 50}, "forecast.treatment_cycle_years 50 out of range (1-40, or 0 for default)"},
 		{
@@ -1002,5 +1006,32 @@ func TestUnknownKeys_AmbiguousSuggestsNothing(t *testing.T) {
 		"[forecast]\nrate = 0.01\n[[cities]]\nname = \"Oakland, CA\"\noverpass = true\n"))
 	if err == nil || !strings.HasSuffix(err.Error(), "unknown config key(s): forecast.rate") {
 		t.Errorf("Load err = %v; want forecast.rate named with no suggestion", err)
+	}
+}
+
+// TestLoad_RenamedKeys pins that a key pvmt.toml no longer takes fails the load
+// with a message naming its replacement, at each place it is set.
+func TestLoad_RenamedKeys(t *testing.T) {
+	const city = "[[cities]]\nname = \"Oakland, CA\"\noverpass = true\n"
+	tests := map[string]struct{ toml, want string }{
+		"top-level years": {
+			toml: "[forecast]\nyears = 20\n" + city,
+			want: "forecast.years was renamed to forecast.horizon_years",
+		},
+		"per-city years": {
+			toml: city + "[cities.forecast]\nyears = 20\n",
+			want: "cities[oakland-ca].forecast.years was renamed to forecast.horizon_years",
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			_, err := Load(writeTOML(t, t.TempDir(), "pvmt.toml", tc.toml))
+			if !errors.Is(err, ErrInvalidConfig) {
+				t.Fatalf("Load err = %v; want ErrInvalidConfig", err)
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("Load err = %q; want it to contain %q", err, tc.want)
+			}
+		})
 	}
 }

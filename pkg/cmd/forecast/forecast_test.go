@@ -54,7 +54,7 @@ func TestForecastRow_ExportData_AllFieldsPopulated(t *testing.T) {
 func TestForecastAllResources_PropagatesNonNoRowsError(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
 	opts := &Options{IO: ios}
-	fc := &config.ForecastConfig{InitialPCI: 85, Years: 5}
+	fc := &config.ForecastConfig{InitialPCI: 85, HorizonYears: 5}
 
 	boom := errors.New("database is locked")
 	store := &dbtest.MockStore{
@@ -81,7 +81,7 @@ func TestForecastAllResources_PropagatesNonNoRowsError(t *testing.T) {
 func TestForecastAllResources_AllSkippedReturnsNoResults(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
 	opts := &Options{IO: ios}
-	fc := &config.ForecastConfig{InitialPCI: 85, Years: 5}
+	fc := &config.ForecastConfig{InitialPCI: 85, HorizonYears: 5}
 
 	store := &dbtest.MockStore{}
 

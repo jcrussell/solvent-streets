@@ -126,7 +126,7 @@ func marshalForecastSeed(fc *config.ForecastConfig, areas scenarioAreas, cohorts
 		InitialPCI:          fc.InitialPCI,
 		DecayRate:           forecast.ResolveDecayRate(fc.DecayRate),
 		GrowthRate:          fc.GrowthRate,
-		HorizonYears:        fc.Years,
+		HorizonYears:        fc.HorizonYears,
 		TreatmentCycleYears: forecast.ResolveCycleYears(fc.TreatmentCycleYears),
 		MaintainedArea:      areas.allArea,
 		CityMaintainedArea:  areas.cityArea,

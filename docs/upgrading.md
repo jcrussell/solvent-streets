@@ -6,7 +6,7 @@ The release notes link here from their header. Their "Breaking Changes" list nam
 
 ## v0.5.0
 
-Upgrading from v0.4.x takes eleven steps. Plan for the first one: it re-fetches every city from the upstream sources.
+Upgrading from v0.4.x takes twelve steps. Plan for the first one: it re-fetches every city from the upstream sources.
 
 ### 1. Move the database aside and re-ingest
 
@@ -112,7 +112,7 @@ A tag is now read as `dimension:value` when it contains a colon, and the config 
 
 ### 8. Set the forecast horizon once per config
 
-A config now has one forecast horizon, and its default is 30 years (up from 20). A `years` inside `[cities.forecast]` fails to load with exit 2: move it to the top-level `[forecast]`. A file pulled in with `[[include]]` must resolve to the same `years` as the file that includes it, where an unset `years` counts as the default 30. A config that left `years` unset now forecasts 30 years, so its headline totals (`30-Year Spend`) and insolvency years cover a longer run. Set `years = 20` at the top level to keep the old horizon. The horizon is also capped at 200 years: a `years` above 200 fails to load with exit 2, and a `PVMT_FORECAST_YEARS` above 200 is ignored with a warning. The browser forecast never ran a longer one, so such a config used to export a site whose Financials page failed. Forecasts are not part of the snapshot hash, so this needs a re-export, not a recompute.
+A config now has one forecast horizon, named `horizon_years` (step 12), and its default is 30 years (up from 20). A horizon inside `[cities.forecast]` fails to load with exit 2: move it to the top-level `[forecast]`. A file pulled in with `[[include]]` must resolve to the same `horizon_years` as the file that includes it, where an unset one counts as the default 30. A config that left the horizon unset now forecasts 30 years, so its headline totals (`30-Year Spend`) and insolvency years cover a longer run. Set `horizon_years = 20` at the top level to keep the old horizon. The horizon is also capped at 200 years: a `horizon_years` above 200 fails to load with exit 2, and a `PVMT_FORECAST_HORIZON_YEARS` above 200 is ignored with a warning. The browser forecast never ran a longer one, so such a config used to export a site whose Financials page failed. Forecasts are not part of the snapshot hash, so this needs a re-export, not a recompute.
 
 ### 9. Expect a partial ingest to exit 1
 
@@ -131,6 +131,15 @@ A few commands changed their flags or output so the CLI reads the same everywher
 - A `--city` that matches no `[[cities]]` entry is a usage error and exits 2 (it exited 1). A command that needs an earlier step first (a compute with no boundary or no features stored, an export with no snapshot, a `check-site` with no site) exits 3 and says what to run (some exited 1).
 - `pvmt status` and `pvmt <resource> status` report every configured city, not only the first one, unless `--city` names one. Each row starts with the city's slug, in the table and as the `city` field of `--json` (one document for all cities). The sections after the table (other parts, the not-yet-snapshotted count, the city summary and snapshot list) now go to stdout with the table; the stale-settings note is a `hint:` on stderr. `census status` and `services status` no longer offer the pavement-only `area` and `estimated_spaces` fields.
 - `pvmt snapshots create` writes each refused city's hint and every warning to stderr; the refused rows and the summary stay on stdout.
+
+### 12. Rename config keys
+
+Some `pvmt.toml` keys and environment variables have new names, so each setting reads the same in the config, the CLI and the site. A config that still uses an old key fails to load with exit 2, and the message names the new key, for example `forecast.years was renamed to forecast.horizon_years`. An old environment variable is ignored with a `warning:` naming the new one. None of these renames changes a stored result, so no recompute is needed.
+
+| v0.4.x | v0.5.0 |
+|--------|--------|
+| `[forecast] years` | `[forecast] horizon_years` |
+| `PVMT_FORECAST_YEARS` | `PVMT_FORECAST_HORIZON_YEARS` |
 
 ### Known issues
 

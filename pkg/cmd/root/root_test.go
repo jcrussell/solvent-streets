@@ -329,14 +329,14 @@ func TestWarnInvalidEnv_BadValuesEmitWarning(t *testing.T) {
 	}{
 		{"unknown units", map[string]string{"PVMT_UNITS": "furlongs"}, "PVMT_UNITS"},
 		{"valid units silent", map[string]string{"PVMT_UNITS": "metric"}, ""},
-		{"unparseable years", map[string]string{"PVMT_FORECAST_YEARS": "lots"}, "not a valid integer"},
-		{"zero years", map[string]string{"PVMT_FORECAST_YEARS": "0"}, "must be between 1 and 200"},
-		{"negative years", map[string]string{"PVMT_FORECAST_YEARS": "-5"}, "must be between 1 and 200"},
+		{"unparseable years", map[string]string{"PVMT_FORECAST_HORIZON_YEARS": "lots"}, "not a valid integer"},
+		{"zero years", map[string]string{"PVMT_FORECAST_HORIZON_YEARS": "0"}, "must be between 1 and 200"},
+		{"negative years", map[string]string{"PVMT_FORECAST_HORIZON_YEARS": "-5"}, "must be between 1 and 200"},
 		// The horizon bound a pvmt.toml is held to: a longer forecast is one
 		// the browser refuses to run.
-		{"years over the maximum", map[string]string{"PVMT_FORECAST_YEARS": "201"}, "must be between 1 and 200"},
-		{"maximum years silent", map[string]string{"PVMT_FORECAST_YEARS": "200"}, ""},
-		{"valid years silent", map[string]string{"PVMT_FORECAST_YEARS": "10"}, ""},
+		{"years over the maximum", map[string]string{"PVMT_FORECAST_HORIZON_YEARS": "201"}, "must be between 1 and 200"},
+		{"maximum years silent", map[string]string{"PVMT_FORECAST_HORIZON_YEARS": "200"}, ""},
+		{"valid years silent", map[string]string{"PVMT_FORECAST_HORIZON_YEARS": "10"}, ""},
 		{"unparseable hex edge", map[string]string{"PVMT_HEX_EDGE_M": "wide"}, "not a valid number"},
 		{"negative hex edge", map[string]string{"PVMT_HEX_EDGE_M": "-5"}, "must be >="},
 		// A positive-but-tiny edge is the decimal-point
@@ -351,6 +351,9 @@ func TestWarnInvalidEnv_BadValuesEmitWarning(t *testing.T) {
 		{"pci out of range", map[string]string{"PVMT_FORECAST_INITIAL_PCI": "500"}, "must be in (0, 100]"},
 		{"pci zero", map[string]string{"PVMT_FORECAST_INITIAL_PCI": "0"}, "must be in (0, 100]"},
 		{"valid pci silent", map[string]string{"PVMT_FORECAST_INITIAL_PCI": "85"}, ""},
+		// The old horizon variable names its replacement and no fallback:
+		// the new variable, set here, is the one that applies.
+		{"renamed years variable", map[string]string{"PVMT_FORECAST_YEARS": "20", "PVMT_FORECAST_HORIZON_YEARS": "25"}, `PVMT_FORECAST_YEARS="20" is ignored: it was renamed to PVMT_FORECAST_HORIZON_YEARS` + "\n"},
 		{"invalid log level", map[string]string{"PVMT_LOG_LEVEL": "trace"}, "PVMT_LOG_LEVEL="},
 		{"invalid short log level", map[string]string{"PVMT_LOG": "trace"}, "PVMT_LOG="},
 		{"valid long log level silent", map[string]string{"PVMT_LOG_LEVEL": "info"}, ""},
@@ -368,7 +371,7 @@ func TestWarnInvalidEnv_BadValuesEmitWarning(t *testing.T) {
 			// t.Setenv can't unset a variable, and the cleanup here has
 			// to *conditionally* unset-or-restore, so os.Setenv/Unsetenv
 			// are the right tools; silence usetesting for this block.
-			for _, k := range []string{"PVMT_UNITS", "PVMT_FORECAST_YEARS", "PVMT_HEX_EDGE_M", "PVMT_FORECAST_INITIAL_PCI", "PVMT_LOG", "PVMT_LOG_LEVEL"} {
+			for _, k := range []string{"PVMT_UNITS", "PVMT_FORECAST_HORIZON_YEARS", "PVMT_HEX_EDGE_M", "PVMT_FORECAST_INITIAL_PCI", "PVMT_LOG", "PVMT_LOG_LEVEL", "PVMT_FORECAST_YEARS"} {
 				if orig, ok := os.LookupEnv(k); ok {
 					t.Cleanup(func() { _ = os.Setenv(k, orig) }) //nolint:usetesting // see block comment above
 				} else {

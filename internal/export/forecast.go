@@ -212,7 +212,7 @@ func buildResourceForecast(rt resource.Source, fc *config.ForecastConfig, costTi
 		return ForecastExport{}, errSkipResource
 	}
 
-	years := fc.Years
+	years := fc.HorizonYears
 	rtParams := forecast.NewParamsForResource(tName, fc.GrowthRate, costTiers, fc.TreatmentCycleYears, fc.ResolvedCostOverhead())
 
 	allCohorts := buildCohortsFromStats(t, result.Area, cohortStats[t], fc)
@@ -320,16 +320,16 @@ func BuildScenariosData(ctx context.Context, entry CityEntry, fc *config.Forecas
 
 	// all scenarios from all cohorts; fall back to a single synthetic cohort
 	// over the aggregate all area when no cohort stats exist (fresh DB).
-	allScenarios := scenariosFromSeeds(allSeeds, fc.InitialPCI, fc.Years, params)
+	allScenarios := scenariosFromSeeds(allSeeds, fc.InitialPCI, fc.HorizonYears, params)
 	if allScenarios == nil {
-		allScenarios = singleCohortScenarios("all", areas.allArea, fc.InitialPCI, defaultRate, fc.Years, params)
+		allScenarios = singleCohortScenarios("all", areas.allArea, fc.InitialPCI, defaultRate, fc.HorizonYears, params)
 	}
 
 	primaryScenarios := allScenarios
 	if areas.cityArea > 0 {
-		primaryScenarios = scenariosFromSeeds(citySeeds, fc.InitialPCI, fc.Years, params)
+		primaryScenarios = scenariosFromSeeds(citySeeds, fc.InitialPCI, fc.HorizonYears, params)
 		if primaryScenarios == nil {
-			primaryScenarios = singleCohortScenarios("city", areas.cityArea, fc.InitialPCI, defaultRate, fc.Years, params)
+			primaryScenarios = singleCohortScenarios("city", areas.cityArea, fc.InitialPCI, defaultRate, fc.HorizonYears, params)
 		}
 	}
 

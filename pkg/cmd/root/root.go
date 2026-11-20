@@ -66,6 +66,10 @@ func warnInvalidEnv(_ *cobra.Command, f *cmdutil.Factory) error {
 		cmdutil.Warnf(ios, format+"; falling back to config/default", args...)
 	}
 	for _, p := range config.EnvProblems() {
+		if p.Renamed {
+			cmdutil.Warnf(ios, "%s=%q %s", p.Variable, p.Value, p.Reason)
+			continue
+		}
 		warnf("%s=%q %s", p.Variable, p.Value, p.Reason)
 	}
 	if name, v := logLevelEnv(); v != "" {

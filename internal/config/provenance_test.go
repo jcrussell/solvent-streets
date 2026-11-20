@@ -163,37 +163,37 @@ func TestResolveHexEdgeForCity(t *testing.T) {
 }
 
 func TestResolveForecast_Precedence(t *testing.T) {
-	os.Unsetenv("PVMT_FORECAST_YEARS")
+	os.Unsetenv("PVMT_FORECAST_HORIZON_YEARS")
 	os.Unsetenv("PVMT_FORECAST_INITIAL_PCI")
 	t.Cleanup(func() {
-		os.Unsetenv("PVMT_FORECAST_YEARS")
+		os.Unsetenv("PVMT_FORECAST_HORIZON_YEARS")
 		os.Unsetenv("PVMT_FORECAST_INITIAL_PCI")
 	})
 
 	t.Run("env beats file", func(t *testing.T) {
-		t.Setenv("PVMT_FORECAST_YEARS", "7")
-		cfg := &Config{Forecast: ForecastConfig{Years: 20, InitialPCI: 85}}
+		t.Setenv("PVMT_FORECAST_HORIZON_YEARS", "7")
+		cfg := &Config{Forecast: ForecastConfig{HorizonYears: 20, InitialPCI: 85}}
 		city := &CityConfig{Name: "Test", Forecast: &ForecastConfig{DecayRate: 0.05}}
 		fc, prov := cfg.resolveForecast(city)
-		if fc.Years != 7 {
-			t.Errorf("Years = %d, want 7", fc.Years)
+		if fc.HorizonYears != 7 {
+			t.Errorf("Years = %d, want 7", fc.HorizonYears)
 		}
-		if prov.Years != (Source{Kind: SourceEnv, Detail: "PVMT_FORECAST_YEARS"}) {
-			t.Errorf("Years source = %v, want env", prov.Years)
+		if prov.HorizonYears != (Source{Kind: SourceEnv, Detail: "PVMT_FORECAST_HORIZON_YEARS"}) {
+			t.Errorf("Years source = %v, want env", prov.HorizonYears)
 		}
 	})
 
 	t.Run("a city never sets the horizon", func(t *testing.T) {
-		os.Unsetenv("PVMT_FORECAST_YEARS")
-		cfg := &Config{Forecast: ForecastConfig{Years: 20, InitialPCI: 85}}
+		os.Unsetenv("PVMT_FORECAST_HORIZON_YEARS")
+		cfg := &Config{Forecast: ForecastConfig{HorizonYears: 20, InitialPCI: 85}}
 		// Validate rejects a per-city years; even one built in code is ignored.
-		city := &CityConfig{Name: "Test", Forecast: &ForecastConfig{Years: 15}}
+		city := &CityConfig{Name: "Test", Forecast: &ForecastConfig{HorizonYears: 15}}
 		fc, prov := cfg.resolveForecast(city)
-		if fc.Years != 20 {
-			t.Errorf("Years = %d, want the top-level 20", fc.Years)
+		if fc.HorizonYears != 20 {
+			t.Errorf("Years = %d, want the top-level 20", fc.HorizonYears)
 		}
-		if prov.Years != (Source{Kind: SourceFile, Detail: "forecast.years"}) {
-			t.Errorf("Years source = %v, want the top-level file source", prov.Years)
+		if prov.HorizonYears != (Source{Kind: SourceFile, Detail: "forecast.horizon_years"}) {
+			t.Errorf("Years source = %v, want the top-level file source", prov.HorizonYears)
 		}
 	})
 
@@ -210,24 +210,24 @@ func TestResolveForecast_Precedence(t *testing.T) {
 	})
 
 	t.Run("file used when nothing else set", func(t *testing.T) {
-		cfg := &Config{Forecast: ForecastConfig{Years: 25, InitialPCI: 90}}
+		cfg := &Config{Forecast: ForecastConfig{HorizonYears: 25, InitialPCI: 90}}
 		fc, prov := cfg.resolveForecast(nil)
-		if fc.Years != 25 {
-			t.Errorf("Years = %d, want 25", fc.Years)
+		if fc.HorizonYears != 25 {
+			t.Errorf("Years = %d, want 25", fc.HorizonYears)
 		}
-		if prov.Years != (Source{Kind: SourceFile, Detail: "forecast.years"}) {
-			t.Errorf("Years source = %v, want file source", prov.Years)
+		if prov.HorizonYears != (Source{Kind: SourceFile, Detail: "forecast.horizon_years"}) {
+			t.Errorf("Years source = %v, want file source", prov.HorizonYears)
 		}
 	})
 
 	t.Run("default when nothing set", func(t *testing.T) {
 		cfg := &Config{}
 		fc, prov := cfg.resolveForecast(nil)
-		if fc.Years != DefaultForecastYears {
-			t.Errorf("Years = %d, want %d", fc.Years, DefaultForecastYears)
+		if fc.HorizonYears != DefaultForecastYears {
+			t.Errorf("Years = %d, want %d", fc.HorizonYears, DefaultForecastYears)
 		}
-		if prov.Years != (Source{Kind: SourceDefault}) {
-			t.Errorf("Years source = %v, want default", prov.Years)
+		if prov.HorizonYears != (Source{Kind: SourceDefault}) {
+			t.Errorf("Years source = %v, want default", prov.HorizonYears)
 		}
 		if prov.InitialPCI != (Source{Kind: SourceDefault}) {
 			t.Errorf("InitialPCI source = %v, want default", prov.InitialPCI)
@@ -241,19 +241,19 @@ func TestResolveForecast_Precedence(t *testing.T) {
 func TestResolve_EmitsExpectedFields(t *testing.T) {
 	os.Unsetenv("PVMT_UNITS")
 	os.Unsetenv("PVMT_HEX_EDGE_M")
-	os.Unsetenv("PVMT_FORECAST_YEARS")
+	os.Unsetenv("PVMT_FORECAST_HORIZON_YEARS")
 	os.Unsetenv("PVMT_FORECAST_INITIAL_PCI")
 	t.Cleanup(func() {
 		os.Unsetenv("PVMT_UNITS")
 		os.Unsetenv("PVMT_HEX_EDGE_M")
-		os.Unsetenv("PVMT_FORECAST_YEARS")
+		os.Unsetenv("PVMT_FORECAST_HORIZON_YEARS")
 		os.Unsetenv("PVMT_FORECAST_INITIAL_PCI")
 	})
 
 	cfg := &Config{
 		Display:  DisplayConfig{Units: "metric"},
 		Grid:     GridConfig{HexEdgeM: 100},
-		Forecast: ForecastConfig{Years: 25},
+		Forecast: ForecastConfig{HorizonYears: 25},
 		Cities: []CityConfig{
 			{Name: "Detroit", HexEdgeM: 75, Forecast: &ForecastConfig{TreatmentCycleYears: 8}},
 			{Name: "Chicago"}, // no overrides
@@ -266,7 +266,7 @@ func TestResolve_EmitsExpectedFields(t *testing.T) {
 		"display.units":                                  false,
 		"grid.hex_edge_m":                                false,
 		"forecast.initial_pci":                           false,
-		"forecast.years":                                 false,
+		"forecast.horizon_years":                         false,
 		"cities[detroit].hex_edge_m":                     false,
 		"cities[detroit].forecast.treatment_cycle_years": false,
 		"forecast.cost_overhead":                         false,
@@ -641,20 +641,20 @@ func TestSourceKind_WireValues(t *testing.T) {
 func TestResolve_AllLayersReachable(t *testing.T) {
 	os.Unsetenv("PVMT_UNITS")
 	os.Unsetenv("PVMT_HEX_EDGE_M")
-	os.Unsetenv("PVMT_FORECAST_YEARS")
+	os.Unsetenv("PVMT_FORECAST_HORIZON_YEARS")
 	os.Unsetenv("PVMT_FORECAST_INITIAL_PCI")
 	t.Cleanup(func() {
 		os.Unsetenv("PVMT_UNITS")
 		os.Unsetenv("PVMT_HEX_EDGE_M")
-		os.Unsetenv("PVMT_FORECAST_YEARS")
+		os.Unsetenv("PVMT_FORECAST_HORIZON_YEARS")
 		os.Unsetenv("PVMT_FORECAST_INITIAL_PCI")
 	})
 
-	// Env supplies hex_edge_m; file supplies forecast.years; no layer
+	// Env supplies hex_edge_m; file supplies forecast.horizon_years; no layer
 	// supplies forecast.initial_pci (→ default); flag supplies units.
 	t.Setenv("PVMT_HEX_EDGE_M", "250")
 	cfg := &Config{
-		Forecast: ForecastConfig{Years: 25},
+		Forecast: ForecastConfig{HorizonYears: 25},
 		Cities:   []CityConfig{{Name: "Test"}},
 	}
 	fields := cfg.Resolve("metric")
@@ -678,8 +678,8 @@ func TestResolve_AllLayersReachable(t *testing.T) {
 	if byKey["grid.hex_edge_m"].Source.Kind != SourceEnv {
 		t.Errorf("grid.hex_edge_m source = %v, want env", byKey["grid.hex_edge_m"].Source)
 	}
-	if byKey["forecast.years"].Source.Kind != SourceFile {
-		t.Errorf("forecast.years source = %v, want file", byKey["forecast.years"].Source)
+	if byKey["forecast.horizon_years"].Source.Kind != SourceFile {
+		t.Errorf("forecast.horizon_years source = %v, want file", byKey["forecast.horizon_years"].Source)
 	}
 	if byKey["forecast.initial_pci"].Source.Kind != SourceDefault {
 		t.Errorf("forecast.initial_pci source = %v, want default", byKey["forecast.initial_pci"].Source)
@@ -694,21 +694,21 @@ func TestResolve_AllLayersReachable(t *testing.T) {
 func TestResolve_EveryFieldHasNonEmptySource(t *testing.T) {
 	os.Unsetenv("PVMT_UNITS")
 	os.Unsetenv("PVMT_HEX_EDGE_M")
-	os.Unsetenv("PVMT_FORECAST_YEARS")
+	os.Unsetenv("PVMT_FORECAST_HORIZON_YEARS")
 	os.Unsetenv("PVMT_FORECAST_INITIAL_PCI")
 	t.Cleanup(func() {
 		os.Unsetenv("PVMT_UNITS")
 		os.Unsetenv("PVMT_HEX_EDGE_M")
-		os.Unsetenv("PVMT_FORECAST_YEARS")
+		os.Unsetenv("PVMT_FORECAST_HORIZON_YEARS")
 		os.Unsetenv("PVMT_FORECAST_INITIAL_PCI")
 	})
 
 	cfg := &Config{
 		Display:  DisplayConfig{Units: "metric"},
 		Grid:     GridConfig{HexEdgeM: 100},
-		Forecast: ForecastConfig{Years: 25, InitialPCI: 90},
+		Forecast: ForecastConfig{HorizonYears: 25, InitialPCI: 90},
 		Cities: []CityConfig{
-			{Name: "Detroit", HexEdgeM: 75, Forecast: &ForecastConfig{Years: 30, InitialPCI: 95}},
+			{Name: "Detroit", HexEdgeM: 75, Forecast: &ForecastConfig{HorizonYears: 30, InitialPCI: 95}},
 			{Name: "Chicago"},
 		},
 	}
@@ -725,11 +725,11 @@ func TestResolve_EveryFieldHasNonEmptySource(t *testing.T) {
 // provenance for the InitialPCI knob so a future refactor that
 // silently drops the env-source label only on InitialPCI fails here.
 func TestResolveForecast_InitialPCIEnvSource(t *testing.T) {
-	os.Unsetenv("PVMT_FORECAST_YEARS")
+	os.Unsetenv("PVMT_FORECAST_HORIZON_YEARS")
 	t.Setenv("PVMT_FORECAST_INITIAL_PCI", "72")
 	t.Cleanup(func() { os.Unsetenv("PVMT_FORECAST_INITIAL_PCI") })
 
-	cfg := &Config{Forecast: ForecastConfig{Years: 20, InitialPCI: 85}}
+	cfg := &Config{Forecast: ForecastConfig{HorizonYears: 20, InitialPCI: 85}}
 	fc, prov := cfg.resolveForecast(nil)
 	if fc.InitialPCI != 72 {
 		t.Errorf("InitialPCI = %v, want 72 (env wins)", fc.InitialPCI)

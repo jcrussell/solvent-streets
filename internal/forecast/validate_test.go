@@ -180,7 +180,7 @@ func surfaceVerdicts(t *testing.T, in forecast.Inputs) map[string]bool {
 			InitialPCI:          in.InitialPCI,
 			DecayRate:           in.DecayRate,
 			GrowthRate:          in.GrowthRate,
-			Years:               int(in.Years),
+			HorizonYears:        int(in.Years),
 			CurrentBudget:       in.Budget,
 			TreatmentCycleYears: in.CycleYears,
 			CostOverhead:        in.CostOverhead,
@@ -269,21 +269,21 @@ func TestForecastBounds_OneAnswerOnEverySurface(t *testing.T) {
 // bounds exist to prevent, end to end: the longest horizon a config may state
 // is one the browser forecast and the game both run.
 func TestForecastBounds_ExportedSeedRunsInTheBrowser(t *testing.T) {
-	fc := config.ForecastConfig{Years: forecast.MaxHorizonYears}
+	fc := config.ForecastConfig{HorizonYears: forecast.MaxHorizonYears}
 	if err := fc.Validate(); err != nil {
-		t.Fatalf("config rejects forecast.years = %d: %v", fc.Years, err)
+		t.Fatalf("config rejects forecast.horizon_years = %d: %v", fc.HorizonYears, err)
 	}
-	raw, err := json.Marshal(bridge.Input{Area: 1000, InitialPCI: 80, HorizonYears: fc.Years, Strategy: "worst-first"})
+	raw, err := json.Marshal(bridge.Input{Area: 1000, InitialPCI: 80, HorizonYears: fc.HorizonYears, Strategy: "worst-first"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := bridge.Run(raw); err != nil {
-		t.Errorf("bridge refuses horizon_years = %d: %v", fc.Years, err)
+		t.Errorf("bridge refuses horizon_years = %d: %v", fc.HorizonYears, err)
 	}
 
-	fc.Years++
+	fc.HorizonYears++
 	err = fc.Validate()
-	if err == nil || !strings.Contains(err.Error(), "forecast.years") {
-		t.Errorf("config accepts forecast.years = %d (err %v); the bridge would refuse its seed", fc.Years, err)
+	if err == nil || !strings.Contains(err.Error(), "forecast.horizon_years") {
+		t.Errorf("config accepts forecast.horizon_years = %d (err %v); the bridge would refuse its seed", fc.HorizonYears, err)
 	}
 }

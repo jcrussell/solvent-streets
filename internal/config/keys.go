@@ -15,7 +15,10 @@ import (
 // replaced it, both as generic paths (array elements unindexed: a per-city key
 // is "cities.<key>"). A file that sets an old key fails to load with a message
 // naming the new one; there are no silent aliases.
-var renamedKeys = map[string]string{}
+var renamedKeys = map[string]string{
+	"forecast.years":        "forecast.horizon_years",
+	"cities.forecast.years": "forecast.horizon_years",
+}
 
 // CityPath is how a message addresses one [[cities]] entry: cities[<slug>],
 // or cities[<index>] when the name gives no slug.

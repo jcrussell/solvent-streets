@@ -364,7 +364,7 @@ func runForecast(ctx context.Context, opts *Options) error {
 func forecastStore(ctx context.Context, opts *Options, store db.Store, city *config.CityConfig, fc *config.ForecastConfig, sys units.System) error {
 	ios := opts.IO
 	if opts.Exporter == nil {
-		fmt.Fprintf(ios.ErrOut, "Running %d-year forecast for %s...\n\n", fc.Years, city.Name)
+		fmt.Fprintf(ios.ErrOut, "Running %d-year forecast for %s...\n\n", fc.HorizonYears, city.Name)
 	}
 	rows, err := forecastAllResources(ctx, opts, store, city.Slug(), fc, sys)
 	if err != nil {
@@ -389,7 +389,7 @@ func forecastStore(ctx context.Context, opts *Options, store db.Store, city *con
 func forecastAllResources(ctx context.Context, opts *Options, store db.Store, citySlug string,
 	fc *config.ForecastConfig, sys units.System) ([]forecastRow, error) {
 	ios := opts.IO
-	years := fc.Years
+	years := fc.HorizonYears
 	costTiers := export.ConvertCostTiers(fc)
 	var all []forecastRow
 	forecasted := false

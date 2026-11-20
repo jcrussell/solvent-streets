@@ -253,7 +253,7 @@ func TestScenariosJSON_Contract(t *testing.T) {
 			t.Errorf("%s scenarios = %v, want %v (app.js indexes them by name and order)", scope, got, want)
 		}
 		for _, s := range ss {
-			checkSeries(t, scope, s, fc.Years)
+			checkSeries(t, scope, s, fc.HorizonYears)
 		}
 		checkFundingLadder(t, scope, ss, fc.InitialPCI)
 	}
@@ -310,10 +310,10 @@ func TestForecastJSON_Contract(t *testing.T) {
 	var types []string
 	for _, e := range entries {
 		types = append(types, e.ResourceType)
-		checkSeries(t, e.ResourceType+"/baseline", e.Baseline, fc.Years)
-		checkSeries(t, e.ResourceType+"/all_baseline", e.AllBaseline, fc.Years)
+		checkSeries(t, e.ResourceType+"/baseline", e.Baseline, fc.HorizonYears)
+		checkSeries(t, e.ResourceType+"/all_baseline", e.AllBaseline, fc.HorizonYears)
 		for _, s := range e.Scenarios {
-			checkSeries(t, e.ResourceType, s, fc.Years)
+			checkSeries(t, e.ResourceType, s, fc.HorizonYears)
 		}
 		checkFundingLadder(t, e.ResourceType, append([]series{e.Baseline}, e.Scenarios...), fc.InitialPCI)
 		if got, want := names(e.Scenarios), []string{"fund-25pct", "fund-50pct", "fund-100pct"}; !slices.Equal(got, want) {
@@ -632,11 +632,11 @@ func TestResolvedTOML_ShowsWhatTheModelRunsOn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if view.Forecast.Years == 0 {
+	if view.Forecast.HorizonYears == 0 {
 		t.Errorf("the top-level horizon is missing:\n%s", out)
 	}
-	if md.IsDefined("cities", "forecast", "years") {
-		t.Errorf("a city's forecast block carries a years key:\n%s", out)
+	if md.IsDefined("cities", "forecast", "horizon_years") {
+		t.Errorf("a city's forecast block carries a horizon_years key:\n%s", out)
 	}
 	// Only the configured override is a [[services]] entry: an explicit
 	// value is hashed, so a default printed as one would change the hash of

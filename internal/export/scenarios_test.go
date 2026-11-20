@@ -71,7 +71,7 @@ func TestExportScenariosForCity_PropagatesDBError(t *testing.T) {
 // Simulate over all cohorts when city stats are present.
 func TestBuildResourceForecast_AllBaselineGatedOnCityScope(t *testing.T) {
 	now := time.Now()
-	fc := &config.ForecastConfig{InitialPCI: 85, GrowthRate: 0.01, Years: 5}
+	fc := &config.ForecastConfig{InitialPCI: 85, GrowthRate: 0.01, HorizonYears: 5}
 	costTiers := forecast.DefaultCostTiers
 
 	pavement := &resource.Pavement{}
@@ -92,8 +92,8 @@ func TestBuildResourceForecast_AllBaselineGatedOnCityScope(t *testing.T) {
 		if fe.AllBaseline != nil {
 			t.Errorf("AllBaseline = %+v; want nil when city stats are empty", fe.AllBaseline)
 		}
-		if len(fe.Baseline.Years) != fc.Years {
-			t.Errorf("Baseline.Years length = %d; want %d", len(fe.Baseline.Years), fc.Years)
+		if len(fe.Baseline.Years) != fc.HorizonYears {
+			t.Errorf("Baseline.Years length = %d; want %d", len(fe.Baseline.Years), fc.HorizonYears)
 		}
 	})
 

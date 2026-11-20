@@ -12,11 +12,15 @@ import (
 // The environment variables that override a config value. Each is the env
 // layer of the precedence chain in provenance.go.
 const (
-	EnvUnits              = "PVMT_UNITS"
-	EnvHexEdgeM           = "PVMT_HEX_EDGE_M"
-	EnvForecastYears      = "PVMT_FORECAST_YEARS"
-	EnvForecastInitialPCI = "PVMT_FORECAST_INITIAL_PCI"
-	EnvOverpassURL        = "PVMT_OVERPASS_URL" //nolint:gosec // G101: names a variable holding a URL, not a credential
+	EnvUnits                = "PVMT_UNITS"
+	EnvHexEdgeM             = "PVMT_HEX_EDGE_M"
+	EnvForecastHorizonYears = "PVMT_FORECAST_HORIZON_YEARS"
+	EnvForecastInitialPCI   = "PVMT_FORECAST_INITIAL_PCI"
+	EnvOverpassURL          = "PVMT_OVERPASS_URL" //nolint:gosec // G101: names a variable holding a URL, not a credential
+
+	// envForecastYearsRenamed is the old name of EnvForecastHorizonYears. It
+	// is never applied; EnvProblems reports it so the user hears why.
+	envForecastYearsRenamed = "PVMT_FORECAST_YEARS"
 )
 
 // The env layer never passes through Validate, so each parse function below
@@ -54,9 +58,9 @@ func parseHexEdgeEnv(s string) (float64, string) {
 	return f, ""
 }
 
-// parseForecastYearsEnv holds the horizon to forecast.MaxHorizonYears, the
-// bound forecast.years is validated against.
-func parseForecastYearsEnv(s string) (int, string) {
+// parseHorizonYearsEnv holds the horizon to forecast.MaxHorizonYears, the
+// bound forecast.horizon_years is validated against.
+func parseHorizonYearsEnv(s string) (int, string) {
 	n, err := strconv.Atoi(s)
 	switch {
 	case err != nil:
@@ -108,12 +112,15 @@ func reasonOf[T any](parse func(string) (T, string)) func(string) string {
 var envRules = []struct {
 	name   string
 	reason func(string) string
+	// renamed marks an old variable name, which is never applied.
+	renamed bool
 }{
-	{EnvUnits, reasonOf(parseUnitsEnv)},
-	{EnvForecastYears, reasonOf(parseForecastYearsEnv)},
-	{EnvHexEdgeM, reasonOf(parseHexEdgeEnv)},
-	{EnvForecastInitialPCI, reasonOf(parseInitialPCIEnv)},
-	{EnvOverpassURL, reasonOf(parseOverpassURLEnv)},
+	{EnvUnits, reasonOf(parseUnitsEnv), false},
+	{EnvForecastHorizonYears, reasonOf(parseHorizonYearsEnv), false},
+	{envForecastYearsRenamed, func(string) string { return "is ignored: it was renamed to " + EnvForecastHorizonYears }, true},
+	{EnvHexEdgeM, reasonOf(parseHexEdgeEnv), false},
+	{EnvForecastInitialPCI, reasonOf(parseInitialPCIEnv), false},
+	{EnvOverpassURL, reasonOf(parseOverpassURLEnv), false},
 }
 
 // EnvProblem is an override variable whose value the resolvers drop.
@@ -122,6 +129,10 @@ type EnvProblem struct {
 	Value    string
 	// Reason completes the sentence `Variable="Value" ...`.
 	Reason string
+	// Renamed reports an old variable name. Its value is never applied, and
+	// the setting comes from the new name when that is set, so the warning
+	// names no fallback layer.
+	Renamed bool
 }
 
 // EnvProblems returns the override variables that are set to a value the
@@ -137,7 +148,7 @@ func EnvProblems() []EnvProblem {
 			continue
 		}
 		if reason := r.reason(s); reason != "" {
-			problems = append(problems, EnvProblem{Variable: r.name, Value: s, Reason: reason})
+			problems = append(problems, EnvProblem{Variable: r.name, Value: s, Reason: reason, Renamed: r.renamed})
 		}
 	}
 	return problems

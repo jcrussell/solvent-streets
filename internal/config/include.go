@@ -236,7 +236,7 @@ func resolveOneInclude(parent *Config, inc IncludeSpec, i int, dir string,
 }
 
 // checkIncludedHorizon refuses an include whose forecast horizon differs from
-// the including file's. A config has one horizon (forecast.years, top-level
+// the including file's. A config has one horizon (forecast.horizon_years, top-level
 // only) so that cities shown side by side -- Compare, Aggregate -- are
 // forecast over the same years; merging a 15-year metro into a 25-year list
 // would otherwise put one city's backlog under another's horizon.
@@ -248,16 +248,16 @@ func checkIncludedHorizon(parent, child *Config) error {
 		return nil
 	}
 	return errors.Join(ErrInvalidConfig, fmt.Errorf(
-		"forecast.years is %d there but %d in the including file; a config has one forecast horizon, "+
-			"so set the same top-level forecast.years in both (or leave both unset for the default %d)",
+		"forecast.horizon_years is %d there but %d in the including file; a config has one forecast horizon, "+
+			"so set the same top-level forecast.horizon_years in both (or leave both unset for the default %d)",
 		cy, py, DefaultForecastYears))
 }
 
 // fileHorizon is the horizon a file states, with unset read as the default.
-// The env override (PVMT_FORECAST_YEARS) applies to the merged config as a
+// The env override (PVMT_FORECAST_HORIZON_YEARS) applies to the merged config as a
 // whole, so it plays no part in whether two files agree.
 func fileHorizon(c *Config) int {
-	return horizonOrDefault(c.Forecast.Years)
+	return horizonOrDefault(c.Forecast.HorizonYears)
 }
 
 // sourceConfigID is the ConfigID a config's own cities are stored under,
@@ -637,14 +637,14 @@ func (c *Config) effectiveMinHexArea(city *CityConfig) float64 {
 // [forecast] (env and defaults are re-applied identically at runtime). Returns
 // nil when neither layer set anything, so no override is stored.
 //
-// forecast.years is left out: it is the config's one horizon, not a city's
+// forecast.horizon_years is left out: it is the config's one horizon, not a city's
 // calibration, and checkIncludedHorizon has already made it agree with the
 // including file's.
 func (c *Config) effectiveForecast(city *CityConfig) *ForecastConfig {
 	fc := c.Forecast
 	var prov forecastProvenance
 	applyCityForecastProv(&fc, &prov, city)
-	fc.Years = 0
+	fc.HorizonYears = 0
 	if forecastIsZero(fc) {
 		return nil
 	}
@@ -662,7 +662,7 @@ func forecastIsZero(fc ForecastConfig) bool {
 		return false
 	}
 	return fc.InitialPCI == 0 && fc.DecayRate == 0 && fc.GrowthRate == 0 &&
-		fc.Years == 0 && len(fc.CostTiers) == 0 &&
+		fc.HorizonYears == 0 && len(fc.CostTiers) == 0 &&
 		fc.TreatmentCycleYears == 0 && fc.CurrentBudget == 0 &&
 		fc.CostOverhead == 0
 }

@@ -21,7 +21,7 @@ import (
 // part of the public contract — `config show --json` writes them and
 // downstream jq/template consumers parse them. `Source.Detail` names
 // the specific origin within a kind (`PVMT_UNITS`, `grid.hex_edge_m`,
-// `cities[detroit].forecast.years`, `--units`); the format is
+// `cities[detroit].forecast.horizon_years`, `--units`); the format is
 // `<kind>[:<detail>]` via Source.String, also stable.
 //
 // Invalid or out-of-range env values are ignored at parse time and fall
@@ -165,7 +165,7 @@ type forecastProvenance struct {
 	InitialPCI          Source
 	DecayRate           Source
 	GrowthRate          Source
-	Years               Source
+	HorizonYears        Source
 	CostTiers           Source
 	CurrentBudget       Source
 	TreatmentCycleYears Source
@@ -212,8 +212,8 @@ func fileForecastProv(fc *ForecastConfig) forecastProvenance {
 	if fc.GrowthRate != 0 || fc.growthRateSet {
 		p.GrowthRate = Source{Kind: SourceFile, Detail: "forecast.growth_rate"}
 	}
-	if fc.Years > 0 {
-		p.Years = Source{Kind: SourceFile, Detail: "forecast.years"}
+	if fc.HorizonYears > 0 {
+		p.HorizonYears = Source{Kind: SourceFile, Detail: "forecast.horizon_years"}
 	}
 	if len(fc.CostTiers) > 0 {
 		p.CostTiers = Source{Kind: SourceFile, Detail: "forecast.cost_tiers"}
@@ -276,9 +276,9 @@ func applyCityForecastProv(fc *ForecastConfig, p *forecastProvenance, city *City
 }
 
 func applyEnvForecastProv(fc *ForecastConfig, p *forecastProvenance) {
-	if n, ok := envOverride(EnvForecastYears, parseForecastYearsEnv); ok {
-		fc.Years = n
-		p.Years = Source{Kind: SourceEnv, Detail: EnvForecastYears}
+	if n, ok := envOverride(EnvForecastHorizonYears, parseHorizonYearsEnv); ok {
+		fc.HorizonYears = n
+		p.HorizonYears = Source{Kind: SourceEnv, Detail: EnvForecastHorizonYears}
 	}
 	if f, ok := envOverride(EnvForecastInitialPCI, parseInitialPCIEnv); ok {
 		fc.InitialPCI = f
@@ -294,7 +294,7 @@ func applyDefaultForecastProv(fc *ForecastConfig, p *forecastProvenance) {
 		p.InitialPCI = Source{Kind: SourceDefault}
 	}
 	if d.Years {
-		p.Years = Source{Kind: SourceDefault}
+		p.HorizonYears = Source{Kind: SourceDefault}
 	}
 	if (p.DecayRate == Source{}) {
 		p.DecayRate = Source{Kind: SourceDefault}
@@ -394,7 +394,7 @@ func (c *Config) Resolve(flagUnits string) []ResolvedField {
 	fc, fprov := c.resolveForecast(nil)
 	fields = append(fields,
 		ResolvedField{Key: "forecast.initial_pci", Value: fc.InitialPCI, Source: fprov.InitialPCI},
-		ResolvedField{Key: "forecast.years", Value: fc.Years, Source: fprov.Years},
+		ResolvedField{Key: "forecast.horizon_years", Value: fc.HorizonYears, Source: fprov.HorizonYears},
 	)
 	// current_budget is emitted only when configured (>0); uncalibrated
 	// configs omit it rather than reporting a fabricated $0.

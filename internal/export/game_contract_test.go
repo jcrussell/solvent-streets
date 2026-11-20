@@ -218,7 +218,7 @@ func TestPlayConfig_FromExportStartsAGame(t *testing.T) {
 			fc.CostOverhead = overhead
 			// Long enough for an underfunded network to defer a full
 			// treatment cycle of need, which the fixture's 10 years is not.
-			fc.Years = 30
+			fc.HorizonYears = 30
 			// Size the budget off the network's own break-even, so the
 			// shares are meaningful whatever the fixture's area.
 			fc.CurrentBudget = 0

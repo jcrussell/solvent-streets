@@ -105,10 +105,10 @@ overpass = true
 func TestResolvedForecast_CityOverride(t *testing.T) {
 	cfg := &Config{
 		Forecast: ForecastConfig{
-			DecayRate:  0.05,
-			GrowthRate: 0.01,
-			Years:      20,
-			InitialPCI: 85,
+			DecayRate:    0.05,
+			GrowthRate:   0.01,
+			HorizonYears: 20,
+			InitialPCI:   85,
 		},
 	}
 
@@ -130,8 +130,8 @@ func TestResolvedForecast_CityOverride(t *testing.T) {
 	if fc2.DecayRate != 0.08 {
 		t.Errorf("expected 0.08, got %f", fc2.DecayRate)
 	}
-	if fc2.Years != 20 {
-		t.Errorf("expected the top-level horizon 20, got %d", fc2.Years)
+	if fc2.HorizonYears != 20 {
+		t.Errorf("expected the top-level horizon 20, got %d", fc2.HorizonYears)
 	}
 	if fc2.GrowthRate != 0.01 {
 		t.Errorf("expected inherited 0.01, got %f", fc2.GrowthRate)
@@ -175,12 +175,12 @@ func TestNormalizeForecast(t *testing.T) {
 		wantYears int
 	}{
 		{"zeros become defaults", ForecastConfig{}, DefaultInitialPCI, DefaultForecastYears},
-		{"explicit in-range preserved", ForecastConfig{InitialPCI: 77, Years: 30}, 77, 30},
-		{"negative PCI becomes default", ForecastConfig{InitialPCI: -10, Years: 15}, DefaultInitialPCI, 15},
-		{"over-100 PCI becomes default", ForecastConfig{InitialPCI: 150, Years: 15}, DefaultInitialPCI, 15},
-		{"PCI boundary 100 preserved", ForecastConfig{InitialPCI: 100, Years: 5}, 100, 5},
-		{"small positive PCI preserved", ForecastConfig{InitialPCI: 0.5, Years: 5}, 0.5, 5},
-		{"negative Years becomes default", ForecastConfig{InitialPCI: 77, Years: -3}, 77, DefaultForecastYears},
+		{"explicit in-range preserved", ForecastConfig{InitialPCI: 77, HorizonYears: 30}, 77, 30},
+		{"negative PCI becomes default", ForecastConfig{InitialPCI: -10, HorizonYears: 15}, DefaultInitialPCI, 15},
+		{"over-100 PCI becomes default", ForecastConfig{InitialPCI: 150, HorizonYears: 15}, DefaultInitialPCI, 15},
+		{"PCI boundary 100 preserved", ForecastConfig{InitialPCI: 100, HorizonYears: 5}, 100, 5},
+		{"small positive PCI preserved", ForecastConfig{InitialPCI: 0.5, HorizonYears: 5}, 0.5, 5},
+		{"negative Years becomes default", ForecastConfig{InitialPCI: 77, HorizonYears: -3}, 77, DefaultForecastYears},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -189,8 +189,8 @@ func TestNormalizeForecast(t *testing.T) {
 			if fc.InitialPCI != tt.wantPCI {
 				t.Errorf("InitialPCI = %v, want %v", fc.InitialPCI, tt.wantPCI)
 			}
-			if fc.Years != tt.wantYears {
-				t.Errorf("Years = %v, want %v", fc.Years, tt.wantYears)
+			if fc.HorizonYears != tt.wantYears {
+				t.Errorf("Years = %v, want %v", fc.HorizonYears, tt.wantYears)
 			}
 		})
 	}
@@ -277,15 +277,15 @@ func TestHexEdge_Precedence(t *testing.T) {
 }
 
 // TestResolvedForecast_EnvYears is the regression guard for the layered
-// resolution: PVMT_FORECAST_YEARS must actually reach callers of
+// resolution: PVMT_FORECAST_HORIZON_YEARS must actually reach callers of
 // ResolvedForecast, which was not the case before the env layer was
 // plumbed through the city-merge path.
 func TestResolvedForecast_EnvYears(t *testing.T) {
-	t.Setenv("PVMT_FORECAST_YEARS", "5")
-	cfg := &Config{Forecast: ForecastConfig{Years: 20, InitialPCI: 85}}
+	t.Setenv("PVMT_FORECAST_HORIZON_YEARS", "5")
+	cfg := &Config{Forecast: ForecastConfig{HorizonYears: 20, InitialPCI: 85}}
 	fc := cfg.ResolvedForecast(&CityConfig{Name: "Test"})
-	if fc.Years != 5 {
-		t.Errorf("expected env override to win, got %d", fc.Years)
+	if fc.HorizonYears != 5 {
+		t.Errorf("expected env override to win, got %d", fc.HorizonYears)
 	}
 }
 
@@ -293,11 +293,11 @@ func TestResolvedForecast_EnvYears(t *testing.T) {
 // on the env-parse path: zero and negative values must not silently
 // corrupt the forecast horizon.
 func TestResolvedForecast_EnvYearsNonPositiveIgnored(t *testing.T) {
-	t.Setenv("PVMT_FORECAST_YEARS", "0")
-	cfg := &Config{Forecast: ForecastConfig{Years: 20, InitialPCI: 85}}
+	t.Setenv("PVMT_FORECAST_HORIZON_YEARS", "0")
+	cfg := &Config{Forecast: ForecastConfig{HorizonYears: 20, InitialPCI: 85}}
 	fc := cfg.ResolvedForecast(&CityConfig{Name: "Test"})
-	if fc.Years != 20 {
-		t.Errorf("invalid env should fall through to file, got %d", fc.Years)
+	if fc.HorizonYears != 20 {
+		t.Errorf("invalid env should fall through to file, got %d", fc.HorizonYears)
 	}
 }
 
@@ -306,7 +306,7 @@ func TestResolvedForecast_EnvYearsNonPositiveIgnored(t *testing.T) {
 // forecast math never sees a PCI > 100 or ≤ 0.
 func TestResolvedForecast_EnvInitialPCIClamped(t *testing.T) {
 	t.Setenv("PVMT_FORECAST_INITIAL_PCI", "500")
-	cfg := &Config{Forecast: ForecastConfig{InitialPCI: 70, Years: 20}}
+	cfg := &Config{Forecast: ForecastConfig{InitialPCI: 70, HorizonYears: 20}}
 	fc := cfg.ResolvedForecast(&CityConfig{Name: "Test"})
 	if fc.InitialPCI != 70 {
 		t.Errorf("out-of-range env should fall through to file value 70, got %f", fc.InitialPCI)
@@ -317,12 +317,12 @@ func TestResolvedForecast_EnvInitialPCIClamped(t *testing.T) {
 // env > city > top-level. Without this, a future refactor could silently
 // swap the order and break user expectations.
 func TestResolvedForecast_EnvBeatsCity(t *testing.T) {
-	t.Setenv("PVMT_FORECAST_YEARS", "7")
-	cfg := &Config{Forecast: ForecastConfig{Years: 20, InitialPCI: 85}}
-	city := &CityConfig{Name: "Test", Forecast: &ForecastConfig{Years: 15}}
+	t.Setenv("PVMT_FORECAST_HORIZON_YEARS", "7")
+	cfg := &Config{Forecast: ForecastConfig{HorizonYears: 20, InitialPCI: 85}}
+	city := &CityConfig{Name: "Test", Forecast: &ForecastConfig{HorizonYears: 15}}
 	fc := cfg.ResolvedForecast(city)
-	if fc.Years != 7 {
-		t.Errorf("env should beat city override, got %d", fc.Years)
+	if fc.HorizonYears != 7 {
+		t.Errorf("env should beat city override, got %d", fc.HorizonYears)
 	}
 }
 
@@ -338,8 +338,8 @@ func TestResolvedForecast_DefaultsApplied(t *testing.T) {
 		if fc.InitialPCI != DefaultInitialPCI {
 			t.Errorf("%s: InitialPCI = %v, want %v", name, fc.InitialPCI, DefaultInitialPCI)
 		}
-		if fc.Years != DefaultForecastYears {
-			t.Errorf("%s: Years = %v, want %v", name, fc.Years, DefaultForecastYears)
+		if fc.HorizonYears != DefaultForecastYears {
+			t.Errorf("%s: Years = %v, want %v", name, fc.HorizonYears, DefaultForecastYears)
 		}
 	}
 }
@@ -480,10 +480,10 @@ func TestLoad_MissingFileReportsFullPath(t *testing.T) {
 // tolerate a nil *CityConfig and return fully-normalized defaults,
 // rather than panicking on a nil city deref inside the merge.
 func TestResolvedForecast_NilCity(t *testing.T) {
-	cfg := &Config{Forecast: ForecastConfig{Years: 15, InitialPCI: 70}}
+	cfg := &Config{Forecast: ForecastConfig{HorizonYears: 15, InitialPCI: 70}}
 	fc := cfg.ResolvedForecast(nil)
-	if fc.Years != 15 {
-		t.Errorf("Years = %d, want 15 (top-level preserved)", fc.Years)
+	if fc.HorizonYears != 15 {
+		t.Errorf("Years = %d, want 15 (top-level preserved)", fc.HorizonYears)
 	}
 	if fc.InitialPCI != 70 {
 		t.Errorf("InitialPCI = %v, want 70 (top-level preserved)", fc.InitialPCI)
@@ -588,13 +588,13 @@ func TestFindAndLoad_NotFound(t *testing.T) {
 // horizon bound the file layer is validated against: the env value never
 // passes through Validate.
 func TestResolvedForecast_EnvYearsOverMaximumIgnored(t *testing.T) {
-	cfg := &Config{Forecast: ForecastConfig{Years: 20}}
-	t.Setenv("PVMT_FORECAST_YEARS", strconv.Itoa(forecast.MaxHorizonYears+1))
-	if got := cfg.ResolvedForecast(nil).Years; got != 20 {
+	cfg := &Config{Forecast: ForecastConfig{HorizonYears: 20}}
+	t.Setenv("PVMT_FORECAST_HORIZON_YEARS", strconv.Itoa(forecast.MaxHorizonYears+1))
+	if got := cfg.ResolvedForecast(nil).HorizonYears; got != 20 {
 		t.Errorf("an env horizon over the maximum should fall through to the file, got %d", got)
 	}
-	t.Setenv("PVMT_FORECAST_YEARS", strconv.Itoa(forecast.MaxHorizonYears))
-	if got := cfg.ResolvedForecast(nil).Years; got != forecast.MaxHorizonYears {
+	t.Setenv("PVMT_FORECAST_HORIZON_YEARS", strconv.Itoa(forecast.MaxHorizonYears))
+	if got := cfg.ResolvedForecast(nil).HorizonYears; got != forecast.MaxHorizonYears {
 		t.Errorf("the maximum horizon should be honored, got %d", got)
 	}
 }
@@ -605,24 +605,24 @@ func TestResolvedForecast_EnvYearsOverMaximumIgnored(t *testing.T) {
 func TestForecastDefaults_OneStep(t *testing.T) {
 	for _, fc := range []ForecastConfig{
 		{},
-		{InitialPCI: 77, Years: 15, CostOverhead: 1.5},
-		{InitialPCI: -10, Years: -3, CostOverhead: -1},
+		{InitialPCI: 77, HorizonYears: 15, CostOverhead: 1.5},
+		{InitialPCI: -10, HorizonYears: -3, CostOverhead: -1},
 		{InitialPCI: 150},
-		{InitialPCI: 100, Years: 1},
+		{InitialPCI: 100, HorizonYears: 1},
 	} {
 		normalized := fc
 		NormalizeForecast(&normalized)
 
 		cfg := &Config{Forecast: fc}
 		resolved, prov := cfg.resolveForecast(nil)
-		if resolved.InitialPCI != normalized.InitialPCI || resolved.Years != normalized.Years ||
+		if resolved.InitialPCI != normalized.InitialPCI || resolved.HorizonYears != normalized.HorizonYears ||
 			resolved.CostOverhead != normalized.CostOverhead {
 			t.Errorf("%+v: resolveForecast = (pci %v, years %v, overhead %v), NormalizeForecast = (pci %v, years %v, overhead %v)",
-				fc, resolved.InitialPCI, resolved.Years, resolved.CostOverhead,
-				normalized.InitialPCI, normalized.Years, normalized.CostOverhead)
+				fc, resolved.InitialPCI, resolved.HorizonYears, resolved.CostOverhead,
+				normalized.InitialPCI, normalized.HorizonYears, normalized.CostOverhead)
 		}
-		if got := fileHorizon(cfg); got != normalized.Years {
-			t.Errorf("%+v: fileHorizon = %d, NormalizeForecast years = %d", fc, got, normalized.Years)
+		if got := fileHorizon(cfg); got != normalized.HorizonYears {
+			t.Errorf("%+v: fileHorizon = %d, NormalizeForecast years = %d", fc, got, normalized.HorizonYears)
 		}
 		// A field is labelled default exactly when the default step filled it.
 		for name, c := range map[string]struct {
@@ -630,7 +630,7 @@ func TestForecastDefaults_OneStep(t *testing.T) {
 			src    Source
 		}{
 			"initial_pci":   {normalized.InitialPCI != fc.InitialPCI, prov.InitialPCI},
-			"years":         {normalized.Years != fc.Years, prov.Years},
+			"years":         {normalized.HorizonYears != fc.HorizonYears, prov.HorizonYears},
 			"cost_overhead": {normalized.CostOverhead != fc.CostOverhead, prov.CostOverhead},
 		} {
 			if isDefault := c.src.Kind == SourceDefault; isDefault != c.filled {

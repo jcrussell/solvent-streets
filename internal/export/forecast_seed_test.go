@@ -246,7 +246,7 @@ func TestMergeCohortSeeds_CityScopeReadsCityLabels(t *testing.T) {
 // deduped union geometry and would give a slightly different, wrong answer.
 func TestForecastSeed_AsphaltShareNetsOutSidewalks(t *testing.T) {
 	ctx := context.Background()
-	fc := &config.ForecastConfig{Years: 5, InitialPCI: 80}
+	fc := &config.ForecastConfig{HorizonYears: 5, InitialPCI: 80}
 
 	// Roads 700 + parking 300 = 1000 asphalt, sidewalks 250 concrete, in the
 	// all scope; a deliberately different split in the city scope so a swapped
@@ -417,7 +417,7 @@ func TestForecastSeed_AreasAreTheMaintainedArea(t *testing.T) {
 		resource.CombinedCity: {Area: 450},
 	}
 	entry := newMockEntry(totals)
-	seedJS, err := BuildForecastSeed(ctx, &config.ForecastConfig{Years: 5, InitialPCI: 80}, entry.Store)
+	seedJS, err := BuildForecastSeed(ctx, &config.ForecastConfig{HorizonYears: 5, InitialPCI: 80}, entry.Store)
 	if err != nil {
 		t.Fatalf("BuildForecastSeed: %v", err)
 	}

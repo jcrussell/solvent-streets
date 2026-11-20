@@ -558,7 +558,7 @@ func TestBuildHexCostSummary_TotalsFromForecastRead(t *testing.T) {
 	// A city-scope cohort split is what gives the city its city-maintained view.
 	store.CityMetrics = append(store.CityMetrics,
 		results.CohortRows(rtRoadsCity, []results.Cohort{{Class: "residential", Area: 1000, Features: 5}})...)
-	fc := config.ForecastConfig{Years: 5, InitialPCI: 70}
+	fc := config.ForecastConfig{HorizonYears: 5, InitialPCI: 70}
 	forecasts, err := BuildForecastsForCity(t.Context(), entry, &fc, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -593,7 +593,7 @@ func TestBuildScenariosData_ScopeKeys(t *testing.T) {
 		rtRoadsCity: {Area: 1000, Features: 60},
 	}
 	entry := hexEntry(t, nil, totals)
-	fc := &config.ForecastConfig{Years: 5, InitialPCI: 85, DecayRate: 1.5}
+	fc := &config.ForecastConfig{HorizonYears: 5, InitialPCI: 85, DecayRate: 1.5}
 
 	out, err := BuildScenariosData(t.Context(), entry, fc)
 	if err != nil {
@@ -626,7 +626,7 @@ func TestBuildScenariosData_AllOnlyKey(t *testing.T) {
 		rtRoads: {Area: 2000, Features: 100},
 	}
 	entry := hexEntry(t, nil, totals)
-	fc := &config.ForecastConfig{Years: 5, InitialPCI: 85, DecayRate: 1.5}
+	fc := &config.ForecastConfig{HorizonYears: 5, InitialPCI: 85, DecayRate: 1.5}
 
 	out, err := BuildScenariosData(t.Context(), entry, fc)
 	if err != nil {

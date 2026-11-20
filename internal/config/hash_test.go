@@ -37,7 +37,7 @@ const twoCities = `
 hex_edge_m = 120
 
 [forecast]
-years = 25
+horizon_years = 25
 
 [[cities]]
 name = "Reno, NV"
@@ -82,11 +82,11 @@ func TestCityHash_DeterministicInMemory(t *testing.T) {
 	newCfg := func() *Config {
 		return &Config{
 			Grid:     GridConfig{HexEdgeM: 100},
-			Forecast: ForecastConfig{Years: 20},
+			Forecast: ForecastConfig{HorizonYears: 20},
 			Services: []ServiceOverride{{Name: "fire", TurnoutS: new(60.0)}, {Name: "ems", TurnoutS: new(30.0)}},
 			Cities: []CityConfig{{
 				Name:     "Detroit",
-				Forecast: &ForecastConfig{Years: 30, TreatmentCycleYears: 8},
+				Forecast: &ForecastConfig{HorizonYears: 30, TreatmentCycleYears: 8},
 			}},
 		}
 	}
@@ -109,7 +109,7 @@ func TestCityHash_DeterministicInMemory(t *testing.T) {
 func TestCityHash_FormattingEditsDoNotMove(t *testing.T) {
 	edited := `# A comment that was not there before.
 [forecast]
-  years   =   25   # trailing comment
+  horizon_years   =   25   # trailing comment
 
 [grid]
 hex_edge_m = 120.0
@@ -167,16 +167,24 @@ func TestCityHash_ForecastEditsDoNotMove(t *testing.T) {
 		}
 	}
 	for name, edit := range map[string]func(string) string{
-		"decay_rate":  func(s string) string { return strings.Replace(s, "years = 25", "years = 25\ndecay_rate = 0.05", 1) },
-		"years":       func(s string) string { return strings.Replace(s, "years = 25", "years = 40", 1) },
-		"initial_pci": func(s string) string { return strings.Replace(s, "years = 25", "years = 25\ninitial_pci = 60", 1) },
-		"growth_rate": func(s string) string { return strings.Replace(s, "years = 25", "years = 25\ngrowth_rate = 0.02", 1) },
-		"treatment_cycle_years": func(s string) string {
-			return strings.Replace(s, "years = 25", "years = 25\ntreatment_cycle_years = 8", 1)
+		"decay_rate": func(s string) string {
+			return strings.Replace(s, "horizon_years = 25", "horizon_years = 25\ndecay_rate = 0.05", 1)
 		},
-		"cost_overhead": func(s string) string { return strings.Replace(s, "years = 25", "years = 25\ncost_overhead = 1.5", 1) },
+		"horizon_years": func(s string) string { return strings.Replace(s, "horizon_years = 25", "horizon_years = 40", 1) },
+		"initial_pci": func(s string) string {
+			return strings.Replace(s, "horizon_years = 25", "horizon_years = 25\ninitial_pci = 60", 1)
+		},
+		"growth_rate": func(s string) string {
+			return strings.Replace(s, "horizon_years = 25", "horizon_years = 25\ngrowth_rate = 0.02", 1)
+		},
+		"treatment_cycle_years": func(s string) string {
+			return strings.Replace(s, "horizon_years = 25", "horizon_years = 25\ntreatment_cycle_years = 8", 1)
+		},
+		"cost_overhead": func(s string) string {
+			return strings.Replace(s, "horizon_years = 25", "horizon_years = 25\ncost_overhead = 1.5", 1)
+		},
 		"current_budget": func(s string) string {
-			return strings.Replace(s, "years = 25", "years = 25\ncurrent_budget = 5000000", 1)
+			return strings.Replace(s, "horizon_years = 25", "horizon_years = 25\ncurrent_budget = 5000000", 1)
 		},
 		"cost_tiers": func(s string) string {
 			return strings.Replace(s, "[[cities]]", "[[forecast.cost_tiers]]\nmin_pci = 0\nmax_pci = 101\ncost_per_sqm = 9\nlabel = \"flat\"\n\n[[cities]]", 1)
@@ -191,7 +199,7 @@ func TestCityHash_ForecastEditsDoNotMove(t *testing.T) {
 		key, val string
 		reached  func(ForecastConfig) bool
 	}{
-		{"PVMT_FORECAST_YEARS", "40", func(f ForecastConfig) bool { return f.Years == 40 }},
+		{"PVMT_FORECAST_HORIZON_YEARS", "40", func(f ForecastConfig) bool { return f.HorizonYears == 40 }},
 		{"PVMT_FORECAST_INITIAL_PCI", "60", func(f ForecastConfig) bool { return f.InitialPCI == 60 }},
 	} {
 		t.Run(env.key, func(t *testing.T) {
@@ -215,7 +223,7 @@ hex_edge_m = 100
 
 [forecast]
 initial_pci = 85
-years = 20
+horizon_years = 20
 cost_overhead = 1.0
 growth_rate = 0
 
@@ -352,7 +360,7 @@ config_id = "leaf"
 [grid]
 hex_edge_m = 80
 [forecast]
-years = 30
+horizon_years = 30
 decay_rate = 0.04
 [[services]]
 name = "fire"
@@ -598,7 +606,7 @@ var configFieldRules = map[string]fieldRule{
 	"ForecastConfig.InitialPCI":          {simulated, func(c *Config) { c.Forecast.InitialPCI = 70 }},
 	"ForecastConfig.DecayRate":           {simulated, func(c *Config) { c.Forecast.DecayRate = 0.05 }},
 	"ForecastConfig.GrowthRate":          {simulated, func(c *Config) { c.Forecast.GrowthRate = 0.02 }},
-	"ForecastConfig.Years":               {simulated, func(c *Config) { c.Forecast.Years = 30 }},
+	"ForecastConfig.HorizonYears":        {simulated, func(c *Config) { c.Forecast.HorizonYears = 30 }},
 	"ForecastConfig.CostTiers":           {class: nested},
 	"ForecastConfig.TreatmentCycleYears": {simulated, func(c *Config) { c.Forecast.TreatmentCycleYears = 8 }},
 	"ForecastConfig.CurrentBudget":       {simulated, func(c *Config) { c.Forecast.CurrentBudget = 1e6 }},
@@ -715,7 +723,7 @@ func TestComputeInputs_EveryFieldClassified(t *testing.T) {
 func TestCityHash_PinnedValue(t *testing.T) {
 	c := &Config{
 		Services: []ServiceOverride{{Name: "fire", TurnoutS: new(60.0)}},
-		Forecast: ForecastConfig{Years: 25, CostTiers: []CostTierCfg{{MinPCI: 0, MaxPCI: 101, CostPerSqM: 10, Label: "flat"}}},
+		Forecast: ForecastConfig{HorizonYears: 25, CostTiers: []CostTierCfg{{MinPCI: 0, MaxPCI: 101, CostPerSqM: 10, Label: "flat"}}},
 		Cities: []CityConfig{{
 			Name: "Reno, NV", Overpass: true, HexEdgeM: 120,
 			Facilities: []FacilityConfig{{Service: "fire", Lat: 39.5, Lon: -119.8}},

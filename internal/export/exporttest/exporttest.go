@@ -96,10 +96,10 @@ func Store() *dbtest.MockStore {
 // here moves what internal/export/templates/__tests__ runs against.
 func ForecastConfig() config.ForecastConfig {
 	return config.ForecastConfig{
-		Years:      10,
-		InitialPCI: 85,
-		DecayRate:  1.5,
-		GrowthRate: 0.01,
+		HorizonYears: 10,
+		InitialPCI:   85,
+		DecayRate:    1.5,
+		GrowthRate:   0.01,
 		// Pinned explicitly (not left 0-to-default) so a change to
 		// DefaultTreatmentCycleYears doesn't silently move the fixture. Gates
 		// annual_need/break_even by 1/12; PCI columns are unchanged.

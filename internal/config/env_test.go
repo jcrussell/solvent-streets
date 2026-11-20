@@ -34,9 +34,9 @@ func TestEnvProblems_ReportedExactlyWhenDropped(t *testing.T) {
 			_, citySrc := c.resolveHexEdgeForCity(&CityConfig{Name: "Test", HexEdgeM: 80})
 			return src.Kind == SourceEnv && citySrc.Kind == SourceEnv
 		},
-		EnvForecastYears: func(c *Config) bool {
+		EnvForecastHorizonYears: func(c *Config) bool {
 			_, prov := c.resolveForecast(nil)
-			return prov.Years.Kind == SourceEnv
+			return prov.HorizonYears.Kind == SourceEnv
 		},
 		EnvForecastInitialPCI: func(c *Config) bool {
 			_, prov := c.resolveForecast(nil)
@@ -45,6 +45,11 @@ func TestEnvProblems_ReportedExactlyWhenDropped(t *testing.T) {
 		EnvOverpassURL: func(c *Config) bool {
 			_, src := OverpassURL(c)
 			return src.Kind == SourceEnv
+		},
+		// The old name of the horizon variable is never applied.
+		envForecastYearsRenamed: func(c *Config) bool {
+			_, prov := c.resolveForecast(nil)
+			return prov.HorizonYears.Kind == SourceEnv
 		},
 	}
 	cases := []struct {
@@ -63,13 +68,14 @@ func TestEnvProblems_ReportedExactlyWhenDropped(t *testing.T) {
 		{EnvHexEdgeM, "9.99", "must be >= 10 (hex count grows as 1/edge²)"},
 		{EnvHexEdgeM, "-5", "must be >= 10 (hex count grows as 1/edge²)"},
 
-		{EnvForecastYears, "10", ""},
-		{EnvForecastYears, "200", ""},
-		{EnvForecastYears, "lots", "is not a valid integer"},
-		{EnvForecastYears, "12.5", "is not a valid integer"},
-		{EnvForecastYears, "0", "must be between 1 and 200"},
-		{EnvForecastYears, "-5", "must be between 1 and 200"},
-		{EnvForecastYears, "201", "must be between 1 and 200"},
+		{EnvForecastHorizonYears, "10", ""},
+		{EnvForecastHorizonYears, "200", ""},
+		{EnvForecastHorizonYears, "lots", "is not a valid integer"},
+		{EnvForecastHorizonYears, "12.5", "is not a valid integer"},
+		{EnvForecastHorizonYears, "0", "must be between 1 and 200"},
+		{EnvForecastHorizonYears, "-5", "must be between 1 and 200"},
+		{EnvForecastHorizonYears, "201", "must be between 1 and 200"},
+		{envForecastYearsRenamed, "20", "is ignored: it was renamed to PVMT_FORECAST_HORIZON_YEARS"},
 
 		{EnvForecastInitialPCI, "85", ""},
 		{EnvForecastInitialPCI, "100", ""},
@@ -96,7 +102,7 @@ func TestEnvProblems_ReportedExactlyWhenDropped(t *testing.T) {
 				if len(problems) != 0 {
 					t.Errorf("EnvProblems() = %+v, want none", problems)
 				}
-			} else if len(problems) != 1 || problems[0] != (EnvProblem{Variable: tc.name, Value: tc.value, Reason: tc.reason}) {
+			} else if len(problems) != 1 || problems[0] != (EnvProblem{Variable: tc.name, Value: tc.value, Reason: tc.reason, Renamed: tc.name == envForecastYearsRenamed}) {
 				t.Errorf("EnvProblems() = %+v, want one: %s=%q %s", problems, tc.name, tc.value, tc.reason)
 			}
 			if got, want := applied[tc.name](&Config{}), tc.reason == ""; got != want {
@@ -129,7 +135,7 @@ func TestEnvProblems_UnsetAndEmptyAreSilent(t *testing.T) {
 // variables the package names: each Env* constant has exactly one rule, and
 // each is a PVMT_ variable.
 func TestEnvRules_CoverEveryOverride(t *testing.T) {
-	want := map[string]bool{EnvUnits: true, EnvHexEdgeM: true, EnvForecastYears: true, EnvForecastInitialPCI: true, EnvOverpassURL: true}
+	want := map[string]bool{EnvUnits: true, EnvHexEdgeM: true, EnvForecastHorizonYears: true, EnvForecastInitialPCI: true, EnvOverpassURL: true, envForecastYearsRenamed: true}
 	for _, r := range envRules {
 		if !strings.HasPrefix(r.name, "PVMT_") {
 			t.Errorf("rule %q is not a PVMT_ variable", r.name)
