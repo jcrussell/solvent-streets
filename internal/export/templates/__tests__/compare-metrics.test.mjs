@@ -77,3 +77,22 @@ test('Year-1 need per area divides by the year-1 area', async () => {
   const n = win.extractMetrics(noArea);
   assert.equal(n.year1PerAreaUnit, noArea.scenarios.city[0].years[0].annual_need / n.scopeAreaLarge);
 });
+
+// The horizon backlog is deferred on the network as grown to the horizon
+// year, so its per-area figure divides by that year's area.
+test('Deferred backlog per area divides by the horizon year\'s area', async () => {
+  const c = city((x) => {
+    const ys = x.scenarios.city[0].years;
+    ys[ys.length - 1].area = x.seed.city_maintained_area * 1.2;
+  });
+  const { win } = await page('?scope=city');
+  const m = win.extractMetrics(c);
+  win.applyRegionHorizon([m]);
+  const ys = c.scenarios.city[0].years;
+  const at = ys[Math.min(m.horizon, ys.length) - 1];
+  assert.equal(at, ys[ys.length - 1], 'fixture horizon is not its last year');
+  assert.ok(at.deferred_backlog > 0, 'fixture has no horizon backlog');
+  const want = at.deferred_backlog / win.toAreaLarge(at.area);
+  assert.ok(Math.abs(m.horizonBacklogPerAreaUnit - want) < 1e-9 * want, `${m.horizonBacklogPerAreaUnit} != ${want}`);
+  assert.ok(Math.abs(want - at.deferred_backlog / m.scopeAreaLarge) > 1e-3 * want, 'fixture cannot tell the two areas apart');
+});

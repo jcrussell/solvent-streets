@@ -2375,7 +2375,10 @@
                 const at = m.hasForecasts ? yearAtHorizon(m.baselineYears, horizon) : null;
                 m.horizonNeed = at ? (at.annual_need || 0) : 0;
                 m.horizonBacklog = at ? (at.deferred_backlog || 0) : 0;
-                m.horizonBacklogPerAreaUnit = m.scopeAreaLarge > 0 ? m.horizonBacklog / m.scopeAreaLarge : 0;
+                // The backlog is over the area of the year it belongs to (the
+                // network grown to that year), else the scope's maintained area.
+                m.horizonAreaLarge = at && at.area > 0 ? toAreaLarge(at.area) : m.scopeAreaLarge;
+                m.horizonBacklogPerAreaUnit = m.horizonAreaLarge > 0 ? m.horizonBacklog / m.horizonAreaLarge : 0;
                 m.shortSeriesYears = (at && m.baselineYears.length < horizon) ? m.baselineYears.length : 0;
             });
             return horizon;
@@ -5055,7 +5058,7 @@
                 // the need): per area, so size alone does not win (raw dollars
                 // made the smallest city "Least Deferred"). A city whose
                 // forecast stops short of the horizon is flagged on its row.
-                { key: 'horizonBacklogPerAreaUnit', needs: ['roads', 'parking', 'sidewalks'],  rowNote: function(m) { return perAreaNote(m) + shortSeriesNote(m); }, note: PER_AREA_TIP, label: compareHorizon + '-Year Deferred Backlog per ' + areaLargeUnitSingular(), award: 'Least Deferred per ' + areaLargeUnitSingular(), higher: false, fmt: function(v) { return fmtMoney(v); }, color: '#d946ef' },
+                { key: 'horizonBacklogPerAreaUnit', needs: ['roads', 'parking', 'sidewalks'],  rowNote: function(m) { return perAreaNote(m, m.horizonAreaLarge) + shortSeriesNote(m); }, note: PER_AREA_TIP, label: compareHorizon + '-Year Deferred Backlog per ' + areaLargeUnitSingular(), award: 'Least Deferred per ' + areaLargeUnitSingular(), higher: false, fmt: function(v) { return fmtMoney(v); }, color: '#d946ef' },
                 // Roads-only solvency metrics. filter excludes cities that lack
                 // the metric (no cited budget / no roads) so a null value never
                 // produces a NaN sort key or a corrupt bar width.
