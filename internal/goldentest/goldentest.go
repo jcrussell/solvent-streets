@@ -7,9 +7,11 @@ package goldentest
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -74,4 +76,15 @@ func RepoRoot(tb testing.TB) string {
 		}
 		dir = parent
 	}
+}
+
+// Sig6 rounds v to 6 significant digits, so a golden of computed floats
+// pins the numbers without churning on last-digit noise (a reassociated sum,
+// a new Go release).
+func Sig6(v float64) float64 {
+	r, err := strconv.ParseFloat(fmt.Sprintf("%.6g", v), 64)
+	if err != nil {
+		return v
+	}
+	return r
 }

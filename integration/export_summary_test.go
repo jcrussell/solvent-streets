@@ -4,9 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"path/filepath"
-	"strconv"
 	"testing"
 
 	"github.com/jcrussell/solvent-streets/internal/config"
@@ -114,11 +112,11 @@ func (s summarySeries) summary(file, scope, resource string) map[string]any {
 	for _, y := range s.Years {
 		spend += y.AnnualSpend
 	}
-	m["pci_first"] = sig6(first.PCI)
-	m["pci_last"] = sig6(last.PCI)
-	m["area_first"] = sig6(first.Area)
-	m["spend_total"] = sig6(spend)
-	m["backlog_last"] = sig6(last.DeferredBacklog)
+	m["pci_first"] = goldentest.Sig6(first.PCI)
+	m["pci_last"] = goldentest.Sig6(last.PCI)
+	m["area_first"] = goldentest.Sig6(first.Area)
+	m["spend_total"] = goldentest.Sig6(spend)
+	m["backlog_last"] = goldentest.Sig6(last.DeferredBacklog)
 	return m
 }
 
@@ -144,19 +142,10 @@ func writeLine(t *testing.T, buf *bytes.Buffer, m map[string]any) {
 	buf.WriteByte('\n')
 }
 
-// sig6 rounds to 6 significant digits.
-func sig6(v float64) float64 {
-	r, err := strconv.ParseFloat(fmt.Sprintf("%.6g", v), 64)
-	if err != nil {
-		return v
-	}
-	return r
-}
-
 func sig6Ptr(v *float64) *float64 {
 	if v == nil {
 		return nil
 	}
-	r := sig6(*v)
+	r := goldentest.Sig6(*v)
 	return &r
 }

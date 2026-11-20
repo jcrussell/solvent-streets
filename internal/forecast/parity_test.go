@@ -12,9 +12,11 @@ import (
 // TestSimulateParity locks down the output of forecast.Simulate against a
 // committed golden so a refactor that changes simulation semantics breaks
 // both the CLI and the WASM forecast (internal/forecast/bridge.Run calls
-// the same Simulate). There is no -update flag: a mismatch prints the diff
-// and the `cp -f` that accepts it (internal/goldentest); read the diff line
-// by line before running it.
+// the same Simulate). Every float is rounded to 6 significant digits first,
+// so the golden moves when a number moves, not when a sum is reassociated.
+// There is no -update flag: a mismatch prints the diff and the `cp -f` that
+// accepts it (internal/goldentest); read the diff line by line before
+// running it.
 func TestSimulateParity(t *testing.T) {
 	scenario := forecast.Scenario{
 		Name:         "parity-scenario",
@@ -37,7 +39,7 @@ func TestSimulateParity(t *testing.T) {
 	// real WASM/CLI contract under treatment-cycle gating.
 	params := forecast.NewParams(0.01, costTiers, 12, 1)
 
-	result := forecast.Simulate(scenario, cohorts, 10, params)
+	result := roundSig6(forecast.Simulate(scenario, cohorts, 10, params))
 
 	got, err := json.MarshalIndent(result, "", "  ")
 	if err != nil {
@@ -46,4 +48,26 @@ func TestSimulateParity(t *testing.T) {
 	got = append(got, '\n')
 
 	goldentest.Check(t, filepath.Join("testdata", "parity_output.json"), got)
+}
+
+// roundSig6 rounds every float in r to 6 significant digits.
+func roundSig6(r forecast.ScenarioResult) forecast.ScenarioResult {
+	r.Scenario.AnnualBudget = goldentest.Sig6(r.Scenario.AnnualBudget)
+	for i := range r.Years {
+		y := &r.Years[i]
+		y.PCI = goldentest.Sig6(y.PCI)
+		y.Area = goldentest.Sig6(y.Area)
+		y.AnnualNeed = goldentest.Sig6(y.AnnualNeed)
+		y.AnnualSpend = goldentest.Sig6(y.AnnualSpend)
+		y.DeferredBacklog = goldentest.Sig6(y.DeferredBacklog)
+	}
+	for i := range r.FinalCohorts {
+		c := &r.FinalCohorts[i]
+		c.EndPCI = goldentest.Sig6(c.EndPCI)
+		c.Area = goldentest.Sig6(c.Area)
+		c.DecayRate = goldentest.Sig6(c.DecayRate)
+		c.TotalSpend = goldentest.Sig6(c.TotalSpend)
+		c.TotalDeficit = goldentest.Sig6(c.TotalDeficit)
+	}
+	return r
 }
