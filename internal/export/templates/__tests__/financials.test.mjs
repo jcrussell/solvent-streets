@@ -197,7 +197,7 @@ test('the custom scenario, not the baseline, has the last word on the tiles', as
   win.simulateForecast = (json) => {
     const input = JSON.parse(json);
     return JSON.stringify({
-      scenario: { name: 'custom', strategy: 0 },
+      scenario: { name: 'custom', strategy: input.strategy },
       years: [{ year: 1, pci: 60, area: input.area, annual_need: 99_000_000, annual_spend: 99_000_000, deferred_backlog: 0, cost_tier: 'rehab' }],
       final_cohorts: [],
     });

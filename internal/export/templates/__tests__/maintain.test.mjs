@@ -20,7 +20,7 @@ function refSim(input) {
   }
   if (input.scenarios) {
     out.scenarios = ['baseline', 'fund-25pct', 'fund-50pct', 'fund-100pct'].map((name, i) => ({
-      scenario: { name, label: name, strategy: i === 0 ? 0 : 1 },
+      scenario: { name, label: name, strategy: i === 0 ? 'do_nothing' : 'worst_first' },
       years: [{ year: 1, pci: 11 + i, annual_need: 1, annual_spend: 0, deferred_backlog: 0, cost_tier: 'rehab', area: 1 }],
     }));
   }

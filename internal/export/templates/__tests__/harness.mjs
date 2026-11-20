@@ -200,7 +200,7 @@ export function defaultSimulate(input) {
     });
   }
   return {
-    scenario: { name: 'custom', strategy: 0 },
+    scenario: { name: 'custom', strategy: input.strategy ?? 'worst_first' },
     years,
     final_cohorts: (input.cohorts ?? []).map((c) => ({
       classification: c.classification ?? 'residential',

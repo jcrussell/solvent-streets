@@ -511,6 +511,7 @@ func roundMaterials(m forecast.MaterialQuantities) forecast.MaterialQuantities {
 }
 
 func roundScenarioResult(r forecast.ScenarioResult) forecast.ScenarioResult {
+	r.Scenario.AnnualBudget = roundMoney(r.Scenario.AnnualBudget)
 	years := make([]forecast.ScenarioYear, len(r.Years))
 	for i, y := range r.Years {
 		y.PCI = forecast.EmittedPCI(y.PCI)

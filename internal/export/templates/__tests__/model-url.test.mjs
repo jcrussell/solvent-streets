@@ -36,7 +36,7 @@ function model(win) {
 const SEED_PCI = Math.round(seedJSON.initial_pci);
 const SEED_COST = seedJSON.cost_multiplier > 0 ? seedJSON.cost_multiplier : 1;
 const SEED_TIERS = seedJSON.cost_tiers.map((t) => ({ min_pci: t.min_pci, max_pci: t.max_pci, cost_per_sqm: t.cost_per_sqm }));
-const seedModel = { strategy: 'worst-first', initial_pci: SEED_PCI, cost_multiplier: SEED_COST, cost_tiers: SEED_TIERS };
+const seedModel = { strategy: 'worst_first', initial_pci: SEED_PCI, cost_multiplier: SEED_COST, cost_tiers: SEED_TIERS };
 const PCI = SEED_PCI === 60 ? 61 : 60;
 const COST = SEED_COST === 1.5 ? 2 : 1.5;
 
@@ -52,7 +52,7 @@ function type(win, sel, value) {
 
 // setByHand moves every model control off the seed.
 function setByHand(win) {
-  win.document.querySelector('#strategy-buttons button[data-strategy="preventive-first"]').click();
+  win.document.querySelector('#strategy-buttons button[data-strategy="preventive_first"]').click();
   type(win, '#pci-slider', String(PCI));
   type(win, '#multiplier-slider', String(COST));
   type(win, '#tier-inputs [data-tier="0"][data-field="cost_per_sqm"]', '7.25');
@@ -71,16 +71,23 @@ test('the seed\'s settings are not written to the URL', async () => {
 });
 
 test('a linked setting equal to the seed is tidied out of the URL', async () => {
-  const { win } = await ready('&strategy=worst-first&pci=' + SEED_PCI + '&cost=' + SEED_COST);
+  const { win } = await ready('&strategy=worst_first&pci=' + SEED_PCI + '&cost=' + SEED_COST);
   assert.deepEqual(model(win), seedModel);
   assert.deepEqual(modelParams(win), [null, null, null, null]);
+});
+
+test('a kebab-case ?strategy= reads as its snake_case name', async () => {
+  const { win, $ } = await ready('&strategy=preventive-first');
+  assert.equal(model(win).strategy, 'preventive_first');
+  assert.ok($('#strategy-buttons button[data-strategy="preventive_first"]').classList.contains('active'));
+  assert.equal(params(win).get('strategy'), 'preventive_first');
 });
 
 test('a reload of the URL reproduces the forecast set by hand', async () => {
   const { win } = await ready();
   setByHand(win);
   const byHand = model(win);
-  assert.equal(byHand.strategy, 'preventive-first');
+  assert.equal(byHand.strategy, 'preventive_first');
   assert.equal(byHand.initial_pci, PCI);
   assert.equal(byHand.cost_multiplier, COST);
   assert.equal(byHand.cost_tiers[0].max_pci, Math.min(100, SEED_TIERS[0].max_pci) - 1);
@@ -89,7 +96,7 @@ test('a reload of the URL reproduces the forecast set by hand', async () => {
 
   const reloaded = await ready(win.location.search.replace(/^\?/, '&'));
   assert.deepEqual(model(reloaded.win), byHand, 'the reloaded link simulates a different forecast');
-  assert.ok(reloaded.$('#strategy-buttons button[data-strategy="preventive-first"]').classList.contains('active'));
+  assert.ok(reloaded.$('#strategy-buttons button[data-strategy="preventive_first"]').classList.contains('active'));
   assert.equal(reloaded.$('#pci-value').textContent, String(PCI));
   assert.deepEqual(modelParams(reloaded.win), modelParams(win), 'the boot dropped linked settings from the URL');
 });
@@ -132,7 +139,7 @@ test('a city switch resets the settings to the new city\'s seed and drops them f
   await flush();
   assert.deepEqual(model(win), seedModel);
   assert.deepEqual(modelParams(win), [null, null, null, null]);
-  assert.ok($('#strategy-buttons button[data-strategy="worst-first"]').classList.contains('active'));
+  assert.ok($('#strategy-buttons button[data-strategy="worst_first"]').classList.contains('active'));
 });
 
 test('malformed settings are ignored and fall back to the seed', async () => {
@@ -153,14 +160,14 @@ test('back/forward restores the settings of the history entry', async () => {
   const city = params(win).get('city');
   const tiers = SEED_TIERS.map((t) => t.min_pci + '-' + t.max_pci + ':' + t.cost_per_sqm * 2).join(',');
   win.dispatchEvent(new win.PopStateEvent('popstate', {
-    state: { city, tab: 'financials-tab', tags: {}, strategy: 'preventive-first', pci: String(PCI), cost: String(COST), tiers },
+    state: { city, tab: 'financials-tab', tags: {}, strategy: 'preventive_first', pci: String(PCI), cost: String(COST), tiers },
   }));
   await flush();
   assert.deepEqual(model(win), {
-    strategy: 'preventive-first', initial_pci: PCI, cost_multiplier: COST,
+    strategy: 'preventive_first', initial_pci: PCI, cost_multiplier: COST,
     cost_tiers: SEED_TIERS.map((t) => ({ ...t, cost_per_sqm: t.cost_per_sqm * 2 })),
   });
-  assert.ok($('#strategy-buttons button[data-strategy="preventive-first"]').classList.contains('active'));
+  assert.ok($('#strategy-buttons button[data-strategy="preventive_first"]').classList.contains('active'));
 
   win.dispatchEvent(new win.PopStateEvent('popstate', { state: { city, tab: 'financials-tab', tags: {} } }));
   await flush();
@@ -170,12 +177,12 @@ test('back/forward restores the settings of the history entry', async () => {
 test('back/forward to another city applies the entry\'s settings over that city\'s seed', async () => {
   const { win, flush } = await ready();
   win.dispatchEvent(new win.PopStateEvent('popstate', {
-    state: { city: 'beta-ca', tab: 'financials-tab', tags: {}, strategy: 'preventive-first', pci: String(PCI) },
+    state: { city: 'beta-ca', tab: 'financials-tab', tags: {}, strategy: 'preventive_first', pci: String(PCI) },
   }));
   await flush();
   assert.equal(params(win).get('city') || win.document.getElementById('city-select').value, 'beta-ca');
   const m = model(win);
-  assert.equal(m.strategy, 'preventive-first');
+  assert.equal(m.strategy, 'preventive_first');
   assert.equal(m.initial_pci, PCI);
 });
 

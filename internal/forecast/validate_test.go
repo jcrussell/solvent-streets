@@ -201,7 +201,7 @@ func surfaceVerdicts(t *testing.T, in forecast.Inputs) map[string]bool {
 		GrowthRate:     in.GrowthRate,
 		HorizonYears:   int(in.Years),
 		AnnualBudget:   in.Budget,
-		Strategy:       "worst-first",
+		Strategy:       "worst_first",
 		CycleYears:     in.CycleYears,
 		CostMultiplier: in.CostMultiplier,
 		CostTiers:      in.CostTiers,
@@ -273,7 +273,7 @@ func TestForecastBounds_ExportedSeedRunsInTheBrowser(t *testing.T) {
 	if err := fc.Validate(); err != nil {
 		t.Fatalf("config rejects forecast.horizon_years = %d: %v", fc.HorizonYears, err)
 	}
-	raw, err := json.Marshal(bridge.Input{Area: 1000, InitialPCI: 80, HorizonYears: fc.HorizonYears, Strategy: "worst-first"})
+	raw, err := json.Marshal(bridge.Input{Area: 1000, InitialPCI: 80, HorizonYears: fc.HorizonYears, Strategy: "worst_first"})
 	if err != nil {
 		t.Fatal(err)
 	}

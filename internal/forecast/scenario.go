@@ -1,12 +1,15 @@
 package forecast
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"math"
 	"strings"
 )
 
-// Strategy determines how maintenance budget is allocated.
+// Strategy determines how maintenance budget is allocated. In JSON it is its
+// snake_case name ("worst_first"); see MarshalText and UnmarshalJSON.
 type Strategy int
 
 const (
@@ -15,40 +18,93 @@ const (
 	StrategyPreventiveFirst          // prioritize highest-PCI segments (preventive first)
 )
 
-func (s Strategy) String() string {
-	switch s {
-	case StrategyDoNothing:
-		return "do-nothing"
-	case StrategyWorstFirst:
-		return "worst-first"
-	case StrategyPreventiveFirst:
-		return "preventive-first"
-	default:
-		return fmt.Sprintf("strategy(%d)", int(s))
-	}
+// strategyNames are the strategies' names, indexed by Strategy.
+var strategyNames = [...]string{
+	StrategyDoNothing:       "do_nothing",
+	StrategyWorstFirst:      "worst_first",
+	StrategyPreventiveFirst: "preventive_first",
 }
 
-// ParseStrategy converts a string to a Strategy.
-func ParseStrategy(s string) (Strategy, error) {
-	switch strings.ToLower(strings.TrimSpace(s)) {
-	case "do-nothing", "donothing":
-		return StrategyDoNothing, nil
-	case "worst-first", "worstfirst":
-		return StrategyWorstFirst, nil
-	case "preventive-first", "preventivefirst":
-		return StrategyPreventiveFirst, nil
-	default:
-		return 0, fmt.Errorf("unknown strategy: %q", s)
+func (s Strategy) String() string {
+	if s >= 0 && int(s) < len(strategyNames) {
+		return strategyNames[s]
 	}
+	return fmt.Sprintf("strategy(%d)", int(s))
+}
+
+// ParseStrategy converts a strategy name to a Strategy. It takes the
+// snake_case name, and also the kebab-case ("worst-first") and run-together
+// ("worstfirst") spellings, in any case.
+func ParseStrategy(s string) (Strategy, error) {
+	key := strings.ToLower(strings.TrimSpace(s))
+	key = strings.ReplaceAll(key, "-", "_")
+	for i, name := range strategyNames {
+		if key == name || key == strings.ReplaceAll(name, "_", "") {
+			return Strategy(i), nil
+		}
+	}
+	return 0, fmt.Errorf("unknown strategy %q", s)
+}
+
+// MarshalText writes the strategy's name.
+func (s Strategy) MarshalText() ([]byte, error) {
+	if s < 0 || int(s) >= len(strategyNames) {
+		return nil, fmt.Errorf("unknown strategy %d", int(s))
+	}
+	return []byte(strategyNames[s]), nil
+}
+
+// UnmarshalText reads any spelling ParseStrategy takes.
+func (s *Strategy) UnmarshalText(b []byte) error {
+	v, err := ParseStrategy(string(b))
+	if err != nil {
+		return err
+	}
+	*s = v
+	return nil
+}
+
+// UnmarshalJSON reads a strategy name, or the integer a file written before
+// strategies were named holds (0 do-nothing, 1 worst-first, 2 preventive-first).
+// Any other value is an unknown strategy.
+func (s *Strategy) UnmarshalJSON(b []byte) error {
+	var name string
+	if err := json.Unmarshal(b, &name); err == nil {
+		return s.UnmarshalText([]byte(name))
+	}
+	var n int
+	if err := json.Unmarshal(b, &n); err != nil || n < 0 || n >= len(strategyNames) {
+		return fmt.Errorf("unknown strategy %s", bytes.TrimSpace(b))
+	}
+	*s = Strategy(n)
+	return nil
 }
 
 // Scenario describes a maintenance funding scenario.
 type Scenario struct {
-	Name         string   `json:"name"`
-	Label        string   `json:"label"`
+	Name  string `json:"name"`
+	Label string `json:"label"`
+	// AnnualBudget is the yearly spend. It does not apply to a do-nothing or
+	// full-funding scenario, and MarshalJSON omits it there.
 	AnnualBudget float64  `json:"annual_budget"`
 	FullFunding  bool     `json:"full_funding,omitempty"`
 	Strategy     Strategy `json:"strategy"`
+}
+
+// MarshalJSON writes the scenario, leaving annual_budget out where it does
+// not apply (a do-nothing or full-funding scenario).
+func (s Scenario) MarshalJSON() ([]byte, error) {
+	var budget *float64
+	if s.Strategy != StrategyDoNothing && !s.FullFunding {
+		budget = &s.AnnualBudget
+	}
+	return json.Marshal(struct {
+		Name         string   `json:"name"`
+		Label        string   `json:"label"`
+		AnnualBudget *float64 `json:"annual_budget,omitempty"`
+		FullFunding  bool     `json:"full_funding,omitempty"`
+		Strategy     Strategy `json:"strategy"`
+	}{s.Name, s.Label, budget, s.FullFunding, s.Strategy})
 }
 
 // ScenarioYear holds the projected state for a single year within a scenario.

@@ -57,12 +57,11 @@ type binding struct {
 // city_baseline and scenarios[]).
 func seriesBindings(prefix string) []binding {
 	b := []binding{{prefix, []string{"object"}}}
-	for _, k := range []string{"scenario.name", "scenario.label"} {
+	for _, k := range []string{"scenario.name", "scenario.label", "scenario.strategy"} {
 		b = append(b, binding{prefix + "." + k, []string{"string"}})
 	}
-	for _, k := range []string{"scenario.annual_budget", "scenario.strategy"} {
-		b = append(b, binding{prefix + "." + k, []string{"number"}})
-	}
+	// A do-nothing or full-funding scenario has no budget.
+	b = append(b, binding{prefix + ".scenario.annual_budget", []string{"number", "absent"}})
 	b = append(b, binding{prefix + ".years[]", []string{"object"}})
 	for _, k := range []string{"year", "pci", "area", "annual_need", "annual_spend", "deferred_backlog"} {
 		b = append(b, binding{prefix + ".years[]." + k, []string{"number"}})

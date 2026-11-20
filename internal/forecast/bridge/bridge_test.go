@@ -18,7 +18,7 @@ func TestTranslateExplicitCohorts(t *testing.T) {
 		GrowthRate:   0.01,
 		HorizonYears: 5,
 		AnnualBudget: 500_000,
-		Strategy:     "worst-first",
+		Strategy:     "worst_first",
 		CostTiers: []forecast.CostTier{
 			{MinPCI: 0, MaxPCI: 50, CostPerSqM: 40, Label: "recon"},
 		},
@@ -111,7 +111,7 @@ func TestTranslateNoCohortsDefaultFallback(t *testing.T) {
 		InitialPCI:   70,
 		DecayRate:    0,
 		HorizonYears: 3,
-		Strategy:     "do-nothing",
+		Strategy:     "do_nothing",
 	}
 
 	scenario, cohorts, _, _, err := Translate(in)
@@ -144,7 +144,7 @@ func TestTranslateNoCohortsDefaultFallback(t *testing.T) {
 
 func TestTranslateNoCohortsExplicitDecay(t *testing.T) {
 	// A positive DecayRate must be preserved (no fallback).
-	in := Input{Area: 100, DecayRate: 0.07, HorizonYears: 1, Strategy: "do-nothing"}
+	in := Input{Area: 100, DecayRate: 0.07, HorizonYears: 1, Strategy: "do_nothing"}
 	_, cohorts, _, _, err := Translate(in)
 	if err != nil {
 		t.Fatalf("Translate: %v", err)
@@ -162,7 +162,7 @@ func TestTranslateExplicitCohortsDefaultDecay(t *testing.T) {
 	in := Input{
 		InitialPCI:   80,
 		HorizonYears: 2,
-		Strategy:     "do-nothing",
+		Strategy:     "do_nothing",
 		Cohorts: []Cohort{
 			{Classification: "primary", Area: 1000, DecayRate: 0}, // zero → default
 			{Classification: "residential", Area: 2000, DecayRate: 0.03},
@@ -182,8 +182,10 @@ func TestTranslateExplicitCohortsDefaultDecay(t *testing.T) {
 }
 
 func TestTranslateInvalidStrategy(t *testing.T) {
-	if _, _, _, _, err := Translate(Input{HorizonYears: 1, Strategy: "worst-first"}); err != nil {
-		t.Fatalf("valid strategy returned error: %v", err)
+	for _, name := range []string{"worst_first", "worst-first"} {
+		if _, _, _, _, err := Translate(Input{HorizonYears: 1, Strategy: name}); err != nil {
+			t.Fatalf("valid strategy %q returned error: %v", name, err)
+		}
 	}
 	_, _, _, _, err := Translate(Input{HorizonYears: 1, Strategy: "definitely-not-a-strategy"})
 	if err == nil {
@@ -196,16 +198,16 @@ func TestTranslateInvalidStrategy(t *testing.T) {
 // make([]float64, years)), via both Translate and the Run envelope path.
 func TestTranslateYearsBounds(t *testing.T) {
 	for _, years := range []int{0, -5, 100000} {
-		if _, _, _, _, err := Translate(Input{HorizonYears: years, Strategy: "do-nothing"}); err == nil {
+		if _, _, _, _, err := Translate(Input{HorizonYears: years, Strategy: "do_nothing"}); err == nil {
 			t.Errorf("Translate(Years=%d): expected error, got nil", years)
 		}
-		raw, _ := json.Marshal(Input{HorizonYears: years, Strategy: "do-nothing"})
+		raw, _ := json.Marshal(Input{HorizonYears: years, Strategy: "do_nothing"})
 		if _, err := Run(raw); err == nil {
 			t.Errorf("Run(Years=%d): expected error envelope, got nil", years)
 		}
 	}
 	// A sane Years still passes.
-	if _, _, _, _, err := Translate(Input{HorizonYears: 10, Strategy: "do-nothing"}); err != nil {
+	if _, _, _, _, err := Translate(Input{HorizonYears: 10, Strategy: "do_nothing"}); err != nil {
 		t.Errorf("Translate(Years=10): unexpected error %v", err)
 	}
 }
@@ -218,7 +220,7 @@ func TestTranslateNonFiniteInputs(t *testing.T) {
 	base := func() Input {
 		return Input{
 			Area: 750_000, InitialPCI: 75, DecayRate: 0.04, GrowthRate: 0.01,
-			HorizonYears: 10, AnnualBudget: 1_000_000, Strategy: "do-nothing",
+			HorizonYears: 10, AnnualBudget: 1_000_000, Strategy: "do_nothing",
 		}
 	}
 	cases := map[string]func(*Input){
@@ -266,7 +268,7 @@ func TestRunEndToEnd(t *testing.T) {
 		GrowthRate:   0.01,
 		HorizonYears: 10,
 		AnnualBudget: 1_000_000,
-		Strategy:     "worst-first",
+		Strategy:     "worst_first",
 		CostTiers: []forecast.CostTier{
 			{MinPCI: 0, MaxPCI: 40, CostPerSqM: 50, Label: "reconstruction"},
 			{MinPCI: 40, MaxPCI: 70, CostPerSqM: 15, Label: "rehabilitation"},
@@ -405,7 +407,7 @@ func TestJSONKeyContract(t *testing.T) {
 // blank ones are wrong by everything.
 func TestRun_MissingCostMultiplierPricesBareNotZero(t *testing.T) {
 	base := `{"area":1000000,"initial_pci":70,"decay_rate":0.04,"horizon_years":3,
-	          "treatment_cycle_years":12,"annual_budget":0,"strategy":"do-nothing"}`
+	          "treatment_cycle_years":12,"annual_budget":0,"strategy":"do_nothing"}`
 
 	out, err := Run([]byte(base))
 	if err != nil {
@@ -451,7 +453,7 @@ func TestRun_MissingCostMultiplierPricesBareNotZero(t *testing.T) {
 // rather than clamped — clamping it to bare would hide the mistake.
 func TestRun_NegativeCostMultiplierIsRejected(t *testing.T) {
 	in := `{"area":1000,"initial_pci":70,"decay_rate":0.04,"horizon_years":1,
-	        "annual_budget":0,"strategy":"do-nothing","cost_multiplier":-1}`
+	        "annual_budget":0,"strategy":"do_nothing","cost_multiplier":-1}`
 	if _, err := Run([]byte(in)); err == nil {
 		t.Error("a negative cost_multiplier was accepted; want a validation error")
 	}
@@ -463,7 +465,7 @@ func TestRun_NegativeCostMultiplierIsRejected(t *testing.T) {
 func TestRun_Solvency(t *testing.T) {
 	in := Input{
 		Area: 750_000, InitialPCI: 60, DecayRate: 0.04, HorizonYears: 20,
-		AnnualBudget: 100_000, Strategy: "worst-first", Solvency: true,
+		AnnualBudget: 100_000, Strategy: "worst_first", Solvency: true,
 	}
 	raw, _ := json.Marshal(in)
 	out, err := Run(raw)
@@ -504,7 +506,7 @@ func TestRun_Solvency(t *testing.T) {
 // final-cohort row per class like the custom run. Without it nothing leaks.
 func TestRun_Scenarios(t *testing.T) {
 	in := Input{
-		InitialPCI: 70, HorizonYears: 20, Strategy: "worst-first", Scenarios: true,
+		InitialPCI: 70, HorizonYears: 20, Strategy: "worst_first", Scenarios: true,
 		Cohorts: []Cohort{
 			{Classification: "residential", Area: 500_000, DecayRate: 0.04},
 			{Classification: "secondary", Area: 200_000, DecayRate: 0.03},
@@ -553,7 +555,7 @@ func TestRun_SidewalkCohortsPricedAtTheSidewalkRate(t *testing.T) {
 	run := func(resourceType string) float64 {
 		t.Helper()
 		in := fmt.Sprintf(`{"area":2000,"initial_pci":70,"horizon_years":3,"treatment_cycle_years":12,
-			"cost_multiplier":1,"annual_budget":0,"strategy":"do-nothing",
+			"cost_multiplier":1,"annual_budget":0,"strategy":"do_nothing",
 			"cohorts":[{"resource_type":%q,"classification":"sidewalks","area":2000,"decay_rate":0.025}]}`, resourceType)
 		out, err := Run([]byte(in))
 		if err != nil {
@@ -585,7 +587,7 @@ func TestRun_SidewalkCohortsPricedAtTheSidewalkRate(t *testing.T) {
 // the expected price here is worked out from the tiers alone.
 func TestTranslate_CostMultiplierReachesTheProjectorOnce(t *testing.T) {
 	const area, pci = 1000.0, 55.0
-	base := Input{Area: area, InitialPCI: 70, HorizonYears: 1, Strategy: "do-nothing"}
+	base := Input{Area: area, InitialPCI: 70, HorizonYears: 1, Strategy: "do_nothing"}
 	bare := (&forecast.TieredCostProjector{}).ProjectCost(area, pci)
 	if bare <= 0 {
 		t.Fatalf("bare cost = %g, want > 0", bare)
@@ -616,7 +618,7 @@ func TestTranslate_CostMultiplierReachesTheProjectorOnce(t *testing.T) {
 // payload's cost_tiers decode straight into the forecast's own tier type and
 // reach the projector unchanged.
 func TestInput_CostTiersDecodeAsForecastTiers(t *testing.T) {
-	raw := `{"area":1000,"initial_pci":70,"horizon_years":1,"strategy":"do-nothing",
+	raw := `{"area":1000,"initial_pci":70,"horizon_years":1,"strategy":"do_nothing",
 	         "cost_tiers":[{"min_pci":70,"max_pci":101,"cost_per_sqm":7,"label":"Good"},
 	                       {"min_pci":0,"max_pci":70,"cost_per_sqm":90,"label":"Poor"}]}`
 	var in Input

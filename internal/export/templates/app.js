@@ -260,8 +260,9 @@
         // pending, the URL serializes it rather than the controls, which still
         // describe the seed or the previous city. A city switch pends the
         // empty model: the new city starts from its own seed.
-        const STRATEGIES = ['worst-first', 'preventive-first'];
-        const DEFAULT_STRATEGY = 'worst-first';
+        // The strategies' names are forecast.Strategy's (snake_case).
+        const STRATEGIES = ['worst_first', 'preventive_first'];
+        const DEFAULT_STRATEGY = 'worst_first';
         let currentStrategy = DEFAULT_STRATEGY;
         /** @typedef {{min_pci: number, max_pci: number, cost_per_sqm: number}} TierSetting */
         /** @typedef {{strategy: string | null, pci: number | null, cost: number | null, tiers: TierSetting[] | null}} ModelSettings */
@@ -302,12 +303,15 @@
         }
 
         // parseModel reads the model settings from a URL state, dropping any
-        // malformed value (it falls back to the seed).
+        // malformed value (it falls back to the seed). A kebab-case strategy
+        // (?strategy=preventive-first) reads as its snake_case name, so older
+        // links still apply.
         /** @param {{strategy?: string | null, pci?: string | null, cost?: string | null, tiers?: string | null}} s @returns {ModelSettings} */
         function parseModel(s) {
             const pci = paramNum(s.pci), cost = paramNum(s.cost);
+            const strategy = s.strategy ? String(s.strategy).replace(/-/g, '_') : null;
             return {
-                strategy: s.strategy && STRATEGIES.includes(s.strategy) ? s.strategy : null,
+                strategy: strategy && STRATEGIES.includes(strategy) ? strategy : null,
                 pci: pci >= 0 && pci <= 100 ? Math.round(pci) : null,
                 cost: cost > 0 && cost <= COST_MAX ? cost : null,
                 tiers: parseTiers(s.tiers),
@@ -2423,14 +2427,14 @@
         }
 
         // findBaseline is the no-intervention scenario of a scope's set: the
-        // entry whose strategy is do-nothing (0) or whose name is 'baseline' or
-        // 'do-nothing'. compare.json keeps only that scenario per scope,
+        // entry whose strategy is 'do_nothing' or whose name is 'baseline'.
+        // compare.json keeps only that scenario per scope,
         // stripped to its years, so a set whose entries carry no scenario
         // metadata is its first entry. null when the set has no baseline.
         function findBaseline(scenarios) {
             if (!scenarios || scenarios.length === 0) return null;
             const marked = scenarios.find(s => s.scenario &&
-                (s.scenario.strategy === 0 || s.scenario.name === 'do-nothing' || s.scenario.name === 'baseline'));
+                (s.scenario.strategy === 'do_nothing' || s.scenario.name === 'baseline'));
             if (marked) return marked;
             return scenarios.some(s => s.scenario) ? null : scenarios[0];
         }
@@ -4012,7 +4016,7 @@
                 cost_tiers: FORECAST_SEED.cost_tiers || [],
                 cost_multiplier: Number(FORECAST_SEED.cost_multiplier) > 0 ? Number(FORECAST_SEED.cost_multiplier) : 1,
                 annual_budget: 0,
-                strategy: 'worst-first',
+                strategy: 'worst_first',
                 cohorts: cohorts,
                 scenarios: true,
             };
@@ -4173,7 +4177,7 @@
         // simulates (the seeded cohorts of the active scope) steady at the live
         // settings: the slider's "Hold steady" anchor.
         function holdSteadyBudget(input) {
-            const r = memoSolvency(holdCache, Object.assign({}, input, { annual_budget: 0, strategy: 'worst-first' }));
+            const r = memoSolvency(holdCache, Object.assign({}, input, { annual_budget: 0, strategy: 'worst_first' }));
             return r && r.break_even_budget > 0 ? r.break_even_budget : 0;
         }
 
@@ -4197,7 +4201,7 @@
                 cohorts: cohorts,
                 area: cohorts.reduce((sum, c) => sum + (c.area || 0), 0),
                 annual_budget: current,
-                strategy: 'worst-first',
+                strategy: 'worst_first',
             }));
             if (!r || !(r.break_even_budget > 0)) return null;
             return {

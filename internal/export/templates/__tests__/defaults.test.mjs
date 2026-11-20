@@ -98,7 +98,7 @@ test('Financials and Materials plot whatever scenarios the set describes', async
   const all = scenarios.city.map((s) => s.scenario.label);
   const pci = win.__charts.find((c) => c.options?.scales?.y?.max === 100);
   assert.deepEqual(pci.data.datasets.map((d) => d.label), all);
-  // Cumulative Spending leaves the baseline (strategy 0) out, whatever its name.
+  // Cumulative Spending leaves the baseline (strategy do_nothing) out, whatever its name.
   const spending = win.__charts.filter((c) => c.config.type === 'line')
     .find((c) => c.data.datasets.length === all.length - 1);
   assert.ok(spending, 'no chart drew the funded scenarios without the baseline');
