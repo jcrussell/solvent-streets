@@ -47,11 +47,16 @@ const dollars = (text) => parseFloat(text.replace(/[$,]/g, ''));
 test('Year-1 need per acre divides the city-scope need by the city-maintained area', async () => {
   // A city that maintains a tenth of the pavement inside its boundary: the
   // city-scope need is over seed.city_maintained_area, not the all-jurisdiction stats.
-  const mostlyState = city('Alpha', (c) => { c.seed.city_maintained_area = c.seed.maintained_area / 10; });
+  // The year-1 need is over the year-1 area: the city-maintained area after
+  // one year of growth.
+  const mostlyState = city('Alpha', (c) => {
+    c.seed.city_maintained_area = c.seed.maintained_area / 10;
+    c.scenarios.city[0].years[0].area = c.seed.city_maintained_area * 1.01;
+  });
   const { win, doc } = await page([mostlyState]);
 
   const need = mostlyState.scenarios.city[0].years[0].annual_need;
-  const want = need / win.toAreaLarge(mostlyState.seed.city_maintained_area);
+  const want = need / win.toAreaLarge(mostlyState.scenarios.city[0].years[0].area);
   const statsArea = mostlyState.meta.stats.reduce((s, st) => s + win.toAreaLarge(st.total_area || 0), 0);
   assert.ok(Math.abs(want - need / statsArea) > 1, 'fixture cannot tell the two denominators apart');
   assert.equal(dollars(headline(doc, /^Year-1 Need per acre$/)), Math.round(want));
@@ -65,7 +70,7 @@ test('Year-1 need per acre divides the city-scope need by the city-maintained ar
 test('under ?scope=all the per-acre need divides by the all-jurisdiction area', async () => {
   const c = city('Alpha', (x) => { x.seed.city_maintained_area = x.seed.maintained_area / 10; });
   const { win, doc } = await page([c], '?scope=all');
-  const want = c.scenarios.all[0].years[0].annual_need / win.toAreaLarge(c.seed.maintained_area);
+  const want = c.scenarios.all[0].years[0].annual_need / win.toAreaLarge(c.scenarios.all[0].years[0].area);
   assert.equal(dollars(headline(doc, /^Year-1 Need per acre$/)), Math.round(want));
 });
 
@@ -85,7 +90,7 @@ test('per-area figures divide by the maintained area, not the paved footprint', 
   assert.equal(m.scopeAreaLarge, win.toAreaLarge(c.seed.maintained_area));
   assert.ok(Math.abs(m.scopeAreaLarge - m.totalAreaLarge) < 1e-6 * m.totalAreaLarge,
     'the per-area denominator is not the Maintained Area');
-  const want = c.scenarios.all[0].years[0].annual_need / win.toAreaLarge(c.seed.maintained_area);
+  const want = c.scenarios.all[0].years[0].annual_need / win.toAreaLarge(c.scenarios.all[0].years[0].area);
   assert.equal(dollars(headline(doc, /^Year-1 Need per acre$/)), Math.round(want));
   assert.ok(Math.round(want) !== Math.round(c.scenarios.all[0].years[0].annual_need / win.toAreaLarge(c.meta.total_paved)),
     'fixture cannot tell the maintained area from the footprint');

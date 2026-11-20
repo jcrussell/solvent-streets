@@ -85,6 +85,7 @@ type compareScenario struct {
 
 type compareYear struct {
 	PCI             float64 `json:"pci"`
+	Area            float64 `json:"area,omitempty"`
 	AnnualNeed      float64 `json:"annual_need"`
 	DeferredBacklog float64 `json:"deferred_backlog"`
 }

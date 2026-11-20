@@ -2396,11 +2396,13 @@
             return currentScope === 'city' ? 'city-maintained' : 'all owners';
         }
 
-        // perAreaNote shows a per-area row's denominator.
-        /** @param {any} m @returns {string} */
-        function perAreaNote(m) {
-            if (!(m.scopeAreaLarge > 0)) return '';
-            return ' <span class="lb-note" title="' + PER_AREA_TIP + '">(÷ ' + fmtNum(m.scopeAreaLarge) + ' ' + areaLargeUnit() + ')</span>';
+        // perAreaNote shows a per-area row's denominator: area, else the
+        // scope's maintained area.
+        /** @param {any} m @param {number} [area] @returns {string} */
+        function perAreaNote(m, area) {
+            var a = area === undefined ? m.scopeAreaLarge : area;
+            if (!(a > 0)) return '';
+            return ' <span class="lb-note" title="' + PER_AREA_TIP + '">(÷ ' + fmtNum(a) + ' ' + areaLargeUnit() + ')</span>';
         }
 
         function shortSeriesNote(m) {
@@ -4829,7 +4831,12 @@
             // Per-area figures divide the scope-selected dollars by the area in
             // the same scope.
             m.scopeAreaLarge = scopeAreaLarge(city, m);
-            m.year1PerAreaUnit = m.scopeAreaLarge > 0 ? m.year1Need / m.scopeAreaLarge : 0;
+            // The year-1 need prices the year-1 area (the scope's area after
+            // one year of growth), so it is the per-area denominator when the
+            // scenario carries it.
+            var year1Area = m.baselineYears.length > 0 ? (m.baselineYears[0].area || 0) : 0;
+            m.year1AreaLarge = year1Area > 0 ? toAreaLarge(year1Area) : m.scopeAreaLarge;
+            m.year1PerAreaUnit = m.year1AreaLarge > 0 ? m.year1Need / m.year1AreaLarge : 0;
 
             // Roads-only solvency metrics from forecast.json (an array of
             // per-resource ForecastExport — find the roads element). These are
@@ -5043,7 +5050,7 @@
                 { key: 'parkingSpaces', needs: ['parking'],  label: 'Parking Spaces (est.)', higher: true, filter: function(m) { return m.parkingSpaces > 0; }, fmt: function(v) { return v.toLocaleString(); }, color: '#60a5fa', note: 'Estimated vehicle capacity of mapped lots and garages: the OSM capacity tag where present, otherwise lot footprint ÷ 30 m² per space (× levels for structured parking). On-street parking is not counted. Cities computed before the estimate existed are omitted.' },
                 { key: 'cityPct', needs: ['roads', 'parking', 'sidewalks'],  label: 'City Ownership Share', award: 'Most City-Owned', higher: true, fmt: function(v) { return v.toFixed(0) + '%'; }, color: '#8b5cf6' },
                 { key: 'blendedDecay', needs: ['roads', 'parking', 'sidewalks'],  label: 'Blended Decay Rate (lower is better)', award: 'Slowest Decay', higher: false, fmt: function(v) { return (v * 100).toFixed(2) + '%/yr'; }, color: '#ef4444' },
-                { key: 'year1PerAreaUnit', needs: ['roads', 'parking', 'sidewalks'],  rowNote: perAreaNote, note: PER_AREA_TIP, label: 'Year 1 Maintenance Cost per ' + areaLargeUnitSingular(), award: 'Lowest Cost per ' + areaLargeUnitSingular(), higher: false, fmt: function(v) { return fmtMoney(v); }, color: '#ec4899' },
+                { key: 'year1PerAreaUnit', needs: ['roads', 'parking', 'sidewalks'],  rowNote: function(m) { return perAreaNote(m, m.year1AreaLarge); }, note: PER_AREA_TIP, label: 'Year 1 Maintenance Cost per ' + areaLargeUnitSingular(), award: 'Lowest Cost per ' + areaLargeUnitSingular(), higher: false, fmt: function(v) { return fmtMoney(v); }, color: '#ec4899' },
                 // The backlog at the horizon per unit of network (same scope as
                 // the need): per area, so size alone does not win (raw dollars
                 // made the smallest city "Least Deferred"). A city whose
@@ -5303,15 +5310,18 @@
             // denominator and the trajectories stay honest. The area is the one
             // the scope's dollars and PCI cover (scopeAreaLarge), not the
             // all-jurisdiction Maintained Area above.
-            var fcArea = 0, pciWeighted = 0, regionYear1 = 0, regionBacklog = 0;
+            var fcArea = 0, fcYear1Area = 0, pciWeighted = 0, regionYear1 = 0, regionBacklog = 0;
             fc.forEach(function(m) {
                 fcArea += m.scopeAreaLarge;
+                fcYear1Area += m.year1AreaLarge;
                 pciWeighted += (m.baselineYears[0].pci || 0) * m.scopeAreaLarge;
                 regionYear1 += m.baselineYears[0].annual_need || 0;
                 regionBacklog += m.horizonBacklog;
             });
             var weightedPCI = fcArea > 0 ? pciWeighted / fcArea : null;
-            var perArea = fcArea > 0 ? regionYear1 / fcArea : null;
+            // The year-1 need over the year-1 area it prices, as Compare's
+            // per-area need divides.
+            var perArea = fcYear1Area > 0 ? regionYear1 / fcYear1Area : null;
             var unit = areaLargeUnit();
             // A config with cities but no computed forecasts (e.g. exported
             // before `forecast`) has no horizon; drop the "N-Year" prefix and
@@ -5332,7 +5342,7 @@
                 aggCard('Area-Weighted PCI', weightedPCI === null ? '—' : weightedPCI.toFixed(0), 'Year-1 condition, after one year of decay with no spend'),
                 aggCard('Year-1 Maintenance Need', hasFc ? fmtMoney(regionYear1) : '—', 'Year 1\'s share of the treatment cycle, before any deferred backlog; the hold-steady budget is on Financials'),
                 aggCard(horizon + 'Deferred Backlog', hasFc ? fmtMoney(regionBacklog) : '—', hasFc ? 'Unfunded need accumulated by year ' + horizonYears : 'No forecast data in this region'),
-                aggCard('Year-1 Need per ' + areaLargeUnitSingular(), perArea === null ? '—' : fmtMoney(perArea, { full: true }), 'Year-1 need ÷ ' + fmtNum(fcArea) + ' ' + unit + ' of maintained area (' + scopeName() + ')'),
+                aggCard('Year-1 Need per ' + areaLargeUnitSingular(), perArea === null ? '—' : fmtMoney(perArea, { full: true }), 'Year-1 need ÷ ' + fmtNum(fcYear1Area) + ' ' + unit + ' of maintained area (' + scopeName() + ')'),
                 aggCard('Est. Parking Spaces', totalSpaces > 0 ? fmtNum(totalSpaces) : '—', 'Lots and garages: OSM capacity, else footprint ÷ 30 m²/space')
             ].join('');
 
