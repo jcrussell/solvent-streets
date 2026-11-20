@@ -129,7 +129,9 @@ commands: the computes first, then one `snapshots create`, which covers every
 configured city. `all compute` comes first for a city with nothing computed
 under the current settings: never computed, or computed only under settings
 that have changed since. A multi-city export skips a city with no boundary
-stored (its ingest failed) rather than refusing it.
+stored rather than refusing it, but when no city has one (a fresh database)
+it fails with `nothing to export` and exit 3, before writing anything: run
+`pvmt all ingest` first.
 
 With `--snapshot NAME`, export fails instead with `snapshot NAME does not
 cover N cities (…): no snapshot` when a configured city was added after the

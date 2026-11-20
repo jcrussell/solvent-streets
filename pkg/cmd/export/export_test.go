@@ -9,7 +9,10 @@ import (
 	"testing"
 
 	"github.com/jcrussell/solvent-streets/internal/config"
+	"github.com/jcrussell/solvent-streets/internal/db"
 	exportpkg "github.com/jcrussell/solvent-streets/internal/export"
+	"github.com/jcrussell/solvent-streets/internal/export/exporttest"
+	"github.com/jcrussell/solvent-streets/internal/hint"
 	"github.com/jcrussell/solvent-streets/internal/units"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
@@ -409,5 +412,61 @@ func TestOptions_UnitSystem(t *testing.T) {
 	}
 	if got := (&Options{}).unitSystem(cfg); got != units.Imperial {
 		t.Errorf("without a factory lookup: export uses %v, want the config's imperial", got)
+	}
+}
+
+// TestRunExport_NoBoundaryLeavesPreviousSite: a multi-city export in which no
+// city has a boundary stored (a fresh database) refuses with exit 3, naming
+// the ingest, and the --clean that would have replaced the previous site
+// never runs.
+func TestRunExport_NoBoundaryLeavesPreviousSite(t *testing.T) {
+	for _, snapshot := range []string{"", "nope"} {
+		t.Run("snapshot="+snapshot, func(t *testing.T) {
+			root, err := db.Open(context.Background(), ":memory:")
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = root.Close() })
+			cfg := &config.Config{ConfigID: "test", Cities: []config.CityConfig{{Name: "Alpha"}, {Name: "Beta"}}}
+			site := filepath.Join(t.TempDir(), "site")
+			if err := os.MkdirAll(site, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			for _, name := range []string{exportpkg.ManifestFileName, "index.html"} {
+				if err := os.WriteFile(filepath.Join(site, name), []byte("previous"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			ios, _, _, _ := iostreams.Test()
+			opts := &Options{
+				IO:         ios,
+				RootDB:     func() (*db.RootStore, error) { return root, nil },
+				Config:     func() (*config.Config, error) { return cfg, nil },
+				Cities:     func() ([]config.CityConfig, error) { return cfg.Cities, nil },
+				UnitSystem: func() units.System { return units.Metric },
+				OutputDir:  site,
+				Clean:      true,
+				Snapshot:   snapshot,
+				Assets:     func() (*exportpkg.Assets, error) { return exportpkg.NewAssets(exporttest.AssetFiles()) },
+			}
+			err = runExport(context.Background(), opts)
+			if err == nil {
+				t.Fatal("runExport succeeded with no boundary stored")
+			}
+			if snapshot == "" {
+				if _, ok := errors.AsType[*hint.PrereqError](err); !ok {
+					t.Errorf("err = %v, want a PrereqError (exit 3)", err)
+				}
+			} else if !errors.Is(err, db.ErrSnapshotNotFound) {
+				t.Errorf("err = %v, want the unknown snapshot refused", err)
+			}
+			entries, _ := os.ReadDir(site)
+			if len(entries) != 2 {
+				t.Errorf("previous site has %d entries after a refused export, want its 2 untouched", len(entries))
+			}
+			if b, _ := os.ReadFile(filepath.Join(site, "index.html")); string(b) != "previous" {
+				t.Errorf("index.html = %q, want the previous site's", b)
+			}
+		})
 	}
 }

@@ -21,6 +21,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/forecast"
 	"github.com/jcrussell/solvent-streets/internal/geo"
+	"github.com/jcrussell/solvent-streets/internal/hint"
 	"github.com/jcrussell/solvent-streets/internal/services"
 	"github.com/jcrussell/solvent-streets/internal/warn"
 )
@@ -66,7 +67,8 @@ func (e *Exporter) SetSnapshot(name string) { e.snapshot = name }
 // Pin pins every city for the whole export: to the snapshot SetSnapshot
 // named (PinSnapshot), else to its newest (PinNewest), warning on the
 // exporter's warning sink, and refuses the export, before anything is
-// written, when any city has none. Run calls it when the caller has not, so
+// written, when any city has none or, in a multi-city export, when no city
+// has a boundary stored. Run calls it when the caller has not, so
 // a caller that must not touch the output directory before the refusal (pvmt
 // export's --clean) calls it first.
 func (e *Exporter) Pin(ctx context.Context) error {
@@ -84,8 +86,29 @@ func (e *Exporter) Pin(ctx context.Context) error {
 	if err := pin(); err != nil {
 		return err
 	}
+	if skip {
+		if err := anyBoundary(ctx, e.entries); err != nil {
+			return err
+		}
+	}
 	e.pinned = true
 	return nil
+}
+
+// anyBoundary refuses a multi-city export in which every city would be
+// skipped for want of a stored boundary, so nothing is deleted or written for
+// a site that could hold no city.
+func anyBoundary(ctx context.Context, entries []CityEntry) error {
+	for _, entry := range entries {
+		gj, err := entry.Store.GetBoundary(ctx)
+		if err != nil {
+			return fmt.Errorf("boundary for %s: %w", entry.City.Name, err)
+		}
+		if gj != "" {
+			return nil
+		}
+	}
+	return hint.NeedsFirst(fmt.Errorf("nothing to export: none of the %d cities has a boundary stored", len(entries)), "pvmt all ingest")
 }
 
 // Run writes the site into the output directory, which must be missing,
@@ -169,7 +192,7 @@ func (e *Exporter) exportOneCity(ctx context.Context, entry CityEntry) (CityInfo
 		return CityInfo{}, false, err
 	}
 	if !listed {
-		warn.Fprintf(e.warnOut(), "skipping %s: no boundary stored (its ingest failed)", entry.City.Name)
+		warn.Fprintf(e.warnOut(), "skipping %s: no boundary stored", entry.City.Name)
 		return CityInfo{}, false, nil
 	}
 

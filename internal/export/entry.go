@@ -128,7 +128,7 @@ func (entry CityEntry) PinNewestSnapshot(ctx context.Context) (CityEntry, error)
 // snapshot: otherwise it returns one ErrNoSnapshot naming every city without
 // one and the commands that make one. A city with neither a snapshot nor a
 // stored boundary is left unpinned rather than refused when skipNoBoundary is
-// set (the multi-city export skips such a city: its ingest failed). It warns
+// set (the multi-city export skips such a city). It warns
 // on warn about every snapshot created under other settings than the current
 // ones (SnapshotSettingsWarning) and notes a latest compute with parts not yet
 // snapshotted.
@@ -170,20 +170,24 @@ func PinNewest(ctx context.Context, entries []CityEntry, skipNoBoundary bool, wa
 // PinNewest: it writes nothing and pins nothing unless the snapshot covers
 // every city, and otherwise returns one ErrNoSnapshot naming each city it
 // lacks. A city with neither the snapshot nor a stored boundary is left
-// unpinned rather than refused when skipNoBoundary is set, as in PinNewest.
+// unpinned rather than refused when skipNoBoundary is set, as in PinNewest,
+// but a name no city has is refused whatever skipNoBoundary says.
 // It warns on warn about a city frozen under other settings than the current
 // ones (SnapshotSettingsWarning). An unknown name is an error naming
 // `pvmt snapshots list`.
 func PinSnapshot(ctx context.Context, entries []CityEntry, name string, skipNoBoundary bool, warn io.Writer) error {
 	snaps := make([]*db.SnapshotCity, len(entries))
-	var missing []string
+	var missing, all []string
+	covered := 0
 	for i, entry := range entries {
+		all = append(all, entry.City.Name)
 		snap, err := entry.namedSnapshot(ctx, name)
 		if err != nil {
 			return err
 		}
 		snaps[i] = snap
 		if snap != nil {
+			covered++
 			continue
 		}
 		skip, err := entry.skippable(ctx, skipNoBoundary)
@@ -193,6 +197,10 @@ func PinSnapshot(ctx context.Context, entries []CityEntry, name string, skipNoBo
 		if !skip {
 			missing = append(missing, entry.City.Name)
 		}
+	}
+	if covered == 0 {
+		// An unknown name, even when every city would be skipped.
+		missing = all
 	}
 	if err := notCovered(name, missing, len(entries)); err != nil {
 		return err
@@ -210,8 +218,7 @@ func PinSnapshot(ctx context.Context, entries []CityEntry, name string, skipNoBo
 }
 
 // skippable reports whether a multi-city export (skipNoBoundary) leaves the
-// city out rather than refusing it: it has no stored boundary, so its ingest
-// failed.
+// city out rather than refusing it: it has no stored boundary.
 func (entry CityEntry) skippable(ctx context.Context, skipNoBoundary bool) (bool, error) {
 	if !skipNoBoundary {
 		return false, nil
