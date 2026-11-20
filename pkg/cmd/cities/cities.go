@@ -27,9 +27,12 @@ type cityRow struct {
 	Slug          string         `json:"slug"`
 	Name          string         `json:"name"`
 	FeatureCounts map[string]int `json:"feature_counts"`
-	TotalPaved    float64        `json:"total_paved"`
-	LastIngestAt  string         `json:"last_ingest_at,omitempty"`
-	LastComputeAt string         `json:"last_compute_at,omitempty"`
+	// TotalPaved is the paved footprint. ExportData, the only encoder of a
+	// row, omits it for a city with nothing computed (no LastComputeAt)
+	// rather than reporting 0; a computed 0 is still emitted.
+	TotalPaved    float64 `json:"total_paved"`
+	LastIngestAt  string  `json:"last_ingest_at,omitempty"`
+	LastComputeAt string  `json:"last_compute_at,omitempty"`
 }
 
 var _ cmdutil.RowExporter = cityRow{}
@@ -45,7 +48,9 @@ func (r cityRow) ExportData(fields []string) map[string]any {
 		case "feature_counts":
 			out[f] = r.FeatureCounts
 		case "total_paved":
-			out[f] = r.TotalPaved
+			if r.LastComputeAt != "" {
+				out[f] = r.TotalPaved
+			}
 		case "last_ingest_at":
 			if r.LastIngestAt != "" {
 				out[f] = r.LastIngestAt

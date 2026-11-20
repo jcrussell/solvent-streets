@@ -140,6 +140,20 @@ func TestCityRow_ExportData_AllFieldsPopulated(t *testing.T) {
 	}
 }
 
+// TestCityRow_ExportData_TotalPavedNeedsACompute: a city with nothing
+// computed has no paved footprint to report, so total_paved is omitted
+// rather than emitted as 0.
+func TestCityRow_ExportData_TotalPavedNeedsACompute(t *testing.T) {
+	r := cityRow{Slug: "austin-tx", Name: "Austin, TX", FeatureCounts: map[string]int{"roads": 42}}
+	if v, ok := r.ExportData(citiesFields)["total_paved"]; ok {
+		t.Errorf("total_paved = %v for a city never computed, want it omitted", v)
+	}
+	r.LastComputeAt = "2026-04-18T01:00:00Z"
+	if v, ok := r.ExportData(citiesFields)["total_paved"]; !ok || v != 0.0 {
+		t.Errorf("total_paved = %v, %v for a computed city, want 0", v, ok)
+	}
+}
+
 // TestRunCities_EmptyDatabase locks in Out/ErrOut routing for an
 // empty-state message: the "No cities" hint is chatter, not data, so it
 // must land on ErrOut. The contract is what makes `pvmt cities | wc -l`

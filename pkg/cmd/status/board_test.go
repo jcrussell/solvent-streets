@@ -95,7 +95,7 @@ func boardOpts(t *testing.T, cities []boardCity) (*Options, func() (string, stri
 func TestBoard_IncompleteLayers(t *testing.T) {
 	opts, _ := boardOpts(t, albanyBoard(t))
 	opts.Incomplete = true
-	exporter := &recordingExporter{fields: []string{"city", "layer", "failing_sources", "error", "incomplete", "retry"}}
+	exporter := &recordingExporter{fields: []string{"city", "layer", "failing_sources", "error", "incomplete", "hint"}}
 	opts.Exporter = exporter
 	if err := runBoard(context.Background(), opts); err != nil {
 		t.Fatal(err)
@@ -103,7 +103,7 @@ func TestBoard_IncompleteLayers(t *testing.T) {
 	rows := exporter.rows
 	var got []string
 	for _, r := range rows {
-		got = append(got, r["city"].(string)+"/"+r["layer"].(string)+" -> "+r["retry"].(string))
+		got = append(got, r["city"].(string)+"/"+r["layer"].(string)+" -> "+r["hint"].(string))
 	}
 	want := []string{
 		"albany-ca/roads -> pvmt --city albany-ca roads ingest --source overpass",
@@ -209,7 +209,7 @@ func TestBoard_EmptyUpstreamIsNotIncomplete(t *testing.T) {
 	for _, r := range rows {
 		switch r.Layer {
 		case "sidewalks":
-			if r.Incomplete || !r.EmptyUpstream || r.Retry != "" {
+			if r.Incomplete || !r.EmptyUpstream || r.Hint != "" {
 				t.Errorf("sidewalks = %+v, want empty upstream, not incomplete", r)
 			}
 		case "parking": // never ingested: still a gap

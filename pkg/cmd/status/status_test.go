@@ -567,7 +567,7 @@ func TestRunStatus_PartStates(t *testing.T) {
 	for _, r := range rows {
 		want := "current"
 		if r["resource_type"] == "sidewalks" {
-			want = "not computed"
+			want = "not_computed"
 		}
 		if r["state"] != want {
 			t.Errorf("%v state = %v, want %s", r["resource_type"], r["state"], want)

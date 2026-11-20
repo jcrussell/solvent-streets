@@ -57,8 +57,8 @@ type statusRow struct {
 	// from its last compute; 0 and omitted for other resources.
 	EstimatedSpaces int `json:"estimated_spaces,omitempty"`
 	// State is the resource's part of the latest compute: "current",
-	// "stale" (StaleInputs names the inputs ingested again since) or "not
-	// computed" (coherence.PartStates). Omitted without a config.
+	// "stale" (StaleInputs names the inputs ingested again since) or
+	// "not_computed" (coherence.PartStates). Omitted without a config.
 	State       string   `json:"state,omitempty"`
 	StaleInputs []string `json:"stale_inputs,omitempty"`
 	stateText   string   // the table cell, coherence.PartState.String

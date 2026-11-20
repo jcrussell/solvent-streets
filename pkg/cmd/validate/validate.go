@@ -76,9 +76,10 @@ type Result struct {
 	BreakEvenPerSqM float64 `json:"break_even_per_sqm_year"`
 	CurrentBudget   float64 `json:"current_budget"`
 	// HoldSteadyBudget is the city's own published hold-steady figure, when it
-	// has one in citable form. Zero means "not published"; those rows are
-	// reported for context and are not gated.
-	HoldSteadyBudget float64 `json:"hold_steady_budget,omitempty"`
+	// has one in citable form: the published counterpart of BreakEvenBudget,
+	// named for it. Zero means "not published"; those rows are reported for
+	// context and are not gated.
+	HoldSteadyBudget float64 `json:"published_break_even_budget,omitempty"`
 	// Residual is (modelled - published) / published against HoldSteadyBudget.
 	// Nil when the city publishes no hold-steady figure.
 	Residual *float64 `json:"residual,omitempty"`

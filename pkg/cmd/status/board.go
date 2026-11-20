@@ -19,7 +19,7 @@ import (
 
 // boardFields are the --json fields of `pvmt status --all`, one row per city
 // and layer.
-var boardFields = []string{"city", "layer", "feature_count", "last_success_at", "failing_sources", "error", "empty_upstream", "state", "incomplete", "retry"}
+var boardFields = []string{"city", "layer", "feature_count", "last_success_at", "failing_sources", "error", "empty_upstream", "state", "incomplete", "hint"}
 
 // boardRow is one city's layer on the status board: what is stored, how its
 // sources last answered, and the state of the part computed from it.
@@ -36,8 +36,10 @@ type boardRow struct {
 	EmptyUpstream bool   `json:"empty_upstream,omitempty"`
 	State         string `json:"state,omitempty"`
 	Incomplete    bool   `json:"incomplete"`
-	Retry         string `json:"retry,omitempty"`
-	stateText     string
+	// Hint is the command to run next, the key `snapshots create --json`
+	// gives its own.
+	Hint      string `json:"hint,omitempty"`
+	stateText string
 }
 
 var _ cmdutil.RowExporter = boardRow{}
@@ -66,8 +68,8 @@ func (r boardRow) ExportData(fields []string) map[string]any {
 			v, ok = r.State, r.State != ""
 		case "incomplete":
 			v = r.Incomplete
-		case "retry":
-			v, ok = r.Retry, r.Retry != ""
+		case "hint":
+			v, ok = r.Hint, r.Hint != ""
 		default:
 			ok = false
 		}
@@ -152,9 +154,9 @@ func cityBoard(ctx context.Context, c boardCity, hash string) ([]boardRow, error
 		}
 		switch {
 		case row.Incomplete:
-			row.Retry = retryIngest(slug, l, row.Failing)
+			row.Hint = retryIngest(slug, l, row.Failing)
 		case row.State != "" && row.State != coherence.StateCurrent:
-			row.Retry = fmt.Sprintf("pvmt --city %s all compute", slug)
+			row.Hint = fmt.Sprintf("pvmt --city %s all compute", slug)
 		}
 		rows = append(rows, row)
 	}
@@ -276,7 +278,7 @@ func printBoard(ios *iostreams.IOStreams, rows []boardRow) error {
 			state = "-"
 		}
 		tp.AddRow(r.City, r.Layer, strconv.Itoa(r.FeatureCount),
-			iostreams.FormatTimestamp(r.LastSuccessAt, ios.IsTTY()), failing, state, r.Retry)
+			iostreams.FormatTimestamp(r.LastSuccessAt, ios.IsTTY()), failing, state, r.Hint)
 	}
 	return tp.Render()
 }

@@ -260,11 +260,12 @@ func sortedKeys[V any](m map[string]V) []string {
 	return out
 }
 
-// Part states, as `pvmt status` shows them.
+// Part states, as `pvmt status --json` reports them. String gives the
+// table cell.
 const (
 	StateCurrent     = "current"
 	StateStale       = "stale"
-	StateNotComputed = "not computed"
+	StateNotComputed = "not_computed"
 )
 
 // PartState is one part's standing in a city's latest compute: not
@@ -283,10 +284,13 @@ type PartState struct {
 // String is the state as one table cell: "current", "not computed", or
 // "stale: roads re-ingested 2026-11-14 10:02 UTC".
 func (s PartState) String() string {
-	if s.State != StateStale {
-		return s.State
+	switch s.State {
+	case StateStale:
+		return "stale: " + strings.Join(s.Stale, ", ")
+	case StateNotComputed:
+		return "not computed"
 	}
-	return "stale: " + strings.Join(s.Stale, ", ")
+	return s.State
 }
 
 // PartStates returns the state of each named part of the latest compute

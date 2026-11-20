@@ -56,7 +56,7 @@ type Options struct {
 type computeRow struct {
 	City         string  `json:"city"`
 	ResourceType string  `json:"resource_type"`
-	Jurisdiction string  `json:"jurisdiction"` // "all" or "city"
+	Scope        string  `json:"scope"` // "all" or "city"
 	FeatureCount int     `json:"feature_count"`
 	Area         float64 `json:"area"`
 	// EstimatedSpaces is the parking resource's estimated vehicle capacity
@@ -78,8 +78,8 @@ func (r computeRow) ExportData(fields []string) map[string]any {
 			out[f] = r.City
 		case "resource_type":
 			out[f] = r.ResourceType
-		case "jurisdiction":
-			out[f] = r.Jurisdiction
+		case "scope":
+			out[f] = r.Scope
 		case "feature_count":
 			out[f] = r.FeatureCount
 		case "area":
@@ -132,7 +132,7 @@ func Example(group, noun string) string {
   pvmt --city oakland-ca %s compute`, noun, group, group, group)
 }
 
-var computeFields = []string{"city", "resource_type", "jurisdiction", "feature_count", "area", "estimated_spaces", "run_id"}
+var computeFields = []string{"city", "resource_type", "scope", "feature_count", "area", "estimated_spaces", "run_id"}
 
 func NewCmdCompute(f *cmdutil.Factory, rt resource.Source, runF func(context.Context, *Options) error) *cobra.Command {
 	opts := &Options{
@@ -645,14 +645,14 @@ func (c *computer) processCityResults(ctx context.Context, cityBuffered []resour
 
 // recordRow appends a computeRow to the multi-city accumulator if the
 // caller set one up. No-op when --json is not active.
-func (c *computer) recordRow(jurisdiction string, featureCount int, area float64, spaces int) {
+func (c *computer) recordRow(scope string, featureCount int, area float64, spaces int) {
 	if c.opts.rows == nil {
 		return
 	}
 	row := computeRow{
 		City:            c.city.Slug(),
 		ResourceType:    string(c.opts.ResourceType.Type()),
-		Jurisdiction:    jurisdiction,
+		Scope:           scope,
 		FeatureCount:    featureCount,
 		Area:            area,
 		EstimatedSpaces: spaces,
