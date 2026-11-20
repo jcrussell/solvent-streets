@@ -286,7 +286,9 @@ type Outcomes struct {
 }
 
 // Add records the outcome of the item named label. A real failure is kept as
-// "label: err", unless err already leads with the label.
+// "label: err", unless err already leads with "label: " or names it as
+// "for <label>" ("no boundary stored for <city>" needs no "<city>: " before
+// it).
 func (o *Outcomes) Add(label string, err error) {
 	switch {
 	case err == nil:
@@ -294,11 +296,32 @@ func (o *Outcomes) Add(label string, err error) {
 	case errors.Is(err, ErrNoResults):
 		o.skippedEmpty = true
 	default:
-		if !strings.HasPrefix(err.Error(), label+": ") {
+		if msg := err.Error(); !strings.HasPrefix(msg, label+": ") && !containsPhrase(msg, "for "+label) {
 			err = fmt.Errorf("%s: %w", label, err)
 		}
 		o.errs = append(o.errs, err)
 	}
+}
+
+// containsPhrase reports whether phrase occurs in s as whole words: not
+// running on into a letter or digit at either end ("for roads" is not in
+// "for roadside").
+func containsPhrase(s, phrase string) bool {
+	for i := 0; ; {
+		j := strings.Index(s[i:], phrase)
+		if j < 0 {
+			return false
+		}
+		start, end := i+j, i+j+len(phrase)
+		if (start == 0 || !isWordByte(s[start-1])) && (end == len(s) || !isWordByte(s[end])) {
+			return true
+		}
+		i = start + 1
+	}
+}
+
+func isWordByte(b byte) bool {
+	return b == '_' || '0' <= b && b <= '9' || 'a' <= b && b <= 'z' || 'A' <= b && b <= 'Z'
 }
 
 // Fail records a failure that belongs to no one item.

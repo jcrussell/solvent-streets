@@ -94,3 +94,30 @@ func TestOutcomes_PrereqBesideAResult(t *testing.T) {
 		t.Errorf("err = %v; want the skipped city reported with its hint", err)
 	}
 }
+
+// TestOutcomes_JoinedHints: a failure that already names its city is not
+// prefixed with it again, and every distinct hint of the joined run prints,
+// once each.
+func TestOutcomes_JoinedHints(t *testing.T) {
+	var out Outcomes
+	out.Add("Livermore, CA", NeedsFirst(errors.New("no boundary stored for Livermore, CA"), "pvmt --city livermore-ca all ingest"))
+	out.Add("Dublin, CA", NeedsFirst(errors.New("no boundary stored for Dublin, CA"), "pvmt --city dublin-ca all ingest"))
+	out.Add("Pleasanton, CA", hint.With(errors.New("boom"), "run 'pvmt --city dublin-ca all ingest' first"))
+	err := out.Err()
+	if got, want := err.Error(), "no boundary stored for Livermore, CA\nno boundary stored for Dublin, CA\nPleasanton, CA: boom"; got != want {
+		t.Errorf("Err() = %q, want %q", got, want)
+	}
+	// A label merely appearing in the text is not naming the item.
+	var res Outcomes
+	res.Add("roads", errors.New("routing roads: all sources failed"))
+	res.Add("parking", errors.New("no data for parkingland"))
+	if got, want := res.Err().Error(), "roads: routing roads: all sources failed\nparking: no data for parkingland"; got != want {
+		t.Errorf("loose labels: Err() = %q, want %q", got, want)
+	}
+	var b strings.Builder
+	hint.Fprint(&b, err)
+	want := "hint: run 'pvmt --city livermore-ca all ingest' first\nhint: run 'pvmt --city dublin-ca all ingest' first\n"
+	if b.String() != want {
+		t.Errorf("hints = %q, want %q", b.String(), want)
+	}
+}

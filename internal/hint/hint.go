@@ -42,19 +42,48 @@ func Withf(err error, format string, a ...any) error {
 	return With(err, fmt.Sprintf(format, a...))
 }
 
-// Fprint writes err's hint to w, if it carries one: "hint: " and the first
-// line, then each further line indented to align under it. It is how every
-// command shows a hint, below the error or warning it belongs to.
+// Fprint writes err's hints to w, each as "hint: " and its first line, then
+// each further line indented to align under it. It is how every command
+// shows a hint, below the error or warning it belongs to. A joined error (a
+// run over several cities) prints every distinct hint of its branches, in
+// order, not only the first.
 func Fprint(w io.Writer, err error) {
-	var he *ErrHint
-	if !errors.As(err, &he) || he.Hint == "" {
-		return
+	for _, h := range Hints(err) {
+		lines := strings.Split(h, "\n")
+		fmt.Fprintf(w, "hint: %s\n", lines[0])
+		for _, l := range lines[1:] {
+			fmt.Fprintf(w, "      %s\n", l)
+		}
 	}
-	lines := strings.Split(he.Hint, "\n")
-	fmt.Fprintf(w, "hint: %s\n", lines[0])
-	for _, l := range lines[1:] {
-		fmt.Fprintf(w, "      %s\n", l)
+}
+
+// Hints returns the distinct hints err carries, in order: the outermost
+// ErrHint on each branch of the error tree (errors.As's pick along a chain),
+// one per branch of a join.
+func Hints(err error) []string {
+	var out []string
+	seen := map[string]bool{}
+	var walk func(error)
+	walk = func(err error) {
+		for err != nil {
+			if he, ok := err.(*ErrHint); ok { //nolint:errorlint // the walk unwraps itself
+				if he.Hint != "" && !seen[he.Hint] {
+					seen[he.Hint] = true
+					out = append(out, he.Hint)
+				}
+				return
+			}
+			if j, ok := err.(interface{ Unwrap() []error }); ok {
+				for _, branch := range j.Unwrap() {
+					walk(branch)
+				}
+				return
+			}
+			err = errors.Unwrap(err)
+		}
 	}
+	walk(err)
+	return out
 }
 
 // PrereqError is a command that cannot run until another one has: nothing

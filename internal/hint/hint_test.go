@@ -86,3 +86,22 @@ func TestFprint(t *testing.T) {
 		t.Errorf("an error without a hint printed %q", b.String())
 	}
 }
+
+// TestHints_EveryBranch: a join yields each branch's outermost hint, in
+// order and without repeats; a chain yields only its outermost.
+func TestHints_EveryBranch(t *testing.T) {
+	inner := With(errors.New("inner"), "inner hint")
+	err := fmt.Errorf("run: %w", errors.Join(
+		With(errors.New("a"), "first"),
+		errors.New("no hint"),
+		With(inner, "outer"),
+		fmt.Errorf("wrapped: %w", With(errors.New("c"), "first")),
+	))
+	got := Hints(err)
+	if want := []string{"first", "outer"}; fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("Hints = %q, want %q", got, want)
+	}
+	if Hints(errors.New("plain")) != nil {
+		t.Error("an error without a hint has hints")
+	}
+}
