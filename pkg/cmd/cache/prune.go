@@ -83,8 +83,7 @@ opens no database, so it works when either is broken.
 Pass 0 to disable a cap (--max-age=0 skips age pruning, --max-size=0
 skips size pruning); incomplete entries are still swept.
 
-` + cmdutil.ConfirmHelp("delete") + `
---dry-run reports what would go, never prompts, and writes nothing.`,
+` + cmdutil.ConfirmHelp("delete"),
 		Example: `  # Report what would be reclaimed, without deleting or prompting
   pvmt cache prune --dry-run
 
@@ -151,7 +150,7 @@ func runPrune(ctx context.Context, opts *PruneOptions) error {
 		return nil
 	}
 	if opts.DryRun {
-		fmt.Fprintf(opts.IO.ErrOut, "\nDry run: %s would be reclaimed; nothing deleted.\n",
+		fmt.Fprintf(opts.IO.Out, "\nDry run: %s would be reclaimed; nothing deleted.\n",
 			cmdutil.HumanSize(plan.BytesReclaimed))
 		return nil
 	}
@@ -176,10 +175,10 @@ func runPrune(ctx context.Context, opts *PruneOptions) error {
 	// summary rather than a repeat of the block above; the counts are
 	// what actually happened, which can differ from the plan if another
 	// process touched the cache in between.
-	fmt.Fprintf(opts.IO.ErrOut, "\nRemoved %d entr%s: %d by age, %d over size cap, %d incomplete.\n",
+	fmt.Fprintf(opts.IO.Out, "\nRemoved %d entr%s: %d by age, %d over size cap, %d incomplete.\n",
 		report.EntriesRemoved+report.OrphansRemoved, plural(report.EntriesRemoved+report.OrphansRemoved),
 		report.AgeRemoved, report.SizeRemoved, report.OrphansRemoved)
-	fmt.Fprintf(opts.IO.ErrOut, "Reclaimed %s; %s remaining.\n",
+	fmt.Fprintf(opts.IO.Out, "Reclaimed %s; %s remaining.\n",
 		cmdutil.HumanSize(report.BytesReclaimed), cmdutil.HumanSize(report.BytesRemaining))
 	return pruneErr
 }
@@ -193,7 +192,7 @@ func withDryRun(o httpcache.PruneOptions, dryRun bool) httpcache.PruneOptions {
 // prompt. Everything it describes is hypothetical — the pass that
 // produced r wrote nothing.
 func printPruneReport(opts *PruneOptions, dir string, r *httpcache.PruneReport) {
-	w := opts.IO.ErrOut
+	w := opts.IO.Out
 	row := func(label, format string, args ...any) {
 		fmt.Fprintf(w, "  %-13s %s\n", label+":", fmt.Sprintf(format, args...))
 	}

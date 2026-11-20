@@ -20,6 +20,7 @@ type DeleteOptions struct {
 	CityFlagSet func() bool
 	Name        string
 	Yes         bool
+	DryRun      bool
 }
 
 func NewCmdDelete(f *cmdutil.Factory, runF func(context.Context, *DeleteOptions) error) *cobra.Command {
@@ -47,6 +48,9 @@ snapshot, so deleting that one rolls every city back to the one before.
 		Example: `  # Delete snapshot 2026-11 (prompts)
   pvmt snapshots delete 2026-11
 
+  # Say what would be deleted, without deleting or prompting
+  pvmt snapshots delete 2026-11 --dry-run
+
   # Skip the confirmation prompt
   pvmt snapshots delete 2026-11 --yes
 
@@ -66,6 +70,7 @@ snapshot, so deleting that one rolls every city back to the one before.
 		},
 	}
 
+	cmd.Flags().BoolVar(&opts.DryRun, "dry-run", false, "Report what would be deleted without deleting or prompting")
 	cmd.Flags().BoolVarP(&opts.Yes, "yes", "y", false, "Skip the interactive confirmation")
 
 	return cmd
@@ -83,9 +88,13 @@ func runDelete(ctx context.Context, opts *DeleteOptions) error {
 	if err != nil {
 		return err
 	}
+	if opts.DryRun {
+		fmt.Fprintf(opts.IO.Out, "Would delete snapshot %q (%d %s) and the runs only it uses.\n", snap.Name, snap.CityCount, cityNoun(snap.CityCount))
+		return nil
+	}
 	if err := cmdutil.ConfirmDestructive(ctx, opts.IO, opts.Prompter, opts.Yes,
-		fmt.Sprintf("Delete snapshot %s (%d %s)?", snap.Name, snap.CityCount, cityNoun(snap.CityCount)),
-		fmt.Sprintf("refusing to delete snapshot %s without confirmation", snap.Name),
+		fmt.Sprintf("Delete snapshot %q (%d %s)?", snap.Name, snap.CityCount, cityNoun(snap.CityCount)),
+		fmt.Sprintf("refusing to delete snapshot %q without confirmation", snap.Name),
 	); err != nil {
 		return err
 	}
@@ -99,6 +108,6 @@ func runDelete(ctx context.Context, opts *DeleteOptions) error {
 		// delete: not found rather than a silent success.
 		return hint.Withf(fmt.Errorf("snapshot %s not found", opts.Name), "check 'pvmt snapshots list' for available names")
 	}
-	fmt.Fprintf(opts.IO.ErrOut, "Deleted snapshot %s.\n", opts.Name)
+	fmt.Fprintf(opts.IO.Out, "Deleted snapshot %q.\n", opts.Name)
 	return nil
 }

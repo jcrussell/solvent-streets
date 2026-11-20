@@ -257,7 +257,7 @@ func TestRunGC_ReportsRetainedOverpassRows(t *testing.T) {
 			}
 		},
 	}
-	ios, _, _, stderr := iostreams.Test()
+	ios, _, stdout, _ := iostreams.Test()
 	opts := &Options{
 		IO:            ios,
 		RootDB:        rootDBFunc(root),
@@ -267,7 +267,7 @@ func TestRunGC_ReportsRetainedOverpassRows(t *testing.T) {
 	if err := runGC(context.Background(), opts); err != nil {
 		t.Fatal(err)
 	}
-	out := stderr.String()
+	out := stdout.String()
 	if !strings.Contains(out, "kept (overpass off):   7") {
 		t.Errorf("report did not name the 7 retained overpass rows:\n%s", out)
 	}
@@ -316,10 +316,10 @@ func TestRunGC_DryRunScansButDoesNotSweep(t *testing.T) {
 	if swept {
 		t.Error("GCSweep was called during --dry-run")
 	}
-	if got := stdout.String(); got != "" {
-		t.Errorf("stdout should be empty; got: %q", got)
+	if got := stderr.String(); got != "" {
+		t.Errorf("stderr should be empty; got: %q", got)
 	}
-	out := stderr.String()
+	out := stdout.String()
 	for _, want := range []string{"stale features:        3", "city=6", "Dry run", "nothing deleted"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("expected %q in output, got: %s", want, out)
@@ -340,7 +340,7 @@ func TestRunGC_YesSweeps(t *testing.T) {
 			}
 		},
 	}
-	ios, _, _, stderr := iostreams.Test()
+	ios, _, stdout, _ := iostreams.Test()
 	opts := &Options{
 		IO:            ios,
 		RootDB:        rootDBFunc(root),
@@ -353,8 +353,8 @@ func TestRunGC_YesSweeps(t *testing.T) {
 	if !swept {
 		t.Error("GCSweep was not called with --yes")
 	}
-	if !strings.Contains(stderr.String(), "Collected") {
-		t.Errorf("expected 'Collected' summary on stderr, got: %s", stderr.String())
+	if !strings.Contains(stdout.String(), "Collected") {
+		t.Errorf("expected 'Collected' summary on stdout, got: %s", stdout.String())
 	}
 }
 
@@ -406,7 +406,7 @@ func TestRunGC_NothingToCollect(t *testing.T) {
 			}
 		},
 	}
-	ios, _, _, stderr := iostreams.Test()
+	ios, _, stdout, _ := iostreams.Test()
 	ios.SetStdinTTY(true) // would prompt — must not, nothing to do
 	opts := &Options{
 		IO:            ios,
@@ -420,8 +420,8 @@ func TestRunGC_NothingToCollect(t *testing.T) {
 	if swept {
 		t.Error("GCSweep was called when there was nothing to collect")
 	}
-	if !strings.Contains(stderr.String(), "Nothing to collect.") {
-		t.Errorf("expected no-op hint on stderr, got: %s", stderr.String())
+	if !strings.Contains(stdout.String(), "Nothing to collect.") {
+		t.Errorf("expected no-op hint on stdout, got: %s", stdout.String())
 	}
 }
 

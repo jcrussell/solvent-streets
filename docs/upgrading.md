@@ -127,6 +127,7 @@ A config whose `[[forecast.cost_tiers]]` bands overlap now fails to load with ex
 A few commands changed their flags or output so the CLI reads the same everywhere:
 
 - `pvmt <resource> compute --city-only` is now `--maintained-only`. The old spelling still works for now and prints a deprecation notice.
+- `pvmt gc`, `pvmt cache prune`, `pvmt snapshots delete` and `pvmt snapshots prune` print their report on stdout instead of stderr. `snapshots delete` and `snapshots prune` also take `--dry-run`.
 
 ### Known issues
 

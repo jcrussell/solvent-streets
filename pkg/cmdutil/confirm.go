@@ -14,11 +14,14 @@ import (
 const yesHint = "pass --yes/-y to skip the prompt in non-interactive environments"
 
 // ConfirmHelp is the help paragraph for a command that goes through
-// ConfirmDestructive; verb is what it refuses to do unconfirmed ("delete").
+// ConfirmDestructive and offers --dry-run; verb is what it refuses to do
+// unconfirmed ("delete"). Every command that deletes stored data or cached
+// responses shares it, so they all describe the same contract.
 func ConfirmHelp(verb string) string {
 	return `Confirmation: prompts on TTY by default. Pass --yes/-y to skip the
 prompt for non-interactive use (scripts, CI). Without --yes and
-without a TTY the command refuses to ` + verb + "."
+without a TTY the command refuses to ` + verb + `. --dry-run reports
+what would go, never prompts, and writes nothing.`
 }
 
 // ConfirmDestructive gates a destructive delete behind a user confirmation.

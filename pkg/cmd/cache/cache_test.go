@@ -118,7 +118,7 @@ func TestRunPrune_RemovesStaleEntriesAndReports(t *testing.T) {
 	staleBody, staleMeta := writeEntry(t, dir, 1, 90*24*time.Hour)
 	freshBody, _ := writeEntry(t, dir, 2, time.Hour)
 
-	ios, _, _, stderr := iostreams.Test()
+	ios, _, stdout, _ := iostreams.Test()
 	opts := &PruneOptions{
 		IO:           ios,
 		CacheDir:     func() (string, error) { return dir, nil },
@@ -140,7 +140,7 @@ func TestRunPrune_RemovesStaleEntriesAndReports(t *testing.T) {
 		t.Error("fresh entry was removed")
 	}
 
-	out := stderr.String()
+	out := stdout.String()
 	for _, want := range []string{dir, "scanned", "Removed", "Reclaimed", "remaining"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("report is missing %q:\n%s", want, out)
@@ -157,7 +157,7 @@ func TestRunPrune_DryRunLeavesDiskAlone(t *testing.T) {
 	dir := t.TempDir()
 	body, meta := writeEntry(t, dir, 1, 90*24*time.Hour)
 
-	ios, _, _, stderr := iostreams.Test()
+	ios, _, stdout, _ := iostreams.Test()
 	opts := &PruneOptions{
 		IO:       ios,
 		CacheDir: func() (string, error) { return dir, nil },
@@ -173,7 +173,7 @@ func TestRunPrune_DryRunLeavesDiskAlone(t *testing.T) {
 			t.Errorf("--dry-run deleted %s", filepath.Base(p))
 		}
 	}
-	out := stderr.String()
+	out := stdout.String()
 	if !strings.Contains(out, "would remove") || !strings.Contains(out, "Dry run") {
 		t.Errorf("dry-run report does not read as hypothetical:\n%s", out)
 	}
@@ -182,7 +182,7 @@ func TestRunPrune_DryRunLeavesDiskAlone(t *testing.T) {
 // TestRunPrune_EmptyCacheSaysSo keeps the no-op path from printing a
 // removal summary of all zeros.
 func TestRunPrune_EmptyCacheSaysSo(t *testing.T) {
-	ios, _, _, stderr := iostreams.Test()
+	ios, _, stdout, _ := iostreams.Test()
 	opts := &PruneOptions{
 		IO:       ios,
 		CacheDir: func() (string, error) { return filepath.Join(t.TempDir(), "absent"), nil },
@@ -191,8 +191,8 @@ func TestRunPrune_EmptyCacheSaysSo(t *testing.T) {
 	if err := runPrune(context.Background(), opts); err != nil {
 		t.Fatalf("pruning a cache that was never created must not error: %v", err)
 	}
-	if !strings.Contains(stderr.String(), "Nothing to prune.") {
-		t.Errorf("want a 'Nothing to prune.' line, got:\n%s", stderr.String())
+	if !strings.Contains(stdout.String(), "Nothing to prune.") {
+		t.Errorf("want a 'Nothing to prune.' line, got:\n%s", stdout.String())
 	}
 }
 
@@ -207,7 +207,7 @@ func TestNewCmdPrune_ResolvesHTTPCacheDirFromPaths(t *testing.T) {
 	}
 	body, meta := writeEntry(t, httpDir, 1, 90*24*time.Hour)
 
-	ios, _, _, stderr := iostreams.Test()
+	ios, _, stdout, _ := iostreams.Test()
 	f := &cmdutil.Factory{
 		IOStreams: ios,
 		Paths:     func() (*paths.Paths, error) { return &paths.Paths{Cache: root}, nil },
@@ -220,8 +220,8 @@ func TestNewCmdPrune_ResolvesHTTPCacheDirFromPaths(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if !strings.Contains(stderr.String(), httpDir) {
-		t.Errorf("report should name %s, got:\n%s", httpDir, stderr.String())
+	if !strings.Contains(stdout.String(), httpDir) {
+		t.Errorf("report should name %s, got:\n%s", httpDir, stdout.String())
 	}
 	for _, p := range []string{body, meta} {
 		if _, err := os.Stat(p); err == nil {
@@ -349,7 +349,7 @@ func TestRunPrune_DryRunNeverPrompts(t *testing.T) {
 	dir := t.TempDir()
 	writeEntry(t, dir, 1, 90*24*time.Hour)
 
-	ios, _, _, stderr := iostreams.Test()
+	ios, _, stdout, _ := iostreams.Test()
 	ios.SetStdinTTY(true)
 	err := runPrune(context.Background(), &PruneOptions{
 		IO:       ios,
@@ -361,8 +361,8 @@ func TestRunPrune_DryRunNeverPrompts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(stderr.String(), "Dry run") {
-		t.Errorf("expected a dry-run summary, got:\n%s", stderr.String())
+	if !strings.Contains(stdout.String(), "Dry run") {
+		t.Errorf("expected a dry-run summary, got:\n%s", stdout.String())
 	}
 }
 
@@ -372,7 +372,7 @@ func TestRunPrune_NothingToPruneNeverPrompts(t *testing.T) {
 	dir := t.TempDir()
 	writeEntry(t, dir, 1, time.Hour) // fresh; nothing to do
 
-	ios, _, _, stderr := iostreams.Test()
+	ios, _, stdout, _ := iostreams.Test()
 	ios.SetStdinTTY(true)
 	err := runPrune(context.Background(), &PruneOptions{
 		IO:       ios,
@@ -383,8 +383,8 @@ func TestRunPrune_NothingToPruneNeverPrompts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(stderr.String(), "Nothing to prune.") {
-		t.Errorf("want 'Nothing to prune.', got:\n%s", stderr.String())
+	if !strings.Contains(stdout.String(), "Nothing to prune.") {
+		t.Errorf("want 'Nothing to prune.', got:\n%s", stdout.String())
 	}
 }
 
@@ -397,7 +397,7 @@ func TestRunPrune_SkippedPathsReportedWhenIdle(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ios, _, _, stderr := iostreams.Test()
+	ios, _, stdout, _ := iostreams.Test()
 	err := runPrune(context.Background(), &PruneOptions{
 		IO:       ios,
 		CacheDir: func() (string, error) { return dir, nil },
@@ -406,7 +406,7 @@ func TestRunPrune_SkippedPathsReportedWhenIdle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out := stderr.String()
+	out := stdout.String()
 	if !strings.Contains(out, "skipped") {
 		t.Errorf("skipped paths must be reported even when nothing is pruned, got:\n%s", out)
 	}

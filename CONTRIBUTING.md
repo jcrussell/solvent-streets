@@ -137,6 +137,20 @@ the bead ID). It runs when `core.hooksPath` is `.beads/hooks`, which
 commits as `chore(deps):` and `ci(deps):`, so dependency bumps stay out of the
 release notes.
 
+## Command-line conventions
+
+Every command follows the same rules, so the CLI reads as one tool:
+
+- **Output streams.** A command's result goes to stdout: the rows and
+  tables it prints, a `--dry-run` plan, the report of what a delete
+  removed. Prose about the run goes to stderr: progress, warnings (through
+  `cmdutil.Warnf`, which adds `warning: `) and hints. A command that prints
+  a result offers `--json` for it.
+- **Deleting commands.** A command that deletes stored data or cached
+  responses offers `--dry-run` and `-y/--yes`, goes through
+  `cmdutil.ConfirmDestructive` (prompt on a TTY, refuse without `--yes`
+  off one) and ends its `Long` with `cmdutil.ConfirmHelp`.
+
 ## Writing documentation
 
 Every fact has exactly one home. Other pages link to that home rather than

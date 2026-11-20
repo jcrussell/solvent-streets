@@ -70,8 +70,7 @@ upstream (the partial-re-ingest residual) is NOT gc-detectable — gc
 cannot distinguish stale-but-valid rows from current ones. That case
 is cured by a successful full re-ingest, not by gc.
 
-` + cmdutil.ConfirmHelp("delete") + `
---dry-run reports counts and never writes.`,
+` + cmdutil.ConfirmHelp("delete"),
 		Example: `  # Report what would be collected, without deleting
   pvmt gc --dry-run
 
@@ -159,11 +158,11 @@ func retainedOverpassRows(ctx context.Context, store db.Store, city config.CityC
 // "would delete" for dry-run / scan, "deleted" for a completed sweep.
 func printReport(w *iostreams.IOStreams, report *db.GCReport) {
 	rows := report.OrphanRunResults
-	fmt.Fprintf(w.ErrOut, "  stale features:        %d\n", report.StaleFeatures)
+	fmt.Fprintf(w.Out, "  stale features:        %d\n", report.StaleFeatures)
 	if report.SupersededParts > 0 {
-		fmt.Fprintf(w.ErrOut, "  superseded latest:     %d part(s) computed by an older pvmt\n", report.SupersededParts)
+		fmt.Fprintf(w.Out, "  superseded latest:     %d part(s) computed by an older pvmt\n", report.SupersededParts)
 	}
-	fmt.Fprintf(w.ErrOut, "  orphan runs:           %d (city=%d hex=%d metric rows)\n",
+	fmt.Fprintf(w.Out, "  orphan runs:           %d (city=%d hex=%d metric rows)\n",
 		report.OrphanRuns, rows.CityMetrics, rows.HexMetrics)
 }
 
@@ -177,9 +176,9 @@ func printRetained(w *iostreams.IOStreams, retained int) {
 	if retained <= 0 {
 		return
 	}
-	fmt.Fprintf(w.ErrOut, "  kept (overpass off):   %d — ingested by an older release, which\n", retained)
-	fmt.Fprintln(w.ErrOut, "                         fetched overpass regardless of the flag.")
-	fmt.Fprintln(w.ErrOut, "                         Pass --sweep-disabled-sources to delete them.")
+	fmt.Fprintf(w.Out, "  kept (overpass off):   %d — ingested by an older release, which\n", retained)
+	fmt.Fprintln(w.Out, "                         fetched overpass regardless of the flag.")
+	fmt.Fprintln(w.Out, "                         Pass --sweep-disabled-sources to delete them.")
 }
 
 // scanCities runs the read-only orphan count over every city, prints each
@@ -209,7 +208,7 @@ func scanCities(ctx context.Context, opts *Options, root db.RootStorer,
 			retained = 0
 		}
 		if multi {
-			fmt.Fprintf(opts.IO.ErrOut, "\n=== %s ===\n", city.Name)
+			fmt.Fprintf(opts.IO.Out, "\n=== %s ===\n", city.Name)
 		}
 		printReport(opts.IO, report)
 		printRetained(opts.IO, retained)
@@ -238,13 +237,13 @@ func runGC(ctx context.Context, opts *Options) error {
 	}
 
 	if total == 0 {
-		fmt.Fprintln(opts.IO.ErrOut, "Nothing to collect.")
+		fmt.Fprintln(opts.IO.Out, "Nothing to collect.")
 		return nil
 	}
 
 	if opts.DryRun {
 		// Dry-run: scanning above performed ZERO writes; stop here.
-		fmt.Fprintf(opts.IO.ErrOut, "\nDry run: %d row(s) would be collected across %d city(ies); nothing deleted.\n",
+		fmt.Fprintf(opts.IO.Out, "\nDry run: %d row(s) would be collected across %d city(ies); nothing deleted.\n",
 			total, len(cities))
 		return nil
 	}
@@ -270,12 +269,12 @@ func runGC(ctx context.Context, opts *Options) error {
 			return fmt.Errorf("sweep %s: %w", city.Slug(), err)
 		}
 		if multi {
-			fmt.Fprintf(opts.IO.ErrOut, "\n=== %s ===\n", city.Name)
+			fmt.Fprintf(opts.IO.Out, "\n=== %s ===\n", city.Name)
 		}
-		fmt.Fprintf(opts.IO.ErrOut, "Collected %d orphaned row(s) from %s.\n", report.Total(), city.Slug())
+		fmt.Fprintf(opts.IO.Out, "Collected %d orphaned row(s) from %s.\n", report.Total(), city.Slug())
 		printReport(opts.IO, report)
 		deletedTotal += report.Total()
 	}
-	fmt.Fprintf(opts.IO.ErrOut, "\nCollected %d row(s) total.\n", deletedTotal)
+	fmt.Fprintf(opts.IO.Out, "\nCollected %d row(s) total.\n", deletedTotal)
 	return nil
 }

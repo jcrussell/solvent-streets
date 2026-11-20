@@ -254,13 +254,28 @@ func TestShow_JSON(t *testing.T) {
 // TestRunDelete_DeletesByName: --yes deletes the named snapshot and says so.
 func TestRunDelete_DeletesByName(t *testing.T) {
 	var deleted []string
-	ios, _, _, stderr := iostreams.Test()
+	ios, _, stdout, _ := iostreams.Test()
 	opts := &DeleteOptions{IO: ios, RootDB: rootDBFunc(tagRoot(&deleted)), Name: "v1", Yes: true}
 	if err := runDelete(context.Background(), opts); err != nil {
 		t.Fatal(err)
 	}
-	if len(deleted) != 1 || deleted[0] != "v1" || !strings.Contains(stderr.String(), "Deleted snapshot v1.") {
-		t.Errorf("deleted = %v, stderr = %q", deleted, stderr)
+	if len(deleted) != 1 || deleted[0] != "v1" || !strings.Contains(stdout.String(), `Deleted snapshot "v1".`) {
+		t.Errorf("deleted = %v, stdout = %q", deleted, stdout)
+	}
+}
+
+// TestRunDelete_DryRunDeletesNothing: --dry-run names the snapshot on stdout
+// and neither prompts nor deletes, even on a TTY.
+func TestRunDelete_DryRunDeletesNothing(t *testing.T) {
+	var deleted []string
+	ios, _, stdout, _ := iostreams.Test()
+	ios.SetStdinTTY(true)
+	opts := &DeleteOptions{IO: ios, Prompter: &prompt.Stub{}, RootDB: rootDBFunc(tagRoot(&deleted)), Name: "v2", DryRun: true}
+	if err := runDelete(context.Background(), opts); err != nil {
+		t.Fatal(err)
+	}
+	if len(deleted) != 0 || !strings.Contains(stdout.String(), `Would delete snapshot "v2" (2 cities)`) {
+		t.Errorf("deleted = %v, stdout = %q", deleted, stdout)
 	}
 }
 
@@ -278,7 +293,7 @@ func TestRunDelete_PromptsOnTTY(t *testing.T) {
 	if len(stub.Confirms) != 0 || len(deleted) != 1 {
 		t.Errorf("confirms left %v, deleted %v", stub.Confirms, deleted)
 	}
-	if len(stub.Asked) != 1 || stub.Asked[0] != "Delete snapshot v2 (2 cities)?" {
+	if len(stub.Asked) != 1 || stub.Asked[0] != `Delete snapshot "v2" (2 cities)?` {
 		t.Errorf("asked %q", stub.Asked)
 	}
 }
@@ -352,26 +367,41 @@ func TestDelete_RejectsCityAndBadNames(t *testing.T) {
 // newest, oldest included, and keeps the newest.
 func TestRunPrune_KeepsNMostRecent(t *testing.T) {
 	var deleted []string
-	ios, _, _, stderr := iostreams.Test()
+	ios, _, stdout, _ := iostreams.Test()
 	opts := &PruneOptions{IO: ios, RootDB: rootDBFunc(tagRoot(&deleted)), Keep: 1, Yes: true}
 	if err := runPrune(context.Background(), opts); err != nil {
 		t.Fatal(err)
 	}
-	if len(deleted) != 1 || deleted[0] != "v1" || !strings.Contains(stderr.String(), "Pruned 1 snapshot(s) (kept 1).") {
-		t.Errorf("deleted %v, stderr %q; want v1 pruned", deleted, stderr)
+	if len(deleted) != 1 || deleted[0] != "v1" || !strings.Contains(stdout.String(), "Pruned 1 snapshot (kept 1).") {
+		t.Errorf("deleted %v, stdout %q; want v1 pruned", deleted, stdout)
+	}
+}
+
+// TestRunPrune_DryRunDeletesNothing: --dry-run lists what would go on stdout
+// and neither prompts nor deletes.
+func TestRunPrune_DryRunDeletesNothing(t *testing.T) {
+	var deleted []string
+	ios, _, stdout, _ := iostreams.Test()
+	ios.SetStdinTTY(true)
+	opts := &PruneOptions{IO: ios, Prompter: &prompt.Stub{}, RootDB: rootDBFunc(tagRoot(&deleted)), Keep: 1, DryRun: true}
+	if err := runPrune(context.Background(), opts); err != nil {
+		t.Fatal(err)
+	}
+	if len(deleted) != 0 || !strings.Contains(stdout.String(), "Would delete 1 snapshot, keeping the 1 newest:\n  v1\n") {
+		t.Errorf("deleted %v, stdout %q", deleted, stdout)
 	}
 }
 
 // TestRunPrune_NothingToDo: keeping at least as many as exist deletes nothing.
 func TestRunPrune_NothingToDo(t *testing.T) {
 	var deleted []string
-	ios, _, _, stderr := iostreams.Test()
+	ios, _, stdout, _ := iostreams.Test()
 	opts := &PruneOptions{IO: ios, RootDB: rootDBFunc(tagRoot(&deleted)), Keep: 2, Yes: true}
 	if err := runPrune(context.Background(), opts); err != nil {
 		t.Fatal(err)
 	}
-	if len(deleted) != 0 || !strings.Contains(stderr.String(), "Nothing to prune.") {
-		t.Errorf("deleted %v, stderr %q", deleted, stderr)
+	if len(deleted) != 0 || !strings.Contains(stdout.String(), "Nothing to prune.") {
+		t.Errorf("deleted %v, stdout %q", deleted, stdout)
 	}
 }
 
@@ -385,7 +415,7 @@ func TestRunPrune_CancelOnPromptNo(t *testing.T) {
 	if err := runPrune(context.Background(), opts); !errors.Is(err, cmdutil.ErrCancel) {
 		t.Errorf("want ErrCancel, got %v", err)
 	}
-	if len(deleted) != 0 || len(stub.Asked) != 1 || stub.Asked[0] != "Delete 1 snapshot(s), keeping the 1 newest?" {
+	if len(deleted) != 0 || len(stub.Asked) != 1 || stub.Asked[0] != "Delete 1 snapshot, keeping the 1 newest?" {
 		t.Errorf("deleted %v, asked %q", deleted, stub.Asked)
 	}
 }
