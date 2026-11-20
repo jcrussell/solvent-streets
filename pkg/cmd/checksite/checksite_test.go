@@ -537,10 +537,11 @@ func writeDataDir(t *testing.T, dataDir string, pavedShare, totalPaved float64) 
 		[]float64{85, 80, 75}, []float64{0, 5, 12})
 	for _, name := range []string{
 		"boundary.geojson", "forecast_seed.json", "hex-cost-summary.json",
-		"hexgrid.geojson", "scenarios.json",
+		"scenarios.json",
 	} {
 		writeFile(t, filepath.Join(dataDir, name), "{}")
 	}
+	writeJSONFile(t, filepath.Join(dataDir, "hexgrid.geojson"), map[string]any{"v": export.HexGridFileVersion})
 }
 
 // buildValidSite constructs a minimal but fully valid single-city site and

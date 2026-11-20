@@ -189,3 +189,13 @@ test('the per-resident card follows a toggle that drops the Color-by metric', as
     [r.querySelector('.stat-label').textContent, r.querySelector('.stat-value').textContent]));
   assert.deepEqual(rows, { 'Maintained area per resident': '122 sq ft', 'Year-1 need per resident': '$114' });
 });
+
+// The hex-metrics format the page reads is the exporter's
+// (hex_metrics_version in PVMT_CONFIG); another is refused with the banner.
+test('a hex-metrics.json of another format is refused', async () => {
+  const want = load({ data: {} }).win.PVMT_CONFIG.hex_metrics_version;
+  assert.equal(want, 2, 'the specs write hex-metrics at v2');
+  const h = await loadGrid({ 'hex-metrics.json': { v: want + 1, metrics: { population } } });
+  assert.ok(!h.$$('#hex-metric option').map((o) => o.value).includes('population'), 'an unknown format must not be read');
+  assert.match(h.$$('#error-banner-list li').map((li) => li.textContent).join('\n'), /unsupported hex-metrics format \(expected v2\)/);
+});

@@ -50,3 +50,12 @@ test('a missing compare.json falls back quietly', async () => {
   assert.ok(!/compare\.json/.test(banner ? banner.textContent : ''),
     'a 404 on compare.json must not raise the error banner');
 });
+
+// The rollup format the page reads is the exporter's (compare_version in
+// PVMT_CONFIG); a rollup of another format falls back to the per-city files.
+test('a compare.json of another format falls back to the per-city files', async () => {
+  const rollup = readFixture('compare.json');
+  assert.equal(rollup.v, load({ data: {} }).win.PVMT_CONFIG.compare_version, 'the fixture rollup is at the page config version');
+  const h = await render({ ...fullData, 'compare.json': { ...rollup, v: rollup.v + 1 } }, 'compare-tab');
+  assert.equal(perCityFiles(h.fetches()).length, 8, 'an unknown rollup format must not be read');
+});

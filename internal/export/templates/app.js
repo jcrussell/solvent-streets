@@ -1331,9 +1331,10 @@
             {
                 const hm = await loadJSON(dataURL(prefix, 'hex-metrics.json'), { silent404: true });
                 if (gen !== cityLoadGen) return;
-                if (hm && hm.v !== 2) {
+                if (hm && hm.v !== PVMT_CONFIG.hex_metrics_version) {
                     showError(dataURL(prefix, 'hex-metrics.json'),
-                        'unsupported hex-metrics format (expected v2) — re-export this site with a current pvmt');
+                        'unsupported hex-metrics format (expected v' + PVMT_CONFIG.hex_metrics_version +
+                        ') — re-export this site with a current pvmt');
                 } else if (hm && hm.metrics) hexMetrics = hm.metrics;
             }
 
@@ -4536,7 +4537,7 @@
             if (!allCityDataPromise) {
                 allCityDataPromise = (async function() {
                     const rollup = await loadJSON('compare.json', { silent404: true });
-                    if (rollup && rollup.v === 1 && Array.isArray(rollup.cities)) {
+                    if (rollup && rollup.v === PVMT_CONFIG.compare_version && Array.isArray(rollup.cities)) {
                         /** @type {Map<string, any>} */
                         const bySlug = new Map(rollup.cities.map(c => [c.slug, c]));
                         return CITIES.map(function(city) {

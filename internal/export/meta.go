@@ -382,6 +382,8 @@ func (d TemplateData) IndexConfigJSON() template.JS {
 		Defaults      ForecastDefaults `json:"forecast_defaults"`
 		HexMetrics    []hexmetric.Spec `json:"hex_metrics"`
 		HexGridV      int              `json:"hexgrid_version"`
+		HexMetricsV   int              `json:"hex_metrics_version"`
+		CompareV      int              `json:"compare_version"`
 	}{
 		Cities:        citiesOrEmpty(d.Cities),
 		TagDimensions: jsTagDimensions(d.TagDimensions),
@@ -393,8 +395,10 @@ func (d TemplateData) IndexConfigJSON() template.JS {
 		// The derived "Color by" metrics (coverage, area, spaces, est. cost):
 		// static registry data, so every city offers them with or without
 		// a hex-metrics.json.
-		HexMetrics: hexmetric.DerivedSpecs(),
-		HexGridV:   HexGridFileVersion,
+		HexMetrics:  hexmetric.DerivedSpecs(),
+		HexGridV:    HexGridFileVersion,
+		HexMetricsV: HexMetricsFileVersion,
+		CompareV:    CompareFileVersion,
 	}
 	data, _ := json.Marshal(cfg)
 	return template.JS(data)

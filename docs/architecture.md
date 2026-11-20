@@ -683,7 +683,9 @@ files, `window.PVMT_CONFIG`, and the game and WASM payloads.
   `city_count` are not scoped values.
 - A versioned data file carries its format version as `v`
   (`hexgrid.geojson`, `hex-metrics.json`, `compare.json`). The page config
-  names the hexgrid's `hexgrid_version`.
+  names the version the page reads as `hexgrid_version`,
+  `hex_metrics_version` and `compare_version`, and `pvmt check-site`
+  fails a file at another.
 - An error is `{"error": "<message>"}`: from the `pvmt serve` `/api/`
   endpoints and from every WASM export. The `/data/` files keep plain-text
   errors, like the static host they stand in for.

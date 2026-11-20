@@ -50,11 +50,12 @@ const (
 	chkConsistency    checkName = "consistency"
 	chkCoverage       checkName = "coverage"
 	chkDecay          checkName = "decay"
+	chkVersions       checkName = "versions"
 )
 
 // checkNames lists every check, in the order they run.
 var checkNames = []checkName{chkStructure, chkReferences, chkWasmFreshness, chkHygiene, chkConstraints,
-	chkSizes, chkReasonableness, chkConsistency, chkCoverage, chkDecay}
+	chkSizes, chkReasonableness, chkConsistency, chkCoverage, chkDecay, chkVersions}
 
 // result is one check's verdict: the check, pass/warn/fail, and the message.
 type result struct {
@@ -147,6 +148,8 @@ The following checks run over the given directory (default "site"):
   - DECAY: each city's map and forecast agree on its road decay rate (the
     road-area-weighted hex "k" against the seed's city cohorts, within 5%).
     A gap means the roads compute predates a decay-rate change: recompute.
+  - VERSIONS: hexgrid.geojson, hex-metrics.json and compare.json carry the
+    format version ("v") this binary's page reads; another fails: re-export.
 
 Exits non-zero if any check FAILs. With --strict, warnings fail too.`,
 		Example: `  # Validate the default ./site tree
@@ -208,6 +211,7 @@ func runCheckSite(ctx context.Context, opts *Options) error {
 		r.checkConsistency,
 		r.checkCoverage,
 		r.checkDecays,
+		r.checkVersions,
 	}
 	for i, check := range checks {
 		if cerr := ctx.Err(); cerr != nil {
