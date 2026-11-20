@@ -1,5 +1,5 @@
 // Shared page plumbing for the index (app.js) and play (game.js) pages: money
-// formatting, the error banner, the JSON fetch wrapper, and booting and calling
+// and PCI formatting, the error banner, the JSON fetch wrapper, and booting and calling
 // the forecast WASM. One implementation, loaded by both pages as a plain
 // classic script BEFORE the page script, exposing a single window.PvmtCommon
 // namespace (no module wrapper: like the page scripts it is go:embed'd
@@ -60,6 +60,20 @@ window.PvmtCommon = (function () {
         // A small negative that rounds to zero is not "-$0".
         const negative = n < 0 && body !== '0';
         return (negative ? '-' : '') + '$' + body;
+    }
+
+    /**
+     * shownPCI is the whole number a page shows for a PCI: the value at the
+     * precision the export writes it (forecast_defaults.pci_decimals),
+     * rounded, as Go's forecast.ShownPCI picks a year's tiers. A live (WASM)
+     * PCI is unrounded; one from scenarios.json is already at that
+     * precision, so both show the same number.
+     * @param {number} pci
+     * @returns {number}
+     */
+    function shownPCI(pci) {
+        const pow = Math.pow(10, window.PVMT_CONFIG.forecast_defaults.pci_decimals || 0);
+        return Math.round(Math.round(pci * pow) / pow);
     }
 
     /**
@@ -204,6 +218,7 @@ window.PvmtCommon = (function () {
 
     return {
         fmtMoney: fmtMoney,
+        shownPCI: shownPCI,
         showError: showError,
         errorText: errorText,
         loadJSON: loadJSON,

@@ -3,7 +3,7 @@
         const PVMT_CONFIG = window.PVMT_CONFIG;
         // Money formatting, the error banner and the JSON fetch wrapper are the
         // shared ones from common.js, which the page loads before this script.
-        const { fmtMoney, showError, loadJSON } = PvmtCommon;
+        const { fmtMoney, shownPCI, showError, loadJSON } = PvmtCommon;
 
         // Multi-city data prefix
         var CITIES = PVMT_CONFIG.cities;
@@ -2324,16 +2324,6 @@
                 const color = tierColor(t.label);
                 return { text: name.charAt(0).toUpperCase() + name.slice(1), fillStyle: color, strokeStyle: color };
             });
-        }
-        // shownPCI is the whole number the page shows for a PCI: the value at
-        // the precision the export writes it (forecast_defaults.pci_decimals),
-        // rounded, as Go's forecast.ShownPCI picks a year's tiers. A live
-        // (WASM) PCI is unrounded; one from scenarios.json is already at that
-        // precision, so both show the same number.
-        /** @param {number} pci */
-        function shownPCI(pci) {
-            const pow = Math.pow(10, FORECAST_DEFAULTS.pci_decimals || 0);
-            return Math.round(Math.round(pci * pow) / pow);
         }
         // pciTooltipLabel is a PCI chart's tooltip line, at the shown PCI.
         /** @param {any} ctx */

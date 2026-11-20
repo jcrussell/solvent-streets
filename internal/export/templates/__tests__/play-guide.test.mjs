@@ -184,3 +184,17 @@ test('play: the hint still works when storage throws', async () => {
   $('#onboard-dismiss').click();
   assert.equal($('#onboard-hint').hidden, true);
 });
+
+// The site shows PCI as a whole number (shownPCI), on the play page too.
+test('play: the HUD and the end banner show PCI as a whole number', async () => {
+  const { $, get, win } = await startBoard();
+  win.__s = { status: 'running', year: 1, treasury: 1e6, annual_budget: 1e6, network_pci: 71.6, deferred_backlog: 0, changed: [] };
+  get('applyState(window.__s)');
+  assert.equal($('#hud-pci').textContent, '72');
+
+  const finalPCI = (state) => endBanner(state).$$('#banner .banner-stats .row')
+    .find((r) => r.querySelector('.k').textContent === 'Final PCI').querySelector('.v').textContent;
+  assert.equal(finalPCI({ loss_reason: 'backlog', treasury: 0, annual_budget: 1, network_pci: 24.6 }), '25');
+  // Below the floor, the banner floors: 29.6 must not read as a floor of 30.
+  assert.equal(finalPCI({ loss_reason: 'pci_floor', treasury: 0, annual_budget: 1, network_pci: 29.6 }), '29');
+});

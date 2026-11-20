@@ -32,7 +32,7 @@
         }
         // Money formatting, the error banner and the JSON fetch wrapper are the
         // shared ones from common.js, which the page loads before this script.
-        const { fmtMoney, showError, loadJSON } = PvmtCommon;
+        const { fmtMoney, shownPCI, showError, loadJSON } = PvmtCommon;
 
         // Typed DOM accessors — same pattern as app.js: one audited type-assertion
         // each so the call sites below read straight (el.value / el.dataset / …)
@@ -341,8 +341,18 @@
             treasuryEl.classList.toggle('broke', broke);
             document.getElementById('hud-funds-warn').style.display = broke ? 'block' : 'none';
             document.getElementById('hud-pci').textContent =
-                state.network_pci != null ? state.network_pci.toFixed(1) : '—';
+                state.network_pci != null ? String(shownPCI(state.network_pci)) : '—';
             document.getElementById('hud-backlog').textContent = fmtMoney(state.deferred_backlog);
+        }
+
+        /**
+         * finalPCI is the end banner's whole-number PCI. After a PCI-floor loss
+         * it is floored, not rounded: the network fell below the floor, and
+         * 29.6 rounded to 30 would read as the floor itself.
+         * @param {any} s the final state
+         */
+        function finalPCI(s) {
+            return s.loss_reason === 'pci_floor' ? Math.floor(s.network_pci) : shownPCI(s.network_pci);
         }
 
         /**
@@ -395,7 +405,7 @@
                 '<div class="sub">' + text.sub + '</div>' +
                 '<div class="banner-stats">' +
                     row('Years', (s.year != null ? s.year.toFixed(1) : '—')) +
-                    row('Final PCI', (s.network_pci != null ? s.network_pci.toFixed(1) : '—')) +
+                    row('Final PCI', (s.network_pci != null ? String(finalPCI(s)) : '—')) +
                     row('Total spent', fmtMoney(s.total_spend)) +
                     row('Treatments', (s.treatment_count || 0).toLocaleString()) +
                     row('Gravel', gravelPct.toFixed(0) + '%') +
