@@ -118,7 +118,7 @@ func TestDataFile_PinnedSnapshotDeletedIs410(t *testing.T) {
 	})
 }
 
-// TestDataFile_SnapshotAtAnotherEdgeRenders: ?snapshot=N for a snapshot
+// TestDataFile_SnapshotAtAnotherEdgeRenders: ?snapshot=<name> for a snapshot
 // computed under other settings, at another hex_edge_m and before the
 // boundary was re-ingested, renders on its own lattice and boundary: every
 // stored hex id lands on a hex, and the boundary served is the one it froze.

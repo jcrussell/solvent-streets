@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -138,19 +139,22 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 // multi-city layout, plus the site-root assets.
 func (s *Server) handler() http.Handler {
 	mux := http.NewServeMux()
+	// The API has its own mux, so its 404s and 405s, like its handlers'
+	// errors and panics, come back as JSON (apiHandler).
+	api := http.NewServeMux()
 
 	if len(s.cities) == 1 {
 		// Single-city mode: serve data at /data/{file}, the same layout a
 		// single-city static export uses.
 		entry := s.cities[0]
 		mux.HandleFunc("GET /"+export.DataDirName+"/{file}", s.handleDataFile(entry))
-		mux.HandleFunc("GET /api/snapshots", s.handleSnapshotsList(entry))
+		api.HandleFunc("GET "+apiPrefix+"snapshots", s.handleSnapshotsList(entry))
 		mux.HandleFunc("GET /play", s.handleGame) // DATA_PREFIX='' → /data/<file>
 		mux.HandleFunc("GET /", s.handleIndex)
 	} else {
 		// Multi-city mode
-		mux.HandleFunc("GET /api/cities", s.handleCitiesList)
-		mux.HandleFunc("GET /api/cities/{slug}/snapshots", s.handleCitySnapshotsList)
+		api.HandleFunc("GET "+apiPrefix+"cities", s.handleCitiesList)
+		api.HandleFunc("GET "+apiPrefix+"cities/{slug}/snapshots", s.handleCitySnapshotsList)
 		mux.HandleFunc("GET /"+export.CityDataPrefix("{slug}")+export.DataDirName+"/{file}", s.handleCityDataFile)
 		// /play renders per-city: the city comes from ?city=<slug> (the dropdown
 		// navigates there), defaulting to the first renderable city, and the page
@@ -164,7 +168,17 @@ func (s *Server) handler() http.Handler {
 		mux.HandleFunc("GET /"+name, s.handleAsset(name))
 	}
 
-	return recoveryMiddleware(nosniffMiddleware(mux), s.ios.ErrOut)
+	// Every /api/ request goes to the API mux, registered or not; a pattern
+	// "/api/" on mux would conflict with "GET /".
+	apiH := apiHandler(s.ios.ErrOut, api)
+	root := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, apiPrefix) {
+			apiH.ServeHTTP(w, r)
+			return
+		}
+		mux.ServeHTTP(w, r)
+	})
+	return recoveryMiddleware(nosniffMiddleware(root), s.ios.ErrOut)
 }
 
 // readyURL formats the listener address as a URL suitable for the

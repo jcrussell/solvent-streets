@@ -141,7 +141,9 @@ type Snapshot struct {
 // via WithLatestCompute / WithRuns) and reads only its runs. ID, Name,
 // CreatedAt and ComputeEpoch are the snapshot's.
 type SnapshotCity struct {
-	ID           int64     `json:"id"`
+	// ID is the snapshot's row id. Not published: readers name a snapshot
+	// by Name (`?snapshot=<name>`).
+	ID           int64     `json:"-"`
 	Name         string    `json:"name"`
 	CreatedAt    time.Time `json:"created_at"`
 	ComputeEpoch int       `json:"compute_epoch"`

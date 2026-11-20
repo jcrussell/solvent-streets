@@ -395,13 +395,13 @@ func TestHandleSnapshots_SingleCity(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("expected 2 snapshots, got %d", len(got))
 	}
-	if got[0]["id"] != float64(2) || got[1]["id"] != float64(1) {
-		t.Errorf("expected DESC order id=2,1, got %v,%v", got[0]["id"], got[1]["id"])
-	}
-	for _, k := range []string{"id", "name", "created_at", "compute_epoch", "config_hash", "hex_edge_m", "parts"} {
+	for _, k := range []string{"name", "created_at", "compute_epoch", "config_hash", "hex_edge_m", "parts"} {
 		if _, ok := got[0][k]; !ok {
 			t.Errorf("missing key %q in response", k)
 		}
+	}
+	if _, ok := got[0]["id"]; ok {
+		t.Error("the snapshot row id is published; readers name snapshots by name")
 	}
 	if got[0]["name"] != "v2" || got[0]["served"] != nil || got[1]["served"] != true {
 		t.Errorf("names/served = %v %v / %v %v, want v2 then the served v1", got[0]["name"], got[0]["served"], got[1]["name"], got[1]["served"])
@@ -454,12 +454,12 @@ func TestHandleSnapshots_EmptyEmitsArrayNotNull(t *testing.T) {
 func TestHandleSnapshots_MultiCity(t *testing.T) {
 	storeA := &dbtest.MockStore{
 		ListSnapshotsFunc: func(_ context.Context) ([]db.SnapshotCity, error) {
-			return []db.SnapshotCity{{ID: 7}}, nil
+			return []db.SnapshotCity{{ID: 7, Name: "a7"}}, nil
 		},
 	}
 	storeB := &dbtest.MockStore{
 		ListSnapshotsFunc: func(_ context.Context) ([]db.SnapshotCity, error) {
-			return []db.SnapshotCity{{ID: 9}}, nil
+			return []db.SnapshotCity{{ID: 9, Name: "b9"}}, nil
 		},
 	}
 	cfg := &config.Config{Cities: []config.CityConfig{
@@ -486,8 +486,8 @@ func TestHandleSnapshots_MultiCity(t *testing.T) {
 	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 1 || got[0].ID != 9 {
-		t.Errorf("expected snapshot id 9 for City B, got %+v", got)
+	if len(got) != 1 || got[0].Name != "b9" {
+		t.Errorf("expected snapshot b9 for City B, got %+v", got)
 	}
 
 	// Unknown slug 404s, doesn't 500.

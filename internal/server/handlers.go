@@ -232,7 +232,7 @@ func (s *Server) firstRenderableCity(ctx context.Context) (export.CityEntry, exp
 // keeps matching the /data/{file} routes.
 func (s *Server) buildIndexData(ctx context.Context, entry export.CityEntry) (export.TemplateData, error) {
 	// The pages always render the pinned view; other snapshots, and the
-	// latest compute, are served via /data/meta.json?snapshot=N|latest
+	// latest compute, are served via /data/meta.json?snapshot=<name>|latest
 	// (serveMetaJSON). The pinned view's drawn grid is the one its
 	// /data/meta.json, hexgrid.geojson and hex-metrics.json share.
 	type page struct {
@@ -319,7 +319,7 @@ func (s *Server) unitSystem(cfg *config.Config) string {
 // see the real cause in the server log.
 //
 // db.ErrSnapshotGone overrides code: the snapshot this server pinned at
-// startup (or a ?snapshot=N that resolved a moment ago) was deleted or
+// startup (or a ?snapshot=<name> that resolved a moment ago) was deleted or
 // pruned, which a retry cannot fix, so it is 410 Gone with a fixed message
 // saying to restart. Every cache here evicts errors, so the 410 is never
 // memoized and a restarted server serves the current snapshot.
