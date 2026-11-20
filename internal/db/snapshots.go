@@ -637,7 +637,7 @@ func runArgs(ids []int64) []any {
 // orphanRuns lists this city's runs that neither a snapshot nor a latest
 // compute committed at computeEpoch or later references and that are older
 // than OrphanRunGrace. A latest compute from an older epoch is superseded
-// (supersededParts) and holds nothing.
+// (see supersededPartsCount) and holds nothing.
 func orphanRuns(ctx context.Context, q queryer, cityID int64, computeEpoch int) ([]int64, error) {
 	cutoff := unixSeconds(time.Now().Add(-OrphanRunGrace))
 	rows, err := q.QueryContext(ctx,

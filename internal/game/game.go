@@ -1,7 +1,7 @@
 // Package game holds all state and rules for the Solvent Streets real-time
 // pavement-management RTS. It is pure Go and build-tag-free so it can be unit
 // tested on the host; a thin syscall/js shim (built separately) drives it from
-// the browser, mirroring the internal/forecast/bridge + cmd/wasm/forecast split.
+// the browser; the same cmd/wasm/pvmt shim drives internal/forecast/bridge.
 //
 // Fidelity note: the PCI decay form (PCI = PCI0*exp(-k*t)), the per-class decay
 // rates, the tiered $/m^2 cost curve, and the macro "insolvent in N years"

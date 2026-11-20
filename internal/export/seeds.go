@@ -92,8 +92,8 @@ type ForecastSeedJSON struct {
 	// set resolves to.
 	//
 	// Not omitempty, and the reason is NOT that 0 is unreachable. A
-	// concrete-only network resolves a legitimate 0: buildCohortStats in
-	// pkg/cmd/compute emits a synthetic single-cohort row even where
+	// concrete-only network resolves a legitimate 0: buildCohorts in
+	// pkg/cmd/compute emits a single cohort named after the resource where
 	// HasCohorts() is false, so a sidewalk-only store does produce cohort seeds
 	// and scenarios to draw, and the Materials tab renders 0 t mix, 0 bbl oil
 	// and three flat-zero charts, which is the right answer for a network that

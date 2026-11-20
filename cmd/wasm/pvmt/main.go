@@ -23,8 +23,8 @@ import (
 // at a time; gameInit replaces it.
 var currentGame *game.Game
 
-// errJSON marshals an error message into the {"error": ...} envelope shared with
-// the forecast shim, so any bad JS input surfaces as JSON instead of a panic.
+// errJSON marshals an error message into the {"error": ...} envelope every
+// export in this file returns, so any bad JS input surfaces as JSON instead of a panic.
 func errJSON(msg string) any {
 	out, _ := json.Marshal(map[string]string{"error": msg})
 	return js.ValueOf(string(out))

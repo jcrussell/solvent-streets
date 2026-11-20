@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-// feetPerMetre / inchesPerMetre convert imperial OSM width notations to metres.
+// metresPerFoot / metresPerInch convert imperial OSM width notations to metres.
 const (
 	metresPerFoot = 0.3048
 	metresPerInch = 0.0254

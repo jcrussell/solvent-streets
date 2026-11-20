@@ -24,17 +24,11 @@ import (
 // they are reported as tree totals and carry no per-city budget.
 //
 // Every budget is a ceiling that catches a runaway, not a tracker of current
-// size. The budgets are seeded against a real full export taken after the
-// site-weight epic (solvent-streets-pav7) landed its last step (B7):
-//
-// Seed baseline: 277 cities, 309 MB total, audit clean.
-// Worst city per file at that point:
+// size. The budgets are seeded against a real full export: 277 cities,
+// 309 MB total, audit clean. Worst city per file in that export:
 //
 //	hexgrid.geojson       6.2 MiB  (portland-or)   mean 845.0 KiB   total 228.6 MiB
 //	boundary.geojson      1.2 MiB  (jacksonville)  mean  41.4 KiB   total  11.2 MiB
-//	play-hexes.json     956.4 KiB  (portland-or)   mean 107.0 KiB   total  28.9 MiB
-//	                    (since removed: the /play board reads hexgrid.geojson,
-//	                    whose road hexes gained a "k" of ~12 B each, ~1-2%)
 //	forecast.json        75.0 KiB  (pacifica-ca)   mean  63.1 KiB   total  17.1 MiB
 //	scenarios.json       47.5 KiB  (oakland-ca)    mean  40.8 KiB   total  11.0 MiB
 //	forecast_seed.json    1.8 KiB / meta.json 559 B / hex-cost-summary.json 474 B
@@ -45,17 +39,16 @@ import (
 //   - hexgrid.geojson 8 MiB. A ceiling chosen for a hoped-for endpoint rather
 //     than a measured one would fire on every export. 8 MiB sits ~29% above
 //     the real worst city, which still catches a doubling. This file is 74% of
-//     the published tree and is the only place a further large win is left; the
-//     remaining lever (lattice reconstruction, ~145 MB) is deliberately
-//     deferred in solvent-streets-pav7 until there is an executing JS test
-//     harness, because it cannot fail loudly.
+//     the published tree and is the only place a further large win is left;
+//     that lever (lattice reconstruction, ~145 MB) is not taken because it
+//     cannot fail loudly.
 //
-// The others sit far under: boundary clears by ~40% because B4b simplifies
-// the display copy, forecast.json is at about a seventh of its ceiling, and
+// The others sit far under: boundary clears by ~40% because the export
+// simplifies the display copy, forecast.json is at about a seventh of its ceiling, and
 // forecast_seed / meta / hex-cost-summary are nominal ceilings orders of
 // magnitude above today's bytes.
 var sizeBudgets = map[string]int64{
-	export.BoundaryFileName:       2 << 20,   // 2 MiB  (worst 1.2 MiB after B4b)
+	export.BoundaryFileName:       2 << 20,   // 2 MiB  (worst 1.2 MiB)
 	export.ForecastFileName:       512 << 10, // 512 KiB
 	export.ForecastSeedFileName:   64 << 10,  // 64 KiB  (nominal)
 	export.HexCostSummaryFileName: 64 << 10,  // 64 KiB  (nominal)
@@ -65,7 +58,7 @@ var sizeBudgets = map[string]int64{
 	export.HexMetricsFileName:     2 << 20,   // 2 MiB  (optional; ~30 B per painted hex per metric)
 }
 
-// dataFileNameSet is export.DataFileNames as a set, so the shared-asset walk
+// dataFileNameSet is export.AllDataFileNames as a set, so the shared-asset walk
 // can skip in one lookup the files the per-city pass already accounted for.
 var dataFileNameSet = func() map[string]bool {
 	names := export.AllDataFileNames()

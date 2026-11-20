@@ -17,7 +17,7 @@ import (
 )
 
 // NewCmdSnapshots returns the parent `snapshots` command. It only
-// aggregates subcommands; it has no runFunc of its own.
+// aggregates subcommands; it has no runF of its own.
 func NewCmdSnapshots(f *cmdutil.Factory) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "snapshots",

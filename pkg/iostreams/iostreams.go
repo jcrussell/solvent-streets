@@ -19,7 +19,7 @@ const noTimestamp = "never"
 // os.Stdin/os.Stdout/os.Stderr in this codebase is System(); everything
 // else accepts an *IOStreams and writes through it. Each stream carries
 // its own TTY flag because they can independently be a terminal, a file,
-// or a pipe (e.g. `pvmt list | less` has stdout=pipe but stderr=tty).
+// or a pipe (e.g. `pvmt cities | less` has stdout=pipe but stderr=tty).
 //
 // Stream-routing contract (byob-iostreams.3):
 //

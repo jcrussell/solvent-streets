@@ -15,7 +15,7 @@ import (
 )
 
 // NewCmdCache returns the parent `cache` command. It only aggregates
-// subcommands; it has no runFunc of its own.
+// subcommands; it has no runF of its own.
 func NewCmdCache(f *cmdutil.Factory) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "cache",

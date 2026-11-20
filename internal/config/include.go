@@ -456,8 +456,8 @@ func unionCalibration(existing *CityConfig, child *Config, src *CityConfig) (con
 // That failure is silent in both directions — the snapshot hash covers the edge
 // but not the export-time threshold, so it passes, and the result is a
 // SUCCESSFUL export of an empty map. Unioning the two fields independently
-// would reintroduce through the include path exactly what the display.min_hex_area
-// gate in validateGrid was written to prevent.
+// would reintroduce through the include path exactly what (*Config).validate
+// prevents by requiring an including config to leave display.min_hex_area empty.
 //
 // Adopting the pair also moves the source identity (SourceConfigID and the
 // stamped compute inputs) onto src's config — that is the caller's job,

@@ -43,7 +43,7 @@ func (r Report) Err() error {
 }
 
 // RefusedError is the error a refused Report becomes (Report.Err), so it can
-// pass through db.Store.CreateSnapshot's check and be recovered with
+// pass through db.RootStore.CreateSnapshot's check and be recovered with
 // errors.As.
 type RefusedError struct{ Report Report }
 

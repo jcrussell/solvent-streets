@@ -100,7 +100,7 @@ func StateFromName(name string) (string, bool) {
 // the state dimension is present. It is the single place the derivation lives;
 // the exporter calls it when building CityInfo so cities.json, the inline
 // PVMT_CONFIG payload, the selector groups and /api/cities all agree, while
-// Config.Tags itself stays a faithful copy of what the file says (config show,
+// CityConfig.Tags itself stays a faithful copy of what the file says (config show,
 // ResolvedTOML and the include merge are unaffected). The returned slice is
 // never the receiver's own backing array when a tag is added; when nothing is
 // added the receiver's slice is returned as-is and must not be mutated.

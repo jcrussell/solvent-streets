@@ -56,7 +56,8 @@ type CityGroup struct {
 
 // TagDimension is one axis of tags ("group", "state", "metro") with its
 // cities grouped by value. Name is the config.ParseTag dimension; Label is the
-// selector heading ("Group", "State"). Groups follow GroupCitiesByTag's order.
+// selector heading ("Group", "State"). Groups are ordered non-empty tags first,
+// ascending by label, with cities ascending by name within each group.
 type TagDimension struct {
 	Name   string
 	Label  string
@@ -298,7 +299,7 @@ var resourceColorsJSOnce = sync.OnceValue(func() template.JS {
 // ResourceColorsJS returns ResourceColors as a template.JS JSON object.
 func ResourceColorsJS() template.JS { return resourceColorsJSOnce() }
 
-// jsTagDimension / jsTagValue are the PVMT_CONFIG.tagDimensions payload both
+// jsTagDimension / jsTagValue are the PVMT_CONFIG.tag_dimensions payload both
 // pages read to drive their tag filters and to rebuild the city selector
 // client-side: one entry per dimension, values in selector order, each value
 // carrying the full tag string (what a city's tags contain) and its label.
@@ -506,8 +507,8 @@ var ResourceColors = map[string]string{
 // The default dimension (config.DefaultTagDimension) always comes first — even
 // when no city carries a plain tag, so the city selector's <optgroup> source is
 // always index 0 and untagged cities still render as bare options — followed by
-// the other dimensions sorted by name. Within a dimension, groups follow
-// GroupCitiesByTag's order. The untagged ("Other") group appears only in the
+// the other dimensions sorted by name. Within a dimension, groups are ordered
+// non-empty tags first, ascending by label, with cities ascending by name. The untagged ("Other") group appears only in the
 // default dimension: a city lacking a tag in some other dimension is simply not
 // a member of that dimension. The input slice is not mutated. Returns nil when
 // cities is empty.
@@ -551,8 +552,8 @@ func dimensionLabel(name string) string {
 	return strings.ToUpper(name[:1]) + name[1:]
 }
 
-// GroupCitiesByTag groups cities by their DEFAULT-dimension tags for the city
-// selector: non-empty tags first, sorted ascending by label, with cities sorted
+// GroupCitiesByTag groups cities by their DEFAULT-dimension tags, the same
+// grouping GroupCitiesByDimension gives the default dimension: non-empty tags first, sorted ascending by label, with cities sorted
 // ascending by name within each group. A city with multiple tags appears in
 // every matching group (multi-membership). Cities with no default-dimension tag
 // are collected into a final group (Tag == "") rendered as ungrouped ("Other")

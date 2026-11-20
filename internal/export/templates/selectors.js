@@ -5,7 +5,7 @@
 // BEFORE the page script, exposing a single window.PvmtSelectors namespace (no
 // module wrapper — like app.js/game.js it is go:embed'd verbatim and loaded by
 // a bare <script src>; see TemplateData.IndexConfigJSON/GameConfigJSON for the
-// tagDimensions payload it consumes).
+// tag_dimensions payload it consumes).
 //
 // Tag forms. A city's tags are in CONFIG form — "Bay Area" for the default
 // "group" dimension, "state:CA" for any other. The URL carries only the

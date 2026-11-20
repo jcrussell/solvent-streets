@@ -26,7 +26,7 @@ const (
 	DefaultHexEdgeM = 100.0
 	// MinHexEdgeM is the smallest hex edge (in projected meters) a config may
 	// resolve. Cell count grows as 1/edge^2 with no upper bound anywhere in the
-	// pipeline: geo.HexGrid rejects only NaN/+/-Inf/<=0, and buildClippedHexGrid
+	// pipeline: geo.HexGrid rejects only NaN/+/-Inf/<=0, and compute.BuildClippedHexGrid
 	// caps nothing. A 2 km x 2 km bbox at edge=1 already yields 1,542,592 hexes;
 	// a real 20 km city bbox is ~100x that area, i.e. ~1.5e8 Hex values each
 	// carrying a polygon. That is an OOM kill with no diagnostic -- the process
@@ -35,7 +35,7 @@ const (
 	// 10 m is chosen for headroom, not precision: the finest grid any shipped
 	// example uses is 60 m (greater-boston-ma's Cambridge/Somerville), so the
 	// floor cannot reject a legitimate config, while capping a large city near
-	// ~1.5e6 cells -- slow (see project_compute_perf) but survivable.
+	// ~1.5e6 cells -- slow but survivable.
 	// solvent-streets-rbv7.
 	MinHexEdgeM       = 10.0
 	DefaultInitialPCI = 85.0
@@ -75,7 +75,7 @@ const (
 	// change in enclosed area.
 	//
 	// This never touches the authoritative boundary: hex clipping
-	// (export.clipHexGridToBoundary) and the area figures behind
+	// (export.cityHexGrid) and the area figures behind
 	// meta.json's CityArea/PavedShare read store.GetBoundary directly.
 	DefaultBoundarySimplifyM = 10.0
 	// DefaultCostOverhead is 1.0 — no multiplier — and that is a calibrated
@@ -162,7 +162,7 @@ type Config struct {
 	// [[include]] blocks — today, one per city whose calibration was
 	// superseded by an earlier include under first-include-wins (see
 	// include.go). Set by Load; read via LoadWarnings() and printed by
-	// the warnConfigLoad middleware, since this package has no IOStreams.
+	// factory.warnAfterLoad, since this package has no IOStreams.
 	//
 	// Unexported so it never decodes from or encodes to TOML. It cannot
 	// perturb a snapshot hash: CityHash reads only the resolved compute
@@ -691,8 +691,8 @@ func LoadFS(fsys fs.FS, name string) (*Config, error) {
 // the same cities row.
 //
 // Load uses os.ReadFile directly (rather than delegating to LoadFS) so
-// the read error carries the full path the caller supplied — users who
-// mistype --config want to see which path failed, not just the basename.
+// the read error carries the full path the caller supplied — a caller that
+// passes a wrong path wants to see which path failed, not just the basename.
 func Load(path string) (*Config, error) {
 	abs, err := filepath.Abs(path)
 	if err != nil {

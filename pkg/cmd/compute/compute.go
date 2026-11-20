@@ -359,7 +359,7 @@ func (c *computer) computeAndSave(ctx context.Context, resFeatures []resource.Fe
 
 	// Buffer every feature exactly once. The "all" and "city" passes share
 	// this slice; the city pass filters on jurisdiction without invoking
-	// BufferFeatures again, and cohort stats re-use the same polygons.
+	// BufferFeaturesPaired again, and cohort stats re-use the same polygons.
 	allBuffered := opts.ResourceType.BufferFeaturesPaired(ctx, resFeatures, proj)
 	// BufferFeaturesPaired is ParallelMap-backed and returns an empty (partial)
 	// slice with no error on cancellation. Distinguish a real "no valid

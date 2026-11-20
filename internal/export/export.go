@@ -327,15 +327,15 @@ func (e *Exporter) exportCityData(ctx context.Context, entry CityEntry, dataDir 
 	}
 
 	// The per-city data files written below (and in exportScenariosForCity)
-	// are enumerated for the publish-readiness checker by DataFileNames in
-	// checkassets.go — keep the two in sync when adding or removing a file.
+	// are enumerated for the publish-readiness checker by AllDataFileNames
+	// (DataFileNames + OptionalDataFileNames) in checkassets.go — keep the two in sync when adding or removing a file.
 	//
 	if err := e.writeBoundary(ctx, entry, proj, dataDir); err != nil {
 		return MetaJSON{}, "", err
 	}
 
 	// Export hex grid — a single multi-scope file, one feature per hex with
-	// nested {bbox, city|city_same} coverage. This is the largest file the
+	// nested {all, city|city_same} coverage. This is the largest file the
 	// export writes; a feature with NEITHER "city" nor "city_same" signals
 	// "hide the scope toggle" to the client.
 	//

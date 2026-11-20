@@ -69,7 +69,7 @@ lint:
 	golangci-lint run
 
 # Lint + type-check the browser JS extracted from the export templates
-# (internal/export/templates/app.js, game.js). Installs the pinned devDeps on
+# (internal/export/templates/*.js). Installs the pinned devDeps on
 # first run only. typecheck is `tsc --checkJs` over the JSDoc-annotated sources
 # (see tsconfig.json); both are hard gates.
 lint-js:
@@ -77,7 +77,7 @@ lint-js:
 	npm run lint
 	npm run typecheck
 
-# Executing JS tests for the export templates' app.js (solvent-streets-azdu).
+# Executing JS tests for the export templates' scripts.
 # Driven from the Go side (internal/export TestJS) because the DOM the specs run
 # against is rendered from index.html.tmpl — a Go template — so a hand-written
 # HTML fixture would drift from it silently. `go test ./...` SKIPS these when

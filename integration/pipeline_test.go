@@ -85,7 +85,7 @@ func TestPipeline_ComputeForecastExport(t *testing.T) {
 		t.Fatalf("combined: %v", err)
 	}
 
-	// forecast: simulates from compute_results + cohort_stats and writes
+	// forecast: simulates from the stored results and writes
 	// nothing, so it commits no snapshot.
 	before := len(listSnapshots(t, store))
 	fcmd := forecast.NewCmdForecast(f, nil)
@@ -151,11 +151,10 @@ func TestPipeline_ComputeForecastExport(t *testing.T) {
 		var forecasts []map[string]any
 		readJSON(t, filepath.Join(cityDir, "data", "forecast.json"), &forecasts)
 
-		// Cross-stage contract: each compute pass writes a compute_result;
-		// forecast reads each compute_result and emits one ForecastExport;
-		// export serializes them all to forecast.json. Skipping any of
-		// {roads compute, parking compute, forecast, export} drops a
-		// resource from this set.
+		// Cross-stage contract: each compute pass stores a result per
+		// resource; export simulates each into one ForecastExport and
+		// serializes them all to forecast.json. Skipping a resource's
+		// compute drops it from this set.
 		gotResources := map[string]bool{}
 		for _, fc := range forecasts {
 			rt, _ := fc["resource_type"].(string)

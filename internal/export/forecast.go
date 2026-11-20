@@ -356,8 +356,8 @@ func maintainedAreas(ctx context.Context, store results.CityMetricLister) (scena
 
 // cohortsFromSeeds converts the interactive-line CohortSeeds into forecast
 // cohorts. CohortSeed carries no InitialPCI; the interactive path applies the
-// single config InitialPCI to every cohort (see cmd/wasm/forecast/main.go,
-// which sets Cohort.InitialPCI = input.InitialPCI for each seed). Mirror that
+// single config InitialPCI to every cohort (see internal/forecast/bridge,
+// which spreads every seed at input.InitialPCI). Mirror that
 // exactly so the static lines track the custom line.
 func cohortsFromSeeds(seeds []CohortSeed, initialPCI float64) []forecast.Cohort {
 	if len(seeds) == 0 {
@@ -566,7 +566,7 @@ func BuildHexCostSummary(ctx context.Context, entry CityEntry, forecasts []Forec
 }
 
 // scopeYear1Needs reads the year-1 annual need for each scope out of a
-// ForecastExport. The convention is set in BuildForecastForResource: when
+// ForecastExport. The convention is set in buildResourceForecast: when
 // AllBaseline is non-nil, Baseline is the city-scoped run; when nil,
 // Baseline carries the all-scope run alone.
 func scopeYear1Needs(fe ForecastExport) (city, all float64, hasCity bool) {

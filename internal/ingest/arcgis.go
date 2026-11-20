@@ -383,7 +383,7 @@ var errNoLayerMetadata = errors.New("layer metadata unavailable")
 //
 // The layer document lives at the query endpoint minus its /query suffix. Any
 // query string the endpoint carries (an arcgis_url with ?token=...) is
-// preserved, exactly as fetchArcGISPage does. No fresh validatePublicHTTPURL
+// preserved, exactly as fetchPage does. No fresh validatePublicHTTPURL
 // call: this is the same scheme and host Fetch already validated, and the
 // client-level CheckRedirect re-validates every redirect hop.
 func arcgisLayerMaxRecordCount(ctx context.Context, client *http.Client, endpoint string) (int, error) {
@@ -557,14 +557,11 @@ func (q *ArcGISQuery) fetchPage(ctx context.Context, client *http.Client, offset
 		// Esri does not guarantee row order across resultOffset pages
 		// without an explicit orderByFields; non-hosted (map-service /
 		// enterprise) layers can otherwise reorder rows between pages,
-		// silently skipping/duplicating features. Order by OBJECTID,
-		// consistent with the OBJECTID assumption in parseArcGISGeoJSON's
-		// id-parsing below. Behavior change: on the rare layer whose OID
-		// field is not literally "OBJECTID" the server rejects this
-		// orderBy — a loud failure (surfaced via arcgisErrorMessage)
-		// rather than today's silent dup/skip, which is acceptable since
-		// such layers already mis-parse ids. (solvent-streets-2a7n.26)
-		// IDField overrides it for layers whose OID field is named otherwise.
+		// silently skipping/duplicating features. Order by the id field
+		// (IDField, default OBJECTID), the same field the rows' ids are read
+		// from. On a layer whose OID field is named otherwise and IDField is
+		// unset, the server rejects this orderBy — a loud failure (surfaced
+		// via arcgisErrorMessage) rather than a silent dup/skip.
 		"orderByFields": {q.idField()},
 	}
 	if q.GeometryPrecision > 0 {
@@ -647,7 +644,7 @@ type arcgisErrorEnvelope struct {
 // into. It carries every concern the caller needs — the error envelope, the
 // GeoJSON features, and the exceededTransferLimit pagination flag (which
 // f=geojson nests under top-level "properties", while some deployments emit it
-// at the top level) — so fetchArcGISPage parses the body exactly once instead of
+// at the top level) — so fetchPage parses the body exactly once instead of
 // three times. Pointer flag fields distinguish "present and false" from "absent"
 // (critical for pagination; see the loop in Fetch).
 type arcgisPage struct {

@@ -7,7 +7,7 @@ import (
 )
 
 // NewCmdConfig returns the `config` parent command. It only aggregates
-// subcommands; it has no runFunc of its own.
+// subcommands; it has no runF of its own.
 func NewCmdConfig(f *cmdutil.Factory) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "config",

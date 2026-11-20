@@ -245,8 +245,8 @@ func (e *jsonExporter) Write(ios *iostreams.IOStreams, rows []map[string]any) er
 }
 
 // jqFilterExporter applies a jq expression to the JSON output. The query
-// is precompiled in buildExporter so parse errors surface early as
-// FlagErrors rather than after the command body runs.
+// is precompiled in buildExporter so parse errors surface early as a
+// FlagError rather than after the command body runs.
 type jqFilterExporter struct {
 	baseExporter
 	query *gojq.Query
@@ -281,8 +281,8 @@ func writeJQ(ios *iostreams.IOStreams, query *gojq.Query, input any) error {
 }
 
 // templateExporter applies a Go template to the JSON output. The template
-// is precompiled in buildExporter so parse errors surface early as
-// FlagErrors rather than after the command body runs.
+// is precompiled in buildExporter so parse errors surface early as a
+// FlagError rather than after the command body runs.
 type templateExporter struct {
 	baseExporter
 	tmpl *template.Template

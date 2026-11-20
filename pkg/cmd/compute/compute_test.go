@@ -208,7 +208,7 @@ func (c *countingSource) BufferFeaturesPaired(ctx context.Context, f []resource.
 // TestRunCompute_BuffersFeaturesOncePerRun pins the solvent-streets-2nc fix:
 // across the all-jurisdiction pass, the city-only pass, and the per-class
 // cohort breakdown, every feature is buffered exactly once. Regression
-// guard against re-introducing a second BufferFeatures pass on the city
+// guard against re-introducing a second BufferFeaturesPaired pass on the city
 // subset.
 func TestRunCompute_BuffersFeaturesOncePerRun(t *testing.T) {
 	store := &dbtest.MockStore{

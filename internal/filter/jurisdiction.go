@@ -152,9 +152,9 @@ var (
 
 	// singleLetterStateRefRe and singleLetterCountyRefRe carry the route
 	// conventions that number with a SINGLE letter. statePostalRefRe requires
-	// two, so before these rules every one of them matched nothing, fell
-	// through the whole ladder and landed in City -- 1648 features billing
-	// state highway to the city, tracked as solvent-streets-m0qa.
+	// two, so without these rules every one of them would match nothing, fall
+	// through the whole ladder and land in City -- 1648 features billing
+	// state highway to the city.
 	//
 	// This is an explicit ALLOW LIST rather than a `^[A-Z][ -]\d` pattern, and
 	// the distinction is the whole point. The complete set of single-letter

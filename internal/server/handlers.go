@@ -614,7 +614,7 @@ func (s *Server) serveMetaJSON(w http.ResponseWriter, _ *http.Request, entry exp
 
 // serveHexGridGeoJSON serves the single multi-scope hex grid at
 // /data/hexgrid.geojson — one feature per hex with nested
-// {bbox, city|city_same} coverage. A city with no rows returns an empty
+// {all, city|city_same} coverage. A city with no rows returns an empty
 // FeatureCollection; features with NEITHER city key tell the client to hide the
 // scope toggle.
 func (s *Server) serveHexGridGeoJSON(w http.ResponseWriter, _ *http.Request, entry export.CityEntry, snapshotID int64) {

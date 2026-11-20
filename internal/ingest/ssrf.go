@@ -43,19 +43,6 @@ import (
 // ArcGISSource.Fetch and propagated by the stdlib across redirects).
 // solvent-streets-a2z8.1.
 
-// validatePublicHTTPURL rejects URLs whose resolved host is loopback,
-// link-local, private, unspecified, or multicast. Defense-in-depth
-// against a shared hostile pvmt.toml steering ingest at internal
-// services (localhost, 169.254.169.254, RFC1918 ranges) —
-// solvent-streets-di49.
-//
-// Resolution happens at call time, so DNS rebinding after this check
-// can still slip past in principle. The mitigation here is per-request
-// rather than per-connection because pvmt's HTTP client is shared
-// across all ingest sources and the policy is per-endpoint (arcgis_url
-// per city, the Overpass endpoint per run; Nominatim is fixed).
-// Wiring a transport-level dial check would force the same policy on
-// every source.
 // allowPrivateKey carries the AllowPrivate opt-in on a request context so
 // the client-level CheckRedirect can honor self-hosted/staging endpoints
 // across redirect hops. ArcGISSource.Fetch derives the request context
@@ -84,6 +71,19 @@ func ValidatePublicHTTPURL(ctx context.Context, urlStr string) error {
 	return validatePublicHTTPURL(ctx, urlStr)
 }
 
+// validatePublicHTTPURL rejects URLs whose resolved host is loopback,
+// link-local, private, unspecified, or multicast. Defense-in-depth
+// against a shared hostile pvmt.toml steering ingest at internal
+// services (localhost, 169.254.169.254, RFC1918 ranges) —
+// solvent-streets-di49.
+//
+// Resolution happens at call time, so DNS rebinding after this check
+// can still slip past in principle. The mitigation here is per-request
+// rather than per-connection because pvmt's HTTP client is shared
+// across all ingest sources and the policy is per-endpoint (arcgis_url
+// per city, the Overpass endpoint per run; Nominatim is fixed).
+// Wiring a transport-level dial check would force the same policy on
+// every source.
 func validatePublicHTTPURL(ctx context.Context, urlStr string) error {
 	u, err := url.Parse(urlStr)
 	if err != nil {

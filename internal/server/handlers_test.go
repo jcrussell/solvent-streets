@@ -303,7 +303,7 @@ func TestHandleGame_MultiCity_BrokenCityFallback(t *testing.T) {
 	// City B is genuinely unconfigured: GetBoundary returns ("", nil), which
 	// BBoxAndCenter maps to ErrNoBoundary — the skippable, permanent case. (A
 	// GetBoundary that returns an *error* is a transient DB failure and is
-	// handled by TestHandleGame_MultiCity_TransientRecovers below.)
+	// handled by TestRenderGame_TransientRecovers below.)
 	storeB := &dbtest.MockStore{
 		GetBoundaryFunc: func(_ context.Context) (string, error) { return "", nil },
 	}
