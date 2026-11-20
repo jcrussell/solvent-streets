@@ -55,7 +55,10 @@ func NewCmdServe(f *cmdutil.Factory, runF func(context.Context, *Options) error)
 		Short: "Start the web server",
 		Long: `Start the MapLibre visualization server with API endpoints. Each city is
 served from its newest snapshot, or from the snapshot --snapshot names, which
-must cover every configured city; the page's snapshot picker shows any other.`,
+must cover every configured city; the page's snapshot picker shows any other,
+and ?snapshot=latest shows the latest compute. A city with no snapshot is
+served from its latest compute, with a warning, so a draft can be previewed
+before 'pvmt snapshots create'.`,
 		Example: `  # Serve on the default :8080
   pvmt serve
 

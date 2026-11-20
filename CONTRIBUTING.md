@@ -224,15 +224,16 @@ To publish:
 
 ```
 cd examples/all && pvmt all ingest && pvmt all compute   # every city; hours (one city: --city <slug>)
-cd examples/all && pvmt snapshots create                 # freeze every city's latest compute
+cd examples/all && pvmt snapshots create 2026-11         # freeze every city's latest compute
 make site          # render ./site/ from each city's newest snapshot
 make site-report   # pvmt check-site: per-city size budgets and the asset audit
 make deploy        # force-push ./site/ to gh-pages
 ```
 
 `make site` never creates snapshots: publishing is the deliberate
-`snapshots create`, and rolling a city back is `pvmt --city <slug> snapshots
-delete` of its newest snapshot, which a create inside `make site` would undo.
+`snapshots create`, and rolling back is `pvmt snapshots delete` of the newest
+snapshot (a snapshot covers every city), which a create inside `make site`
+would undo.
 A city with no snapshot makes `make site` refuse, naming it. So does
 incomplete data: before exporting, `make site` runs
 `pvmt status --all --incomplete --exit-status` over `examples/all`, which

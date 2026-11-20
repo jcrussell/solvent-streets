@@ -21,7 +21,8 @@ func NewCmdCache(f *cmdutil.Factory) *cobra.Command {
 		Use:   "cache",
 		Short: "Manage the on-disk HTTP response cache",
 		Long: `Inspect and bound the HTTP response cache pvmt keeps under the
-user cache directory (` + "`$XDG_CACHE_HOME/pvmt/http`" + ` by default).
+user cache directory, in its http/ subdirectory (docs/configuration.md
+lists where that is on each platform).
 
 Entries are written by every ingest that hits Overpass, ArcGIS,
 Nominatim, or TIGERweb and are served for the config's [cache] ttl (a week

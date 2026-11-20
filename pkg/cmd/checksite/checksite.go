@@ -44,9 +44,8 @@ database, network, or config — that mechanizes the manual publish-readiness
 review.
 
 A current 'pvmt export' writes one tree rooted at the given directory, so the
-audit normally runs against that single export; trees that nest one export per
-subdirectory (the retired multi-site layout) are still discovered and audited
-per subdirectory.
+audit normally runs against that single export; a tree that nests one export
+per subdirectory is discovered and audited per subdirectory.
 
 The following checks run over the given directory (default "site"):
 
