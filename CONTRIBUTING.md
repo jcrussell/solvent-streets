@@ -8,9 +8,9 @@ site go out. How the code is put together is in
 
 ## Prerequisites
 
-You need Go at the floor in the `go` line of [`go.mod`](go.mod). Its
-`toolchain` line names the exact release CI uses, and with the default
-`GOTOOLCHAIN=auto` the go command downloads it for you. You also need
+You need Go at the release in the `go` line of [`go.mod`](go.mod). That line
+names the exact release CI uses, and with the default `GOTOOLCHAIN=auto` the
+go command downloads it for you. You also need
 golangci-lint at the version in [`.golangci-version`](.golangci-version) (see
 its [install guide](https://golangci-lint.run/welcome/install/#local-installation)),
 `make`, and Node for the JavaScript lint and tests. Nothing needs CGO: `pvmt`

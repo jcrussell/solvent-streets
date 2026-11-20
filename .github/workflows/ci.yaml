@@ -172,7 +172,7 @@ jobs:
           go-version-file: go.mod
           cache-dependency-path: go.sum
 
-      # setup-go above reads go.mod's toolchain line, so this scans the
+      # setup-go above reads go.mod's go line, so this scans the
       # standard library the release job compiles with; a stdlib finding
       # is fixed by bumping that line. (byob-security.1 / byob-security.2)
       - name: Run govulncheck

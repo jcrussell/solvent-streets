@@ -47,7 +47,7 @@ test-hooks:
 	sh scripts/check-commit-msg_test.sh
 
 # Pinned, not @latest; CI runs this same target. Scans the
-# stdlib of the toolchain go.mod's `toolchain` line selects.
+# stdlib of the toolchain go.mod's `go` line selects.
 GOVULNCHECK_VERSION := v1.9.0
 vuln:
 	go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...

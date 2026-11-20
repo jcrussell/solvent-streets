@@ -1,8 +1,6 @@
 module github.com/jcrussell/solvent-streets
 
-go 1.26.4
-
-toolchain go1.26.10
+go 1.27.4
 
 require (
 	charm.land/bubbletea/v2 v2.1.1
