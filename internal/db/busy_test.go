@@ -175,3 +175,34 @@ func TestOpen_CanceledStopsWaiting(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// TestWrites_LockedPastTheBudgetNamesTheOtherProcess: a write after Open
+// still locked out once its retry budget runs out fails with the same
+// database-is-locked hint as Open.
+func TestWrites_LockedPastTheBudgetNamesTheOtherProcess(t *testing.T) {
+	if testing.Short() {
+		t.Skip("holds a write lock past the five-second busy timeout")
+	}
+	defer func(b time.Duration) { commitBusyBudget = b }(commitBusyBudget)
+	commitBusyBudget = 500 * time.Millisecond
+	path := filepath.Join(t.TempDir(), "pvmt.db")
+	root, err := Open(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+	released := lockNewFile(t, path, 8*time.Second)
+
+	_, err = root.EnsureCity(context.Background(), "a", "A", "test")
+	if !isBusy(err) {
+		t.Fatalf("err = %v, want a busy database", err)
+	}
+	var h *hint.ErrHint
+	if !errors.As(err, &h) || !strings.Contains(h.Hint, "another pvmt process is writing") ||
+		!strings.Contains(h.Hint, "troubleshooting.md#database-is-locked") {
+		t.Errorf("hint = %v, want the database-is-locked hint", h)
+	}
+	if err := <-released; err != nil {
+		t.Fatal(err)
+	}
+}

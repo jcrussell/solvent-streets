@@ -26,8 +26,8 @@ const OrphanRunGrace = 24 * time.Hour
 // another process holds the write lock past busy_timeout: every write
 // transaction's BEGIN (withTx), and CommitLatest and CreateSnapshot whole. A
 // compute that gives up discards its runs, possibly hours of work, so it
-// waits generously.
-const commitBusyBudget = 2 * time.Minute
+// waits generously. A variable so a test can run it out quickly.
+var commitBusyBudget = 2 * time.Minute
 
 // ErrSnapshotGone is returned by every snapshot-scoped read (city and hex
 // metrics, the frozen boundary) of a view pinned with WithSnapshot when that

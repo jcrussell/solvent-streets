@@ -8,6 +8,8 @@ import (
 	"maps"
 	"slices"
 	"time"
+
+	"github.com/jcrussell/solvent-streets/internal/hint"
 )
 
 // ErrNothingComputed refuses a city in CreateSnapshot when it has no latest
@@ -121,9 +123,16 @@ func freezeCity(ctx context.Context, tx *sql.Tx, snapshotID int64, req SnapshotR
 }
 
 // retryBusy runs attempt until it does not fail with isBusy, for up to
-// commitBusyBudget, backing off between tries.
+// commitBusyBudget, backing off between tries. A write still locked out when
+// the budget runs out carries the database-is-locked hint; one cut short by
+// ctx does not.
 func retryBusy(ctx context.Context, attempt func() error) error {
-	return retryBusyWithin(ctx, commitBusyBudget, attempt)
+	err := retryBusyWithin(ctx, commitBusyBudget, attempt)
+	if isBusy(err) && ctx.Err() == nil {
+		return hint.With(err, "another pvmt process is writing the database; run the command again once it "+
+			"finishes (see docs/troubleshooting.md#database-is-locked)")
+	}
+	return err
 }
 
 // retryBusyWithin is retryBusy for up to budget.
