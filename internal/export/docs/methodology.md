@@ -348,8 +348,11 @@ The multi-city Compare view presents two distinct per-city scores:
   asset scale, ownership share, walkability, unit cost and blended decay,
   min-max normalized across the compared cities. It is **not** a solvency
   judgment (its "bigger network / more city-owned = higher" weights are
-  descriptive, not normative); it exists to summarize network character and
-  is always computable, so every city places.
+  descriptive, not normative); it exists to summarize network character.
+  Every component reads every pavement layer, so it is scored only for
+  cities with all of roads, parking and sidewalks: a city with a layer
+  missing, or partial because one of its sources failed to ingest, is shown
+  `N/A`, unranked, and is left out of the normalization.
 
 ### Parking space estimate
 

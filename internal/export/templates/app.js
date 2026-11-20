@@ -5468,7 +5468,7 @@
 
             var excluded = allMetrics.length - fc.length;
             document.getElementById('aggregate-footnote').textContent =
-                'Area-weighted PCI uses each city’s simplified single-cohort baseline condition (scenarios.json), not the cohort-blended decay. ' +
+                'Area-weighted PCI is each city’s year-1 condition in its no-intervention scenario (scenarios.json, run over its per-class cohorts), weighted by the maintained area in the selected scope. ' +
                 'Trajectories sum the baseline (no-intervention) scenario across cities with forecast data' +
                 (excluded > 0 ? ' (' + excluded + ' without forecasts excluded)' : '') +
                 '. Dollars are nominal in the config’s cost basis.' +

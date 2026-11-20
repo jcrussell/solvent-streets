@@ -169,3 +169,12 @@ test('the Aggregate divergence note signs every dollar-moving forecast setting',
   const { win } = await page([city('Alpha'), city('Beta')]);
   assert.equal(win.document.getElementById('aggregate-divergence-note').hidden, true, 'identical cities got a divergence note');
 });
+
+// The weighted PCI reads each city's no-intervention scenario, which the
+// exporter runs over the city's per-class cohorts; the footnote says so.
+test('the Aggregate footnote describes the cohort-run baseline the weighted PCI reads', async () => {
+  const { doc } = await page([city('Alpha'), city('Beta')]);
+  const note = doc.getElementById('aggregate-footnote').textContent;
+  assert.match(note, /per-class cohorts/);
+  assert.doesNotMatch(note, /single-cohort/);
+});
