@@ -8,6 +8,7 @@ import (
 
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/hexmetric"
+	"github.com/jcrussell/solvent-streets/internal/metric"
 )
 
 func TestParseMaxspeed(t *testing.T) {
@@ -67,9 +68,9 @@ func TestRegistry_FireRegistersItsMetric(t *testing.T) {
 	if !ok {
 		t.Fatal("fire service not registered")
 	}
-	m, ok := hexmetric.Lookup(MetricFire)
+	m, ok := hexmetric.Lookup(metric.FireResponseS)
 	if !ok {
-		t.Fatalf("hexmetric %q not registered by init()", MetricFire)
+		t.Fatalf("hexmetric %q not registered by init()", metric.FireResponseS)
 	}
 	if m.Format != hexmetric.FormatMinutes || len(m.Scale.Bands) != len(spec.LegendBands()) {
 		t.Errorf("fire metric spec = %+v, want minutes format and %d bands", m, len(spec.LegendBands()))
@@ -81,8 +82,8 @@ func TestRegistry_FireRegistersItsMetric(t *testing.T) {
 	if over.TurnoutS != 200 || over.TravelThresholdS != spec.TravelThresholdS || over.LegendBands()[0] != 440 {
 		t.Errorf("Resolve: turnout %v threshold %v bands %v", over.TurnoutS, over.TravelThresholdS, over.LegendBands())
 	}
-	if fm, ok := ForMetric(MetricFire); !ok || fm.Name != "fire" {
-		t.Errorf("ForMetric(%s) = %+v, %v", MetricFire, fm, ok)
+	if fm, ok := ForMetric(metric.FireResponseS); !ok || fm.Name != "fire" {
+		t.Errorf("ForMetric(%s) = %+v, %v", metric.FireResponseS, fm, ok)
 	}
 	if n := Names(); len(n) != 1 || n[0] != "fire" {
 		t.Errorf("Names() = %v, want [fire]", n)

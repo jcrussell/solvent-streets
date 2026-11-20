@@ -17,6 +17,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/filter"
 	"github.com/jcrussell/solvent-streets/internal/forecast"
 	"github.com/jcrussell/solvent-streets/internal/geo"
+	"github.com/jcrussell/solvent-streets/internal/metric"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/internal/results"
 	"github.com/jcrussell/solvent-streets/internal/tui"
@@ -573,13 +574,13 @@ func (c *computer) saveHexStats(ctx context.Context, hexStats []geo.HexStat) err
 }
 
 // hexRows returns rt's per-hex coverage as metric rows, plus, for parking,
-// each hex's estimated spaces (resource.MetricParkingSpaces) under the same
+// each hex's estimated spaces (metric.EstimatedSpaces) under the same
 // run, so the snapshot always pairs them. Hexes with no spaces get no spaces
 // row.
 func hexRows(rt resource.Type, stats []geo.HexStat) []db.HexMetric {
 	cov := make([]results.HexCoverage, len(stats))
 	for i, s := range stats {
-		cov[i] = results.HexCoverage{HexID: s.HexID, Area: s.Area, PctCovered: s.PctCovered}
+		cov[i] = results.HexCoverage{HexID: s.HexID, Area: s.Area, Share: s.PctCovered / 100}
 	}
 	rows := results.HexCoverageRows(rt, cov)
 	if rt.Bare() != resource.TypeParking {
@@ -587,7 +588,7 @@ func hexRows(rt resource.Type, stats []geo.HexStat) []db.HexMetric {
 	}
 	for _, s := range stats {
 		if s.EstimatedSpaces > 0 {
-			rows = append(rows, db.HexMetric{HexID: s.HexID, Metric: resource.MetricParkingSpaces, Subject: resource.Subject(rt), Value: s.EstimatedSpaces})
+			rows = append(rows, db.HexMetric{HexID: s.HexID, Metric: metric.EstimatedSpaces, Subject: resource.Subject(rt), Value: s.EstimatedSpaces})
 		}
 	}
 	return rows
@@ -793,14 +794,14 @@ func warnUnclipped(errOut io.Writer, city *config.CityConfig, clipErr error) {
 
 // decayRows returns, for road resources, each hex's default-rate blend of its
 // road class decay rates (resource.DefaultDecayBlends over the cohort pass's
-// per-hex class areas) as resource.MetricDefaultDecayRate rows under rt's
+// per-hex class areas) as metric.DefaultDecayRate rows under rt's
 // subject. Export scales it by the decay_rate override into the Play board's
 // k. Nil for resources without cohorts (perHex is nil there).
 func decayRows(rt resource.Type, perHex []geo.HexGroupArea) []db.HexMetric {
 	blends := resource.DefaultDecayBlends(perHex)
 	rows := make([]db.HexMetric, 0, len(blends))
 	for _, b := range blends {
-		rows = append(rows, db.HexMetric{HexID: b.HexID, Metric: resource.MetricDefaultDecayRate, Subject: resource.Subject(rt), Value: b.K})
+		rows = append(rows, db.HexMetric{HexID: b.HexID, Metric: metric.DefaultDecayRate, Subject: resource.Subject(rt), Value: b.K})
 	}
 	return rows
 }

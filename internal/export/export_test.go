@@ -15,6 +15,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
 	"github.com/jcrussell/solvent-streets/internal/fsutil"
 	"github.com/jcrussell/solvent-streets/internal/geo"
+	"github.com/jcrussell/solvent-streets/internal/metric"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/internal/results"
 )
@@ -205,7 +206,7 @@ const (
 // rest are not road hexes in the city scope), at half the all-scope area on
 // every fourth hex (so some road hexes carry a "city" object rather than
 // city_same), and each roads:city hex has its default-rate decay blend
-// (resource.MetricDefaultDecayRate). Export must build the /play board from
+// (metric.DefaultDecayRate). Export must build the /play board from
 // these rows alone, so reading road features fails the test.
 func roadEntry(t *testing.T, cfg *config.Config, name, slug, boundary string) CityEntry {
 	t.Helper()
@@ -232,20 +233,20 @@ func roadEntry(t *testing.T, cfg *config.Config, name, slug, boundary string) Ci
 	var decay []db.HexMetric
 	cityRoadsType := resource.TypeRoads.With(resource.ScopeCity)
 	for i, h := range hexes {
-		cov[i] = results.HexCoverage{HexID: h.ID, Area: 1000, PctCovered: 12.5}
+		cov[i] = results.HexCoverage{HexID: h.ID, Area: 1000, Share: 0.125}
 		if i%2 != 0 {
 			continue
 		}
 		c := cov[i]
 		if i%4 == 2 {
-			c.Area, c.PctCovered = 500, 6.25
+			c.Area, c.Share = 500, 0.0625
 		}
 		cityRoads = append(cityRoads, c)
 		k0 := fixtureArterialK0
 		if i%4 == 2 {
 			k0 = fixtureLocalK0
 		}
-		decay = append(decay, db.HexMetric{HexID: h.ID, Metric: resource.MetricDefaultDecayRate, Subject: resource.Subject(cityRoadsType), Value: k0})
+		decay = append(decay, db.HexMetric{HexID: h.ID, Metric: metric.DefaultDecayRate, Subject: resource.Subject(cityRoadsType), Value: k0})
 	}
 	var others []resource.Type
 	for _, rt := range pavementTypes() {
@@ -380,9 +381,9 @@ func TestExport_HexGridBytesPerFeature(t *testing.T) {
 	stats := make([]results.HexCoverage, len(hexes))
 	for i, h := range hexes {
 		stats[i] = results.HexCoverage{
-			HexID:      h.ID,
-			Area:       1000 + float64(i%997)*1.37,
-			PctCovered: float64(i%100) + 0.37,
+			HexID: h.ID,
+			Area:  1000 + float64(i%997)*1.37,
+			Share: (float64(i%100) + 0.37) / 100,
 		}
 	}
 	entry.Store = &dbtest.MockStore{

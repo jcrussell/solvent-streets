@@ -39,8 +39,8 @@ func TestWithSnapshot_GoneFailsEveryRead(t *testing.T) {
 	for name, v := range views {
 		reads := map[string]func() error{
 			"ListCityMetrics": func() error { _, err := v.ListCityMetrics(ctx, []string{"roads"}); return err },
-			"ListHexMetrics":  func() error { _, err := v.ListHexMetrics(ctx, "paved_area_m2", "roads"); return err },
-			"HasHexMetric":    func() error { _, err := v.HasHexMetric(ctx, "paved_area_m2", []string{"roads"}); return err },
+			"ListHexMetrics":  func() error { _, err := v.ListHexMetrics(ctx, "paved_area", "roads"); return err },
+			"HasHexMetric":    func() error { _, err := v.HasHexMetric(ctx, "paved_area", []string{"roads"}); return err },
 			"GetBoundary":     func() error { _, err := v.GetBoundary(ctx); return err },
 		}
 		for read, fn := range reads {

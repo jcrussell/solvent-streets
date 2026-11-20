@@ -8,6 +8,7 @@ import (
 
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
+	"github.com/jcrussell/solvent-streets/internal/metric"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/internal/results"
 	"github.com/jcrussell/solvent-streets/internal/services"
@@ -69,7 +70,7 @@ func TestHexMetrics_CoverExactlyTheDrawnHexes(t *testing.T) {
 	const water = "hex:99999:99999" // computed on, but not in the drawn grid
 
 	entry := hexEntry(t, map[resource.Type][]results.HexCoverage{
-		rtRoads: {{HexID: interior, Area: 100, PctCovered: 10}, {HexID: sliver, Area: 5, PctCovered: 90}},
+		rtRoads: {{HexID: interior, Area: 100, Share: 0.1}, {HexID: sliver, Area: 5, Share: 0.9}},
 	}, nil)
 	entry.City.MinHexArea = 100_000
 	store := entry.Store.(*dbtest.MockStore)
@@ -77,11 +78,11 @@ func TestHexMetrics_CoverExactlyTheDrawnHexes(t *testing.T) {
 		{ID: "osm:node:1", Lon: -122.41, Lat: 37.71}, {ID: "osm:node:2", Lon: -122.4, Lat: 37.7}, {ID: "osm:node:3", Lon: -122.4, Lat: 37.7},
 	}}
 	store.HexMetrics = append(store.HexMetrics,
-		db.HexMetric{HexID: interior, Metric: services.MetricFire, Value: 300, Ref: "osm:node:1"},
-		db.HexMetric{HexID: sliver, Metric: services.MetricFire, Value: 9000, Ref: "osm:node:2"},
-		db.HexMetric{HexID: water, Metric: services.MetricFire, Value: 8000, Ref: "osm:node:3"},
-		db.HexMetric{HexID: sliver, Metric: services.MetricFire, Subject: services.SubjectUnreachable},
-		db.HexMetric{HexID: water, Metric: services.MetricFire, Subject: services.SubjectUnreachable},
+		db.HexMetric{HexID: interior, Metric: metric.FireResponseS, Value: 300, Ref: "osm:node:1"},
+		db.HexMetric{HexID: sliver, Metric: metric.FireResponseS, Value: 9000, Ref: "osm:node:2"},
+		db.HexMetric{HexID: water, Metric: metric.FireResponseS, Value: 8000, Ref: "osm:node:3"},
+		db.HexMetric{HexID: sliver, Metric: metric.FireResponseS, Subject: services.SubjectUnreachable},
+		db.HexMetric{HexID: water, Metric: metric.FireResponseS, Subject: services.SubjectUnreachable},
 	)
 
 	fc, err := BuildHexGeoJSON(ctx, entry, projectorFor(t, entry))
@@ -101,7 +102,7 @@ func TestHexMetrics_CoverExactlyTheDrawnHexes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	values := hm.Metrics[services.MetricFire].Values
+	values := hm.Metrics[metric.FireResponseS].Values
 	for id := range values {
 		if !features[id] {
 			t.Errorf("hex-metrics.json carries %s, which hexgrid.geojson does not draw", id)
@@ -115,7 +116,7 @@ func TestHexMetrics_CoverExactlyTheDrawnHexes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := meta.Metrics[services.MetricFire]
+	s := meta.Metrics[metric.FireResponseS]
 	if s.HexCount != 1 || s.Max != 300 || s.UnreachableCount != 0 || s.PointCount != 1 {
 		t.Errorf("summary = %+v, want the one drawn hex: count 1, max 300, no unreachable, 1 station", s)
 	}
@@ -135,12 +136,12 @@ func TestDrawnGrid_OneGridGivesEqualIDSets(t *testing.T) {
 	lattice := append(drawnOrder(t, probe), "hex:99999:99999")
 
 	entry := hexEntry(t, map[resource.Type][]results.HexCoverage{
-		rtRoads: {{HexID: lattice[0], Area: 100, PctCovered: 10}},
+		rtRoads: {{HexID: lattice[0], Area: 100, Share: 0.1}},
 	}, nil)
 	entry.City.MinHexArea = 100_000 // drops every clipped edge hex
 	store := entry.Store.(*dbtest.MockStore)
 	for i, id := range lattice {
-		store.HexMetrics = append(store.HexMetrics, db.HexMetric{HexID: id, Metric: services.MetricFire, Value: float64(100 + i)})
+		store.HexMetrics = append(store.HexMetrics, db.HexMetric{HexID: id, Metric: metric.FireResponseS, Value: float64(100 + i)})
 	}
 
 	grid := NewDrawnGrid(ctx, entry, nil)
@@ -156,7 +157,7 @@ func TestDrawnGrid_OneGridGivesEqualIDSets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	covered := slices.Sorted(maps.Keys(hm.Metrics[services.MetricFire].Values))
+	covered := slices.Sorted(maps.Keys(hm.Metrics[metric.FireResponseS].Values))
 	if !slices.Equal(covered, drawn) {
 		t.Errorf("hex-metrics.json covers %d hexes, hexgrid.geojson draws %d; want the same ids", len(covered), len(drawn))
 	}
@@ -167,7 +168,7 @@ func TestDrawnGrid_OneGridGivesEqualIDSets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := meta.Metrics[services.MetricFire].HexCount; got != len(drawn) {
+	if got := meta.Metrics[metric.FireResponseS].HexCount; got != len(drawn) {
 		t.Errorf("meta.json summary counts %d hexes, want the %d drawn", got, len(drawn))
 	}
 }
@@ -183,17 +184,17 @@ func TestDrawnGrid_KeepRowsReadsEachMetricOnce(t *testing.T) {
 
 	for _, keep := range []bool{true, false} {
 		entry := hexEntry(t, map[resource.Type][]results.HexCoverage{
-			rtRoads: {{HexID: lattice[0], Area: 100, PctCovered: 10}},
+			rtRoads: {{HexID: lattice[0], Area: 100, Share: 0.1}},
 		}, nil)
 		store := entry.Store.(*dbtest.MockStore)
 		rows := &dbtest.MockStore{HexMetrics: append(slices.Clone(store.HexMetrics),
-			db.HexMetric{HexID: lattice[0], Metric: services.MetricFire, Value: 120})}
+			db.HexMetric{HexID: lattice[0], Metric: metric.FireResponseS, Value: 120})}
 		reads := 0
-		store.ListHexMetricsFunc = func(ctx context.Context, metric, subject string) ([]db.HexMetric, error) {
-			if metric == services.MetricFire && subject == "" {
+		store.ListHexMetricsFunc = func(ctx context.Context, key, subject string) ([]db.HexMetric, error) {
+			if key == metric.FireResponseS && subject == "" {
 				reads++
 			}
-			return rows.ListHexMetrics(ctx, metric, subject)
+			return rows.ListHexMetrics(ctx, key, subject)
 		}
 
 		grid := NewDrawnGrid(ctx, entry, nil)
@@ -204,7 +205,7 @@ func TestDrawnGrid_KeepRowsReadsEachMetricOnce(t *testing.T) {
 			t.Fatal(err)
 		}
 		hm, err := BuildHexMetricsOn(ctx, entry, grid)
-		if err != nil || hm == nil || len(hm.Metrics[services.MetricFire].Values) != 1 {
+		if err != nil || hm == nil || len(hm.Metrics[metric.FireResponseS].Values) != 1 {
 			t.Fatalf("keep=%v: BuildHexMetricsOn = (%+v, %v), want the one fire hex", keep, hm, err)
 		}
 		want := 2

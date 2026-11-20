@@ -11,10 +11,9 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/geo"
-	"github.com/jcrussell/solvent-streets/internal/population"
+	"github.com/jcrussell/solvent-streets/internal/metric"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/internal/results"
-	"github.com/jcrussell/solvent-streets/internal/services"
 	"github.com/jcrussell/solvent-streets/internal/units"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
@@ -74,11 +73,11 @@ func newDiffFixture(t *testing.T) *diffFixture {
 			parts[producer] = run.ID
 		}
 		put("roads", results.TotalRows(resource.TypeRoads, results.Totals{Area: area, Features: 3}),
-			results.HexCoverageRows(resource.TypeRoads, []results.HexCoverage{{HexID: hexes[0], Area: area, PctCovered: 50}}))
-		put(db.ProducerCensus, nil, []db.HexMetric{{HexID: hexes[0], Metric: population.KeyPopulation, Value: pop}})
+			results.HexCoverageRows(resource.TypeRoads, []results.HexCoverage{{HexID: hexes[0], Area: area, Share: 0.5}}))
+		put(db.ProducerCensus, nil, []db.HexMetric{{HexID: hexes[0], Metric: metric.Population, Value: pop}})
 		var rows []db.HexMetric
 		for i, v := range fire {
-			rows = append(rows, db.HexMetric{HexID: hexes[i+1], Metric: services.MetricFire, Value: v})
+			rows = append(rows, db.HexMetric{HexID: hexes[i+1], Metric: metric.FireResponseS, Value: v})
 		}
 		put(db.ServiceProducer("fire"), nil, rows)
 		if err := store.CommitLatest(ctx, "h", config.ComputeEpoch, parts); err != nil {
@@ -201,7 +200,7 @@ func TestDiff_JSON(t *testing.T) {
 		got[m["metric"].(string)+" "+m["subject"].(string)] = [2]any{m["a"], m["b"]}
 	}
 	for key, want := range map[string][2]any{
-		"paved_area_m2 roads":                    {100.0, 150.0},
+		"paved_area roads":                       {100.0, 150.0},
 		"feature_count roads":                    {3.0, 3.0},
 		"population ":                            {10.0, 12.0},
 		"fire_response_s median":                 {250.0, 100.0},

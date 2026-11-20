@@ -61,7 +61,7 @@ func expectedGrid(t *testing.T, boundary string, edge, minArea float64) []string
 func coverageFor(ids []string) []results.HexCoverage {
 	cov := make([]results.HexCoverage, len(ids))
 	for i, id := range ids {
-		cov[i] = results.HexCoverage{HexID: id, Area: 10, PctCovered: 1}
+		cov[i] = results.HexCoverage{HexID: id, Area: 10, Share: 0.01}
 	}
 	return cov
 }

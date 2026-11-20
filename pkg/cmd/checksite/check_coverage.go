@@ -9,7 +9,7 @@ import (
 	"sort"
 
 	"github.com/jcrussell/solvent-streets/internal/export"
-	"github.com/jcrussell/solvent-streets/internal/population"
+	"github.com/jcrussell/solvent-streets/internal/metric"
 )
 
 // minCoverageCorpus is the fewest cities, each with residents and the
@@ -65,7 +65,7 @@ func (r *runner) perResidentByResource(s *site) map[string][]cityCoverage {
 			continue
 		}
 		seen[d.slug] = true
-		pop, ok := meta.Metrics[population.KeyPopulation]
+		pop, ok := meta.Metrics[metric.Population]
 		if !ok || pop.Total == nil || *pop.Total <= 0 {
 			continue
 		}

@@ -12,6 +12,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
 	"github.com/jcrussell/solvent-streets/internal/hexmetric"
+	"github.com/jcrussell/solvent-streets/internal/metric"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/internal/results"
 	"github.com/jcrussell/solvent-streets/internal/services"
@@ -71,9 +72,9 @@ func TestBuildHexMetrics(t *testing.T) {
 	h := metricsHexIDs(t)
 	now := time.Now()
 	rows := []db.HexMetric{
-		{HexID: h[0], Metric: services.MetricFire, Value: 300.123, Ref: "osm:node:9", ComputedAt: now},
-		{HexID: h[1], Metric: services.MetricFire, Value: 420, Ref: services.ConfigFacilityID("fire", -122.4, 37.7), ComputedAt: now},
-		{HexID: h[2], Metric: services.MetricFire, Value: 500, Ref: "osm:node:missing", ComputedAt: now},
+		{HexID: h[0], Metric: metric.FireResponseS, Value: 300.123, Ref: "osm:node:9", ComputedAt: now},
+		{HexID: h[1], Metric: metric.FireResponseS, Value: 420, Ref: services.ConfigFacilityID("fire", -122.4, 37.7), ComputedAt: now},
+		{HexID: h[2], Metric: metric.FireResponseS, Value: 500, Ref: "osm:node:missing", ComputedAt: now},
 	}
 	entry := metricsEntry(t, rows, fireFacilities(), nil)
 	hm, err := BuildHexMetrics(context.Background(), entry)
@@ -83,9 +84,9 @@ func TestBuildHexMetrics(t *testing.T) {
 	if hm == nil || hm.V != HexMetricsFileVersion {
 		t.Fatalf("hm = %+v", hm)
 	}
-	m, ok := hm.Metrics[services.MetricFire]
+	m, ok := hm.Metrics[metric.FireResponseS]
 	if !ok {
-		t.Fatalf("metrics = %v, want %s", hm.Metrics, services.MetricFire)
+		t.Fatalf("metrics = %v, want %s", hm.Metrics, metric.FireResponseS)
 	}
 	if m.Label != "Fire response" || m.Format != "minutes" || len(m.Scale.Bands) != 4 || m.Scale.Bands[0] != 320 || m.ThresholdS != 320 {
 		t.Errorf("metric description = %+v (bands must start at the default turnout+threshold 320)", m)
@@ -97,7 +98,7 @@ func TestBuildHexMetrics(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if m2 := hm2.Metrics[services.MetricFire]; m2.Scale.Bands[0] != 440 || m2.ThresholdS != 440 {
+	if m2 := hm2.Metrics[metric.FireResponseS]; m2.Scale.Bands[0] != 440 || m2.ThresholdS != 440 {
 		t.Errorf("overridden bands/threshold = %v / %v, want 440", m2.Scale.Bands, m2.ThresholdS)
 	}
 	entry.Config.Services = nil
@@ -143,15 +144,15 @@ func TestBuildHexMetrics(t *testing.T) {
 func TestBuildMeta_PointCountsAddUp(t *testing.T) {
 	h := metricsHexIDs(t)
 	rows := []db.HexMetric{
-		{HexID: h[0], Metric: services.MetricFire, Value: 300, Ref: "osm:node:9"},
-		{HexID: h[1], Metric: services.MetricFire, Value: 420, Ref: "osm:node:missing"},
+		{HexID: h[0], Metric: metric.FireResponseS, Value: 300, Ref: "osm:node:9"},
+		{HexID: h[1], Metric: metric.FireResponseS, Value: 420, Ref: "osm:node:missing"},
 	}
 	entry := metricsEntry(t, rows, fireFacilities(), nil)
 	meta, err := BuildMeta(context.Background(), entry, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := meta.Metrics[services.MetricFire]
+	s := meta.Metrics[metric.FireResponseS]
 	if s.InsidePointCount == nil || s.OutsidePointCount == nil {
 		t.Fatalf("summary has no inside/outside split: %+v", s)
 	}
@@ -163,7 +164,7 @@ func TestBuildMeta_PointCountsAddUp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := len(hm.Metrics[services.MetricFire].Points); got != s.PointCount {
+	if got := len(hm.Metrics[metric.FireResponseS].Points); got != s.PointCount {
 		t.Errorf("hex-metrics.json marks %d points, meta.json counts %d", got, s.PointCount)
 	}
 }
@@ -175,9 +176,9 @@ func TestBuildMeta_MetricSummaries(t *testing.T) {
 	h := metricsHexIDs(t)
 	now := time.Now()
 	rows := []db.HexMetric{
-		{HexID: h[0], Metric: services.MetricFire, Value: 300, Ref: "a", ComputedAt: now},
-		{HexID: h[1], Metric: services.MetricFire, Value: 420, Ref: "b", ComputedAt: now},
-		{HexID: h[4], Metric: services.MetricFire, Value: 9000, Ref: "b", ComputedAt: now},
+		{HexID: h[0], Metric: metric.FireResponseS, Value: 300, Ref: "a", ComputedAt: now},
+		{HexID: h[1], Metric: metric.FireResponseS, Value: 420, Ref: "b", ComputedAt: now},
+		{HexID: h[4], Metric: metric.FireResponseS, Value: 9000, Ref: "b", ComputedAt: now},
 	}
 	stats := []results.HexCoverage{{HexID: h[0], Area: 1}, {HexID: h[1], Area: 1}}
 	recorded := []db.RunFacility{{ID: "a", Lon: -122.41, Lat: 37.71}, {ID: "b", Lon: -122.4, Lat: 37.7}}
@@ -186,7 +187,7 @@ func TestBuildMeta_MetricSummaries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, ok := meta.Metrics[services.MetricFire]
+	s, ok := meta.Metrics[metric.FireResponseS]
 	if !ok {
 		t.Fatalf("meta.metrics = %v", meta.Metrics)
 	}
@@ -215,10 +216,10 @@ func TestBuildMeta_UnreachableHexesLowerTheShare(t *testing.T) {
 	h := metricsHexIDs(t)
 	now := time.Now()
 	rows := []db.HexMetric{
-		{HexID: h[0], Metric: services.MetricFire, Value: 300, Ref: "a", ComputedAt: now},
-		{HexID: h[1], Metric: services.MetricFire, Value: 420, Ref: "a", ComputedAt: now},
-		{HexID: h[2], Metric: services.MetricFire, Subject: services.SubjectUnreachable, ComputedAt: now},
-		{HexID: h[3], Metric: services.MetricFire, Subject: services.SubjectUnreachable, ComputedAt: now},
+		{HexID: h[0], Metric: metric.FireResponseS, Value: 300, Ref: "a", ComputedAt: now},
+		{HexID: h[1], Metric: metric.FireResponseS, Value: 420, Ref: "a", ComputedAt: now},
+		{HexID: h[2], Metric: metric.FireResponseS, Subject: services.SubjectUnreachable, ComputedAt: now},
+		{HexID: h[3], Metric: metric.FireResponseS, Subject: services.SubjectUnreachable, ComputedAt: now},
 	}
 	stats := []results.HexCoverage{{HexID: h[0], Area: 1}}
 	entry := metricsEntry(t, rows, nil, stats)
@@ -226,7 +227,7 @@ func TestBuildMeta_UnreachableHexesLowerTheShare(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := meta.Metrics[services.MetricFire]
+	s := meta.Metrics[metric.FireResponseS]
 	if s.HexCount != 2 || s.UnreachableCount != 2 || s.Min != 300 || s.Max != 420 {
 		t.Errorf("summary = %+v, want 2 timed hexes (300..420) and 2 unreachable", s)
 	}
@@ -240,7 +241,7 @@ func TestBuildMeta_UnreachableHexesLowerTheShare(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v := hm.Metrics[services.MetricFire].Values; len(v) != 2 {
+	if v := hm.Metrics[metric.FireResponseS].Values; len(v) != 2 {
 		t.Errorf("values = %v, want only the timed hexes (an unreachable hex has no value)", v)
 	}
 }
@@ -251,7 +252,7 @@ func TestBuildMeta_UnreachableHexesLowerTheShare(t *testing.T) {
 // them, and it does not matter which run wrote them.
 func TestHexMetrics_IndependentOfRoadsCompute(t *testing.T) {
 	h := metricsHexIDs(t)
-	rows := []db.HexMetric{{HexID: h[0], Metric: services.MetricFire, Value: 300, Ref: "a", RunID: 3}}
+	rows := []db.HexMetric{{HexID: h[0], Metric: metric.FireResponseS, Value: 300, Ref: "a", RunID: 3}}
 	stats := []results.HexCoverage{{HexID: h[0], Area: 1}}
 
 	noRoads := metricsEntry(t, rows, nil, stats)
@@ -260,14 +261,14 @@ func TestHexMetrics_IndependentOfRoadsCompute(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if hm == nil || hm.Metrics[services.MetricFire].Values[h[0]] != 300 {
+	if hm == nil || hm.Metrics[metric.FireResponseS].Values[h[0]] != 300 {
 		t.Errorf("no roads compute: BuildHexMetrics = %+v, want the fire metric published", hm)
 	}
 	meta, err := BuildMeta(context.Background(), metricsEntry(t, rows, nil, stats), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := meta.Metrics[services.MetricFire]; !ok {
+	if _, ok := meta.Metrics[metric.FireResponseS]; !ok {
 		t.Errorf("meta.json must summarise the snapshot's fire metric: %+v", meta.Metrics)
 	}
 }
@@ -289,7 +290,7 @@ func TestDataFileNames_OptionalAreDistinct(t *testing.T) {
 // specs — fire, population and the derived population ratios — so none can
 // silently fall out of hex-metrics.json or the page config.
 func TestRegistry_ProducersLinked(t *testing.T) {
-	for _, key := range []string{"fire_response_s", "population", "housing_units", "population_per_km2", "road_m2_per_resident", "year1_need_usd_per_resident"} {
+	for _, key := range []string{"fire_response_s", "population", "housing_units", "population_density", "maintained_area_per_resident", "year1_need_per_resident"} {
 		if _, ok := hexmetric.Lookup(key); !ok {
 			t.Errorf("metric %s is not registered as seen from the exporter", key)
 		}
@@ -305,20 +306,9 @@ func TestSummarizeMetric_AdditiveTotal(t *testing.T) {
 	if !ok || s.Total == nil || *s.Total != 42.5 {
 		t.Errorf("population total = %v, want 42.5", s.Total)
 	}
-	fire, _ := hexmetric.Lookup(services.MetricFire)
+	fire, _ := hexmetric.Lookup(metric.FireResponseS)
 	if s, _ := summarizeMetric(fire, rows, 0, 0, false); s.Total != nil {
 		t.Errorf("fire response must not carry a total, got %v", *s.Total)
-	}
-}
-
-// The dashboard's derived metric keys name the same measures compute stores:
-// hexmetric cannot import resource, so the pairs are pinned here.
-func TestDerivedMetricKeysMatchStoredMetricNames(t *testing.T) {
-	if hexmetric.KeyArea != resource.MetricPavedArea {
-		t.Errorf("hexmetric.KeyArea = %q, resource.MetricPavedArea = %q", hexmetric.KeyArea, resource.MetricPavedArea)
-	}
-	if hexmetric.KeySpaces != resource.MetricParkingSpaces {
-		t.Errorf("hexmetric.KeySpaces = %q, resource.MetricParkingSpaces = %q", hexmetric.KeySpaces, resource.MetricParkingSpaces)
 	}
 }
 
@@ -337,5 +327,33 @@ func TestMedian(t *testing.T) {
 		if got := Median(tc.vals); got != tc.want {
 			t.Errorf("Median(%v) = %v, want %v", tc.vals, got, tc.want)
 		}
+	}
+}
+
+// TestDensityKeepsItsDigits: population_density is stored per m² (about
+// 0.0003 to 0.02), so hex-metrics.json and the meta.json summary emit it by
+// significant figures; two decimals would flatten every value to 0 or 0.01.
+func TestDensityKeepsItsDigits(t *testing.T) {
+	spec, ok := hexmetric.Lookup(metric.PopulationDensity)
+	if !ok {
+		t.Fatal("population_density is not registered")
+	}
+	rows := []db.HexMetric{{HexID: "a", Value: 0.000312345}, {HexID: "b", Value: 0.00491234}, {HexID: "c", Value: 0.0187654}}
+	m, err := buildMetricJSON(context.Background(), CityEntry{}, spec, rows)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for id, want := range map[string]float64{"a": 0.0003123, "b": 0.004912, "c": 0.01877} {
+		if got := m.Values[id]; got != want {
+			t.Errorf("value %s = %v, want %v", id, got, want)
+		}
+	}
+	s, ok := summarizeMetric(spec, rows, 0, 0, false)
+	if !ok || s.Min != 0.0003123 || s.Median != 0.004912 || s.Max != 0.01877 {
+		t.Errorf("summary min/median/max = %v/%v/%v, want 0.0003123/0.004912/0.01877", s.Min, s.Median, s.Max)
+	}
+	// A value of 1 or more keeps two decimals, as fire seconds always have.
+	if got := roundMetric(312.3456); got != 312.35 {
+		t.Errorf("roundMetric(312.3456) = %v, want 312.35", got)
 	}
 }

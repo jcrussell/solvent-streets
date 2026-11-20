@@ -19,6 +19,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/forecast"
 	"github.com/jcrussell/solvent-streets/internal/geo"
 	"github.com/jcrussell/solvent-streets/internal/hexmetric"
+	"github.com/jcrussell/solvent-streets/internal/metric"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/internal/results"
 )
@@ -236,8 +237,8 @@ func hexEntry(t *testing.T, hexStats map[resource.Type][]results.HexCoverage, to
 // when there are no rows at all. The per-feature {all, city?} shape is pinned
 // deterministically in TestBuildHexFeature_NestedScopes.
 func TestBuildHexGeoJSON_EmittedWhenRowsExist(t *testing.T) {
-	cityRows := []results.HexCoverage{{HexID: "0,0", Area: 100, PctCovered: 50}}
-	allRows := []results.HexCoverage{{HexID: "0,0", Area: 200, PctCovered: 75}}
+	cityRows := []results.HexCoverage{{HexID: "0,0", Area: 100, Share: 0.5}}
+	allRows := []results.HexCoverage{{HexID: "0,0", Area: 200, Share: 0.75}}
 	entry := hexEntry(t, map[resource.Type][]results.HexCoverage{
 		rtRoads:       allRows,
 		rtRoadsCity:   cityRows,
@@ -389,7 +390,7 @@ func TestBuildHexFeature_CitySameElidesDuplicate(t *testing.T) {
 // instead of showing the error banner.
 func TestBuildHexGeoJSON_CarriesFormatVersion(t *testing.T) {
 	entry := hexEntry(t, map[resource.Type][]results.HexCoverage{
-		rtRoads: {{HexID: "0,0", Area: 200, PctCovered: 75}},
+		rtRoads: {{HexID: "0,0", Area: 200, Share: 0.75}},
 	}, nil)
 	_, lon, lat, err := entry.BBoxAndCenter(t.Context())
 	if err != nil {
@@ -459,7 +460,7 @@ func TestBuildHexFeature_RespectsCoordinatePrecision(t *testing.T) {
 // coverage rows still yield a FeatureCollection, but no feature carries a "city"
 // object. The client uses that absence as the "hide the scope toggle" signal.
 func TestBuildHexGeoJSON_NoCityRowsOmitsCity(t *testing.T) {
-	allRows := []results.HexCoverage{{HexID: "0,0", Area: 100, PctCovered: 50}}
+	allRows := []results.HexCoverage{{HexID: "0,0", Area: 100, Share: 0.5}}
 	entry := hexEntry(t, map[resource.Type][]results.HexCoverage{
 		rtRoads:       allRows,
 		rtParkingAll:  nil,
@@ -823,17 +824,17 @@ func TestBuildHexGeoJSON_ParkingSpaces(t *testing.T) {
 	const run = int64(7)
 	parkingCity := rtParkingAll.With(resource.ScopeCity)
 	entry := hexEntry(t, map[resource.Type][]results.HexCoverage{
-		rtRoads: {{HexID: "0,0", Area: 200, PctCovered: 75}},
-		rtParkingAll: {{HexID: "0,0", Area: 90, PctCovered: 30},
-			{HexID: "0,1", Area: 9, PctCovered: 3}},
-		parkingCity: {{HexID: "0,0", Area: 90, PctCovered: 30},
-			{HexID: "0,1", Area: 9, PctCovered: 3}},
+		rtRoads: {{HexID: "0,0", Area: 200, Share: 0.75}},
+		rtParkingAll: {{HexID: "0,0", Area: 90, Share: 0.3},
+			{HexID: "0,1", Area: 9, Share: 0.03}},
+		parkingCity: {{HexID: "0,0", Area: 90, Share: 0.3},
+			{HexID: "0,1", Area: 9, Share: 0.03}},
 	}, nil)
 	store := entry.Store.(*dbtest.MockStore)
 	for _, subject := range []string{"parking", "parking:city"} {
 		store.HexMetrics = append(store.HexMetrics,
-			db.HexMetric{HexID: "0,0", Metric: resource.MetricParkingSpaces, Subject: subject, Value: 12.4, RunID: run},
-			db.HexMetric{HexID: "0,1", Metric: resource.MetricParkingSpaces, Subject: subject, Value: 0.3, RunID: run})
+			db.HexMetric{HexID: "0,0", Metric: metric.EstimatedSpaces, Subject: subject, Value: 12.4, RunID: run},
+			db.HexMetric{HexID: "0,1", Metric: metric.EstimatedSpaces, Subject: subject, Value: 0.3, RunID: run})
 	}
 	aggs, err := aggregateHexStats(t.Context(), entry)
 	if err != nil {
@@ -860,7 +861,7 @@ func TestBuildHexGeoJSON_ParkingSpaces(t *testing.T) {
 // derived Color-by of the same name and ignoring the resource and scope
 // toggles. Registering a key as a derived spec is fine.
 func TestPavementKeysNotStoredSpecs(t *testing.T) {
-	for _, key := range []string{resource.MetricPavedArea, resource.MetricCoveragePct, resource.MetricFeatureCount, resource.MetricParkingSpaces} {
+	for _, key := range []string{metric.PavedArea, metric.PavedShare, metric.FeatureCount, metric.EstimatedSpaces} {
 		if spec, ok := hexmetric.Lookup(key); ok && !spec.Derived() {
 			t.Errorf("%s is a stored hexmetric spec; pavement keys must stay derived or unregistered", key)
 		}
@@ -884,7 +885,7 @@ func TestBuildHexGeoJSON_EmitsEveryGridHex(t *testing.T) {
 	}
 	paved := grid[0].ID
 	entry := hexEntry(t, map[resource.Type][]results.HexCoverage{
-		rtRoads: {{HexID: paved, Area: 100, PctCovered: 50}},
+		rtRoads: {{HexID: paved, Area: 100, Share: 0.5}},
 	}, nil)
 
 	fc, err := BuildHexGeoJSON(t.Context(), entry, proj)
@@ -912,7 +913,7 @@ func TestBuildHexGeoJSON_EmitsEveryGridHex(t *testing.T) {
 
 // TestBuildHexGeoJSON_RoadDecayRate pins hexgrid's "k", the /play board's
 // per-hex decay rate: read from the stored default-rate blend
-// (resource.MetricDefaultDecayRate, never from road features — roadEntry fails
+// (metric.DefaultDecayRate, never from road features — roadEntry fails
 // the test on ListFeatures), present only on city-jurisdiction road hexes, and
 // scaled by the decay_rate override exactly as each road class is
 // (forecast.ClassDecayRate), so a blend of one class lands on that class's
@@ -937,7 +938,7 @@ func TestBuildHexGeoJSON_RoadDecayRate(t *testing.T) {
 		}
 		stored := map[string]float64{}
 		for _, r := range entry.Store.(*dbtest.MockStore).HexMetrics {
-			if r.Metric == resource.MetricDefaultDecayRate {
+			if r.Metric == metric.DefaultDecayRate {
 				stored[r.HexID] = r.Value
 			}
 		}

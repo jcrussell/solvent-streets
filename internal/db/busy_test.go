@@ -64,7 +64,7 @@ func TestWrites_WaitOutALongWriteTransaction(t *testing.T) {
 	if err := <-released; err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SaveHexMetrics(ctx, run.ID, []HexMetric{{HexID: "h1", Metric: "m", Value: 1}}); err != nil {
+	if err := store.SaveHexMetrics(ctx, run.ID, []HexMetric{{HexID: "h1", Metric: "population", Value: 1}}); err != nil {
 		t.Fatalf("SaveHexMetrics: %v", err)
 	}
 }

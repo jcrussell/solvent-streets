@@ -16,6 +16,7 @@ import (
 
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/hexmetric"
+	"github.com/jcrussell/solvent-streets/internal/metric"
 )
 
 // Spec describes one service.
@@ -36,7 +37,7 @@ type Spec struct {
 	TravelThresholdS float64
 	// Speeds is the road-class speed table the vehicle travels at.
 	Speeds SpeedTable
-	// Metric is the hexmetric key the coverage is stored under.
+	// Metric is the catalog key (internal/metric) the coverage is stored under.
 	Metric string
 	// FacilityNoun names one facility in the dashboard ("station"): the
 	// stats panel's "Stations serving the city" row and its completeness
@@ -145,21 +146,15 @@ func ValidateConfig(cfg *config.Config) error {
 	return nil
 }
 
-// ForMetric returns the service whose coverage is stored under metric key.
-func ForMetric(metric string) (Spec, bool) {
+// ForMetric returns the service whose coverage is stored under the metric key.
+func ForMetric(key string) (Spec, bool) {
 	for _, s := range Registry {
-		if s.Metric == metric {
+		if s.Metric == key {
 			return s, true
 		}
 	}
 	return Spec{}, false
 }
-
-// MetricTurnoutS is the city metric a service run records its turnout under
-// (subject db.ServiceProducer(name)): the TurnoutS its stored times include,
-// so export draws the legend and the covered line for the run as computed,
-// whatever turnout_s the config says now.
-const MetricTurnoutS = "turnout_s"
 
 // SubjectUnreachable is the hex_metrics subject a service run records its
 // unreachable hexes under (Coverage.Unreachable), beside the metric's timed
@@ -167,9 +162,6 @@ const MetricTurnoutS = "turnout_s"
 // reaches. The row's value carries nothing (it is stored as 0); the subject
 // is the record. Readers of the times list subject "" and never see these.
 const SubjectUnreachable = "unreachable"
-
-// MetricFire is the hexmetric key for fire response time.
-const MetricFire = "fire_response_s"
 
 // Registry holds every known service. Fire is the only shipped service; the
 // values follow NFPA 1710 (career fire departments): 80 s turnout for fire
@@ -184,7 +176,7 @@ var Registry = map[string]Spec{
 		TurnoutS:         80,
 		TravelThresholdS: 240,
 		Speeds:           DefaultRoadSpeeds,
-		Metric:           MetricFire,
+		Metric:           metric.FireResponseS,
 		FacilityNoun:     "station",
 		// About the 5th percentile of the v0.5.0 showcase (2.05 per 100k
 		// over the 379 cities with census data and a station inside), where
@@ -213,10 +205,16 @@ func Names() []string {
 }
 
 func init() {
+	// A service's coverage is stored per hex under its Metric, so the key
+	// must be a per-hex catalog key.
+	for _, name := range Names() {
+		if err := metric.CheckHex(Registry[name].Metric); err != nil {
+			panic(fmt.Sprintf("services: %s: %v", name, err))
+		}
+	}
 	hexmetric.Register(hexmetric.Spec{
-		Key:    MetricFire,
+		Key:    metric.FireResponseS,
 		Label:  "Fire response",
-		Unit:   "s",
 		Source: Registry["fire"].SourceText(),
 		Format: hexmetric.FormatMinutes,
 		Scale: hexmetric.Scale{

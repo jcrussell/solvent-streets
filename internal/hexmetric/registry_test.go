@@ -5,10 +5,21 @@ import (
 	"errors"
 	"slices"
 	"testing"
+
+	"github.com/jcrussell/solvent-streets/internal/metric"
 )
 
+// Scratch catalog keys the tests present: durations, so validSpec's unit
+// matches the catalog's.
+func init() {
+	for _, k := range []string{"test_metric_s", "ok_key_s", "zz_test_a_s", "zz_test_b_s", "one_band_s", "ramp_s", "ratio_s", "x_s"} {
+		metric.Register(metric.Def{Key: k, Unit: metric.UnitSeconds, Level: metric.Hex, Description: "test"})
+	}
+	metric.Register(metric.Def{Key: "zz_city_count", Unit: metric.UnitCount, Level: metric.City, Description: "test"})
+}
+
 func validSpec(key string) Spec {
-	return Spec{Key: key, Label: "Test", Unit: "s", Source: "test", Format: FormatMinutes,
+	return Spec{Key: key, Label: "Test", Source: "test", Format: FormatMinutes,
 		Scale: Scale{Kind: KindSequential, Transform: TransformLinear, Bands: []float64{60, 120, 300}}}
 }
 
@@ -17,10 +28,10 @@ func TestSpecValidate(t *testing.T) {
 		t.Fatalf("valid spec rejected: %v", err)
 	}
 	bad := map[string]func(*Spec){
-		"uppercase key":       func(s *Spec) { s.Key = "Fire" },
-		"hyphen key":          func(s *Spec) { s.Key = "fire-response" },
-		"leading digit":       func(s *Spec) { s.Key = "1x" },
-		"double underscore":   func(s *Spec) { s.Key = "a__b" },
+		"key not in catalog":  func(s *Spec) { s.Key = "fire-response" },
+		"city-wide key":       func(s *Spec) { s.Key = "zz_city_count" },
+		"city-wide derived":   func(s *Spec) { s.Key = "zz_city_count"; s.Derive = &Derivation{Op: OpSum, Prop: PropArea} },
+		"unit off catalog":    func(s *Spec) { s.Unit = "m2" },
 		"no label":            func(s *Spec) { s.Label = "" },
 		"unknown format":      func(s *Spec) { s.Format = "hex" },
 		"unknown kind":        func(s *Spec) { s.Scale.Kind = "rainbow" },
@@ -33,18 +44,19 @@ func TestSpecValidate(t *testing.T) {
 		"unknown op":          func(s *Spec) { s.Derive = &Derivation{Op: "max", Prop: PropArea} },
 		"unknown prop":        func(s *Spec) { s.Derive = &Derivation{Op: OpSum, Prop: "width"} },
 		"sum with den":        func(s *Spec) { s.Derive = &Derivation{Op: OpSum, Prop: PropArea, Den: "population"} },
+		"den not per hex":     func(s *Spec) { s.Derive = &Derivation{Op: OpRatio, Prop: PropArea, Den: "zz_city_count"} },
 		"ratio without den":   func(s *Spec) { s.Derive = &Derivation{Op: OpRatio, Prop: PropArea} },
 		"negative min_den":    func(s *Spec) { s.Derive = &Derivation{Op: OpRatio, Prop: PropArea, Den: "population", MinDen: -1} },
 	}
 	for name, mutate := range bad {
-		s := validSpec("ok_key")
+		s := validSpec("ok_key_s")
 		mutate(&s)
 		if err := s.Validate(); err == nil {
 			t.Errorf("%s: expected validation error", name)
 		}
 	}
 	// A bandless scale is a single colour and an invalid paint expression.
-	s := validSpec("one_band")
+	s := validSpec("one_band_s")
 	s.Scale.Bands = nil
 	if err := s.Validate(); err == nil {
 		t.Error("bandless spec must be rejected")
@@ -52,20 +64,22 @@ func TestSpecValidate(t *testing.T) {
 }
 
 func TestRegisterLookupAll(t *testing.T) {
-	if err := TryRegister(validSpec("zz_test_b")); err != nil {
+	if err := TryRegister(validSpec("zz_test_b_s")); err != nil {
 		t.Fatal(err)
 	}
-	if err := TryRegister(validSpec("zz_test_a")); err != nil {
+	if err := TryRegister(validSpec("zz_test_a_s")); err != nil {
 		t.Fatal(err)
 	}
-	if err := TryRegister(validSpec("zz_test_a")); !errors.Is(err, ErrDuplicate) {
+	if err := TryRegister(validSpec("zz_test_a_s")); !errors.Is(err, ErrDuplicate) {
 		t.Errorf("duplicate key: got %v, want ErrDuplicate", err)
 	}
 	if err := TryRegister(Spec{Key: "Bad"}); err == nil {
 		t.Error("invalid spec must not register")
 	}
-	if _, ok := Lookup("zz_test_a"); !ok {
+	if got, ok := Lookup("zz_test_a_s"); !ok {
 		t.Error("Lookup failed for a registered key")
+	} else if got.Unit != metric.UnitSeconds {
+		t.Errorf("Register must take the catalog's unit, got %q", got.Unit)
 	}
 	if _, ok := Lookup("zz_missing"); ok {
 		t.Error("Lookup succeeded for an unregistered key")
@@ -77,7 +91,7 @@ func TestRegisterLookupAll(t *testing.T) {
 			seen = append(seen, s.Key)
 		}
 	}
-	if len(seen) != 2 || seen[0] != "zz_test_a" || seen[1] != "zz_test_b" {
+	if len(seen) != 2 || seen[0] != "zz_test_a_s" || seen[1] != "zz_test_b_s" {
 		t.Errorf("All() order = %v, want sorted [zz_test_a zz_test_b]", seen)
 	}
 	defer func() {
@@ -85,23 +99,23 @@ func TestRegisterLookupAll(t *testing.T) {
 			t.Error("Register must panic on a duplicate key")
 		}
 	}()
-	Register(validSpec("zz_test_a"))
+	Register(validSpec("zz_test_a_s"))
 }
 
 func TestSpecValidate_Derived(t *testing.T) {
-	ramp := validSpec("ramp_pct")
+	ramp := validSpec("ramp_s")
 	ramp.Format = FormatPercent
 	ramp.Scale = Scale{Kind: KindCoverage, Transform: TransformLinear, Mode: ModeRamp, Bands: []float64{0, 1}, Ticks: []float64{0, 0.5, 1}}
 	ramp.Derive = &Derivation{Op: OpSum, Prop: PropShare, Max: 100}
 	if err := ramp.Validate(); err != nil {
 		t.Errorf("valid ramp sum rejected: %v", err)
 	}
-	ratio := validSpec("road_m2_per_x")
+	ratio := validSpec("ratio_s")
 	ratio.Derive = &Derivation{Op: OpRatio, Prop: PropArea, Den: "population", MinDen: 10}
 	if err := ratio.Validate(); err != nil {
 		t.Errorf("valid ratio rejected: %v", err)
 	}
-	if !ratio.Derived() || validSpec("x").Derived() {
+	if !ratio.Derived() || validSpec("x_s").Derived() {
 		t.Error("Derived() must report exactly the specs with a Derivation")
 	}
 }
@@ -109,7 +123,7 @@ func TestSpecValidate_Derived(t *testing.T) {
 // TestBuiltins pins the pavement colorings as registered derived metrics,
 // with the coverage ramp's stops and legend ticks the dashboard always had.
 func TestBuiltins(t *testing.T) {
-	for _, key := range []string{KeyCoverage, KeyArea, KeySpaces, KeyEstCost} {
+	for _, key := range []string{metric.PavedShare, metric.PavedArea, metric.EstimatedSpaces, metric.Year1Need} {
 		s, ok := Lookup(key)
 		if !ok {
 			t.Fatalf("built-in %s not registered", key)
@@ -118,7 +132,7 @@ func TestBuiltins(t *testing.T) {
 			t.Errorf("%s must be a derived sum, got %+v", key, s.Derive)
 		}
 	}
-	cov, _ := Lookup(KeyCoverage)
+	cov, _ := Lookup(metric.PavedShare)
 	if cov.Scale.Mode != ModeRamp || cov.Derive.Max != 1 {
 		t.Errorf("coverage must be a ramp capped at a share of 1: %+v", cov)
 	}

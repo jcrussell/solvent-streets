@@ -16,6 +16,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
 	"github.com/jcrussell/solvent-streets/internal/forecast"
 	"github.com/jcrussell/solvent-streets/internal/geo"
+	"github.com/jcrussell/solvent-streets/internal/metric"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/internal/results"
 	"github.com/jcrussell/solvent-streets/internal/tui"
@@ -361,6 +362,72 @@ func TestRunCompute_PrebuiltGridMatchesInline(t *testing.T) {
 	}
 }
 
+// TestRunCompute_PavedShareIsAProportion: every stored paved_share row is in
+// 0..1 and equals the hex's paved_area over its clipped area, so the stored
+// value is the proportion the key names, not a percent.
+func TestRunCompute_PavedShareIsAProportion(t *testing.T) {
+	ctx := context.Background()
+	features := []db.Feature{
+		{ID: "r1", ResourceType: resource.TypeRoads, Tags: map[string]string{"highway": "primary", "lanes": "6"},
+			GeometryJSON: `{"type":"LineString","coordinates":[[-121.7700,37.6800],[-121.7600,37.6850]]}`},
+	}
+	bstore := &dbtest.MockStore{GetBoundaryFunc: func(_ context.Context) (string, error) { return testBoundary, nil }}
+	boundaryGJSON, bbox, proj, err := LoadBoundary(ctx, bstore, testCity, io.Discard)
+	if err != nil {
+		t.Fatalf("LoadBoundary: %v", err)
+	}
+	grid := BuildClippedHexGrid(ctx, testCfg, testCity, proj, bbox, boundaryGJSON, io.Discard)
+	hexArea := make(map[string]float64, len(grid))
+	for _, h := range grid {
+		hexArea[h.ID] = h.Geom.Area()
+	}
+	store := &dbtest.MockStore{
+		GetBoundaryFunc:  func(_ context.Context) (string, error) { return testBoundary, nil },
+		ListFeaturesFunc: func(_ context.Context, _ resource.Type) ([]db.Feature, error) { return features, nil },
+	}
+	ios, _, _, _ := iostreams.Test()
+	opts := &Options{
+		IO:           ios,
+		UnitSystem:   func() units.System { return units.Metric },
+		CityDB:       func() (db.Store, error) { return store, nil },
+		CurrentCity:  func() (*config.CityConfig, error) { return testCity, nil },
+		Config:       func() (*config.Config, error) { return testCfg, nil },
+		ResourceType: &resource.Pavement{},
+		PrebuiltGrid: grid,
+	}
+	if err := doCompute(ctx, io.Discard, io.Discard, io.Discard, tui.NoopNotifier{}, opts); err != nil {
+		t.Fatalf("doCompute: %v", err)
+	}
+	type key struct{ id, subject string }
+	area := map[key]float64{}
+	for _, m := range store.HexMetrics {
+		if m.Metric == metric.PavedArea {
+			area[key{m.HexID, m.Subject}] = m.Value
+		}
+	}
+	var n int
+	for _, m := range store.HexMetrics {
+		if m.Metric != metric.PavedShare {
+			continue
+		}
+		n++
+		if m.Value < 0 || m.Value > 1 {
+			t.Errorf("hex %s (%s) paved_share = %v, outside 0..1", m.HexID, m.Subject, m.Value)
+		}
+		a, ok := area[key{m.HexID, m.Subject}]
+		if !ok || hexArea[m.HexID] <= 0 {
+			t.Errorf("hex %s (%s) has a share but no area or hex", m.HexID, m.Subject)
+			continue
+		}
+		if want := a / hexArea[m.HexID]; math.Abs(m.Value-want) > 1e-9 {
+			t.Errorf("hex %s (%s) paved_share = %v, want paved_area/hex area %v", m.HexID, m.Subject, m.Value, want)
+		}
+	}
+	if n == 0 {
+		t.Fatal("no paved_share rows stored; the fixture covers no hex")
+	}
+}
+
 // TestRunCompute_SaveHexStatsErrorFatal: per-hex
 // stats are the primary output, so a SaveHexStats failure must make compute
 // exit non-zero rather than warn-and-continue.
@@ -690,9 +757,9 @@ func TestRunCompute_ParkingEstimatesSpaces(t *testing.T) {
 	spaces := map[string][]db.HexMetric{}
 	for _, m := range store.HexMetrics {
 		switch m.Metric {
-		case resource.MetricPavedArea:
+		case metric.PavedArea:
 			coverageRun = m.RunID
-		case resource.MetricParkingSpaces:
+		case metric.EstimatedSpaces:
 			spaces[m.Subject] = append(spaces[m.Subject], m)
 		}
 	}
@@ -759,13 +826,13 @@ func TestRunCompute_RoadsCarryNoSpaces(t *testing.T) {
 		t.Fatal("roads compute saved no city totals")
 	}
 	for _, m := range store.CityMetrics {
-		if m.Metric == resource.MetricParkingSpaces {
-			t.Errorf("roads compute saved a city parking_spaces row %+v", m)
+		if m.Metric == metric.EstimatedSpaces {
+			t.Errorf("roads compute saved a city estimated_spaces row %+v", m)
 		}
 	}
 	for _, m := range store.HexMetrics {
-		if m.Metric == resource.MetricParkingSpaces {
-			t.Errorf("roads compute saved a per-hex parking_spaces row %+v", m)
+		if m.Metric == metric.EstimatedSpaces {
+			t.Errorf("roads compute saved a per-hex estimated_spaces row %+v", m)
 		}
 	}
 	if strings.Contains(stdout.String(), "Spaces:") {
@@ -900,7 +967,7 @@ func TestRunCompute_RecordsInputs(t *testing.T) {
 
 // TestRunCompute_StoresRoadDecayBlend: a roads compute stores, per
 // city-jurisdiction road hex, the default-rate blend of its road classes'
-// decay rates (resource.MetricDefaultDecayRate) under roads:city, in the same
+// decay rates (metric.DefaultDecayRate) under roads:city, in the same
 // run as the coverage, on exactly the hexes roads:city covers. Two parallel
 // roads of different classes share their hexes, so those hexes blend strictly
 // between the two class rates; the exact weighting is pinned by
@@ -940,9 +1007,9 @@ func TestRunCompute_StoresRoadDecayBlend(t *testing.T) {
 	k0 := map[string]float64{}
 	for _, m := range store.HexMetrics {
 		switch {
-		case m.Metric == resource.MetricPavedArea && m.Subject == "roads:city":
+		case m.Metric == metric.PavedArea && m.Subject == "roads:city":
 			covered[m.HexID] = m.RunID
-		case m.Metric == resource.MetricDefaultDecayRate:
+		case m.Metric == metric.DefaultDecayRate:
 			if m.Subject != "roads:city" {
 				t.Errorf("decay blend stored under %q, want roads:city only", m.Subject)
 			}

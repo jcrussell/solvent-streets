@@ -144,7 +144,7 @@ func TestDataFile_SnapshotAtAnotherEdgeRenders(t *testing.T) {
 		}
 		var cov []results.HexCoverage
 		for _, h := range geo.CityLattice(geo.NewUTMProjector(geo.CenterFromBBox(bbox)), bbox, edge) {
-			cov = append(cov, results.HexCoverage{HexID: h.ID, Area: 10, PctCovered: 1})
+			cov = append(cov, results.HexCoverage{HexID: h.ID, Area: 10, Share: 0.01})
 		}
 		hash := c.CityHash(&city)
 		run, err := store.CreateRun(ctx, "roads", hash, nil)

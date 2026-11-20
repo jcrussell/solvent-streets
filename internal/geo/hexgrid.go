@@ -136,7 +136,7 @@ type HexStat struct {
 	// EstimatedSpaces is the parking spaces apportioned to this hex
 	// (ComputeHexWeightedShares, folded in by the compute pass); 0 for every
 	// other resource. In-memory only: compute persists it to hex_metrics
-	// under resource.MetricParkingSpaces, beside the coverage rows.
+	// under metric.EstimatedSpaces, beside the coverage rows.
 	EstimatedSpaces float64
 }
 

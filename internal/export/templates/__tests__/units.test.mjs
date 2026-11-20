@@ -46,7 +46,7 @@ test('the Color-by legend follows a units switch', async () => {
   await flush();
   await win.loadCityData();
   await flush();
-  win.selectHexMetric('paved_area_m2');
+  win.selectHexMetric('paved_area');
   const labels = () => $$('#legend .legend-labels span').map((s) => s.textContent);
   assert.equal(labels().at(-1), '> 86K sq ft');
 

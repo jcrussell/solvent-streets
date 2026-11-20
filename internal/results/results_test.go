@@ -31,7 +31,7 @@ func TestRoundTrip(t *testing.T) {
 	if err := store.SaveCityMetrics(ctx, 7, rows); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SaveHexMetrics(ctx, 7, HexCoverageRows(roads, []HexCoverage{{HexID: "b", Area: 2, PctCovered: 20}, {HexID: "a", Area: 1, PctCovered: 10}})); err != nil {
+	if err := store.SaveHexMetrics(ctx, 7, HexCoverageRows(roads, []HexCoverage{{HexID: "b", Area: 2, Share: 0.2}, {HexID: "a", Area: 1, Share: 0.1}})); err != nil {
 		t.Fatal(err)
 	}
 
@@ -61,7 +61,7 @@ func TestRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []HexCoverage{{HexID: "a", Area: 1, PctCovered: 10}, {HexID: "b", Area: 2, PctCovered: 20}}; !slices.Equal(cov, want) {
+	if want := []HexCoverage{{HexID: "a", Area: 1, Share: 0.1}, {HexID: "b", Area: 2, Share: 0.2}}; !slices.Equal(cov, want) {
 		t.Errorf("coverage = %+v, want %+v (by hex id)", cov, want)
 	}
 	if ok, err := HasHexCoverage(ctx, store, []resource.Type{parking, roads}); err != nil || !ok {
@@ -73,7 +73,7 @@ func TestRoundTrip(t *testing.T) {
 }
 
 // TestTotalRows_SpacesOnlyForParking: every total is written even when 0 (a
-// missing row means never computed), and parking_spaces only for parking.
+// missing row means never computed), and estimated_spaces only for parking.
 func TestTotalRows_SpacesOnlyForParking(t *testing.T) {
 	metrics := func(rows []db.CityMetric) []string {
 		var out []string
@@ -82,10 +82,10 @@ func TestTotalRows_SpacesOnlyForParking(t *testing.T) {
 		}
 		return out
 	}
-	if got := metrics(TotalRows(roads, Totals{})); !slices.Equal(got, []string{"paved_area_m2", "feature_count"}) {
+	if got := metrics(TotalRows(roads, Totals{})); !slices.Equal(got, []string{"paved_area", "feature_count"}) {
 		t.Errorf("roads rows = %v", got)
 	}
-	if got := metrics(TotalRows(parkingCity, Totals{})); !slices.Equal(got, []string{"paved_area_m2", "feature_count", "parking_spaces"}) {
+	if got := metrics(TotalRows(parkingCity, Totals{})); !slices.Equal(got, []string{"paved_area", "feature_count", "estimated_spaces"}) {
 		t.Errorf("parking:city rows = %v", got)
 	}
 }

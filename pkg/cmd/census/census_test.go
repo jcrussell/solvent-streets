@@ -12,7 +12,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
-	"github.com/jcrussell/solvent-streets/internal/population"
+	"github.com/jcrussell/solvent-streets/internal/metric"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
@@ -96,13 +96,13 @@ func TestCensusCompute_StoresPopulationMetrics(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	for _, k := range []string{population.KeyPopulation, population.KeyHousingUnits, population.KeyDensity} {
+	for _, k := range []string{metric.Population, metric.HousingUnits, metric.PopulationDensity} {
 		if len(out[k]) == 0 {
 			t.Errorf("no rows saved for %s", k)
 		}
 	}
 	var total float64
-	for _, r := range out[population.KeyPopulation] {
+	for _, r := range out[metric.Population] {
 		total += r.Value
 	}
 	if math.Abs(total-200) > 1e-6 {

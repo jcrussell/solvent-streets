@@ -18,19 +18,8 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/geo"
 	"github.com/jcrussell/solvent-streets/internal/hexmetric"
+	"github.com/jcrussell/solvent-streets/internal/metric"
 	"github.com/jcrussell/solvent-streets/internal/resource"
-	"github.com/jcrussell/solvent-streets/internal/units"
-)
-
-// Metric keys.
-const (
-	KeyPopulation   = "population"
-	KeyHousingUnits = "housing_units"
-	KeyDensity      = "population_per_km2"
-	// KeyRoadAreaPerResident and KeyNeedPerResident are derived ratios the
-	// dashboard computes over the toggled resources.
-	KeyRoadAreaPerResident = "road_m2_per_resident"
-	KeyNeedPerResident     = "year1_need_usd_per_resident"
 )
 
 // MinResidents is the population below which a hex's per-resident ratios
@@ -46,34 +35,35 @@ func init() {
 	// density does not. Skewed values get roughly log-spaced edges by hand —
 	// Transform is advisory and the dashboard paints the literal edges.
 	hexmetric.Register(hexmetric.Spec{
-		Key: KeyPopulation, Label: "Population", Unit: "", Source: source,
+		Key: metric.Population, Label: "Population", Source: source,
 		Format: hexmetric.FormatInt, Additive: true,
 		Scale: hexmetric.Scale{Kind: hexmetric.KindSequential, Transform: hexmetric.TransformLog, Bands: []float64{10, 50, 100, 200, 400}},
 	})
 	hexmetric.Register(hexmetric.Spec{
-		Key: KeyHousingUnits, Label: "Housing units", Unit: "", Source: source,
+		Key: metric.HousingUnits, Label: "Housing units", Source: source,
 		Format: hexmetric.FormatInt, Additive: true,
 		Scale: hexmetric.Scale{Kind: hexmetric.KindSequential, Transform: hexmetric.TransformLog, Bands: []float64{5, 25, 50, 100, 200}},
 	})
 	hexmetric.Register(hexmetric.Spec{
-		// FormatDensity: stored per km², shown per the viewer's unit.
-		Key: KeyDensity, Label: "Population density", Unit: "1/km2", Source: source,
+		// FormatDensity: stored per m², shown per the viewer's large area
+		// unit. The edges are 500 to 20,000 residents per km².
+		Key: metric.PopulationDensity, Label: "Population density", Source: source,
 		Format: hexmetric.FormatDensity,
-		Scale:  hexmetric.Scale{Kind: hexmetric.KindSequential, Transform: hexmetric.TransformLog, Bands: []float64{500, 2000, 5000, 10000, 20000}},
+		Scale:  hexmetric.Scale{Kind: hexmetric.KindSequential, Transform: hexmetric.TransformLog, Bands: []float64{0.0005, 0.002, 0.005, 0.01, 0.02}},
 	})
 	hexmetric.Register(hexmetric.Spec{
 		// FormatArea: stored in m² per resident, shown in the viewer's unit.
-		Key: KeyRoadAreaPerResident, Label: "Maintained area per resident", Unit: "m2", Source: "Maintained area of the toggled resources ÷ " + source,
+		Key: metric.MaintainedAreaPerResident, Label: "Maintained area per resident", Source: "Maintained area of the toggled resources ÷ " + source,
 		Format: hexmetric.FormatArea,
 		Scale:  hexmetric.Scale{Kind: hexmetric.KindSequential, Transform: hexmetric.TransformLog, Bands: []float64{20, 40, 60, 100, 200}},
-		Derive: &hexmetric.Derivation{Op: hexmetric.OpRatio, Prop: hexmetric.PropArea, Den: KeyPopulation, MinDen: MinResidents},
+		Derive: &hexmetric.Derivation{Op: hexmetric.OpRatio, Prop: hexmetric.PropArea, Den: metric.Population, MinDen: MinResidents},
 	})
 	hexmetric.Register(hexmetric.Spec{
-		Key: KeyNeedPerResident, Label: "Year-1 need per resident", Unit: "usd",
+		Key: metric.Year1NeedPerResident, Label: "Year-1 need per resident",
 		Source: "Year-1 do-nothing need (incl. backlog) of the toggled resources ÷ " + source,
 		Format: hexmetric.FormatUSD,
 		Scale:  hexmetric.Scale{Kind: hexmetric.KindSequential, Transform: hexmetric.TransformLog, Bands: []float64{25, 50, 100, 200, 400}},
-		Derive: &hexmetric.Derivation{Op: hexmetric.OpRatio, Prop: hexmetric.PropEstCost, Den: KeyPopulation, MinDen: MinResidents},
+		Derive: &hexmetric.Derivation{Op: hexmetric.OpRatio, Prop: hexmetric.PropYear1Need, Den: metric.Population, MinDen: MinResidents},
 	})
 }
 
@@ -108,7 +98,7 @@ func Apportion(ctx context.Context, grid []geo.Hex, blocks []resource.BufferedFe
 		if p > 0 {
 			m.Population = append(m.Population, db.HexMetric{HexID: sh.HexID, Value: p})
 			if a := hexArea[sh.HexID]; a > 0 {
-				m.Density = append(m.Density, db.HexMetric{HexID: sh.HexID, Value: p / units.SqMToSqKm(a)})
+				m.Density = append(m.Density, db.HexMetric{HexID: sh.HexID, Value: p / a})
 			}
 		}
 		if u > 0 {

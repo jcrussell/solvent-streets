@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+
+	"github.com/jcrussell/solvent-streets/internal/metric"
 )
 
 // Every read in this file sees only the runs of the ONE snapshot the view
@@ -49,8 +51,33 @@ func listView[T any](ctx context.Context, s *sqliteStore, what, selectClause str
 	return out, nil
 }
 
+// CheckCityMetrics returns an error naming the first row whose key the metric
+// catalog (internal/metric) does not store city-wide. Every SaveCityMetrics
+// runs it before writing anything.
+func CheckCityMetrics(rows []CityMetric) error {
+	for _, m := range rows {
+		if err := metric.CheckCity(m.Metric); err != nil {
+			return fmt.Errorf("save city metrics: %w", err)
+		}
+	}
+	return nil
+}
+
+// CheckHexMetrics is CheckCityMetrics for per-hex rows.
+func CheckHexMetrics(rows []HexMetric) error {
+	for _, m := range rows {
+		if err := metric.CheckHex(m.Metric); err != nil {
+			return fmt.Errorf("save hex metrics: %w", err)
+		}
+	}
+	return nil
+}
+
 // SaveCityMetrics writes rows under runID in one transaction.
 func (s *sqliteStore) SaveCityMetrics(ctx context.Context, runID int64, rows []CityMetric) error {
+	if err := CheckCityMetrics(rows); err != nil {
+		return err
+	}
 	return s.withTx(ctx, func(tx *sql.Tx) error {
 		stmt, err := tx.PrepareContext(ctx,
 			`INSERT INTO city_metrics (run_id, metric, subject, class, value) VALUES (?, ?, ?, ?, ?)`)
@@ -83,6 +110,9 @@ func (s *sqliteStore) ListCityMetrics(ctx context.Context, subjects []string) ([
 
 // SaveHexMetrics writes rows under runID in one transaction.
 func (s *sqliteStore) SaveHexMetrics(ctx context.Context, runID int64, rows []HexMetric) error {
+	if err := CheckHexMetrics(rows); err != nil {
+		return err
+	}
 	return s.withTx(ctx, func(tx *sql.Tx) error {
 		stmt, err := tx.PrepareContext(ctx,
 			`INSERT INTO hex_metrics (run_id, hex_id, metric, subject, value, ref) VALUES (?, ?, ?, ?, ?, ?)`)

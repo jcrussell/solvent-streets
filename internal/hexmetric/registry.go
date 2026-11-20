@@ -1,25 +1,23 @@
-// Package hexmetric is the registry of per-hex metrics: named, unit-bearing
-// values that a compute pass stores per hex (db.HexMetric / hex_metrics),
-// the exporter writes to hex-metrics.json, and the dashboard offers in its
-// "Color by" selector. Fire response time is the first stored metric; the
-// pavement colorings (coverage, area, spaces, est. cost) are derived metrics
-// registered in builtin.go, which the dashboard computes from hexgrid.geojson
-// so every hex coloring goes through this one registry. A new metric is a Spec
-// registered from its producing package's init(), and nothing on the export
-// or client side changes.
-//
-// Keys are lowercase snake_case with a unit suffix when the value carries one
-// ("fire_response_s", "road_m2_per_resident"); the dashboard reads Format and
-// Scale to render a value and to paint hexes, so a Spec fully describes how
-// its numbers should look without any metric-specific client code.
+// Package hexmetric is the presentation registry of per-hex metrics: how the
+// dashboard's "Color by" selector labels, formats and paints each metric of
+// the catalog (internal/metric) it offers. A Spec names a catalog key and
+// adds a label, a format, a colour scale and, for a metric the dashboard
+// computes itself, a derivation. Stored metrics (fire response, the census
+// figures) are written per hex by their producers and exported to
+// hex-metrics.json; derived metrics (the pavement colorings and the
+// per-resident ratios) are computed by the dashboard from hexgrid.geojson
+// under the same key the stored value has. A new metric is a catalog entry
+// plus a Spec registered from its producing package's init(), and nothing on
+// the export or client side changes.
 package hexmetric
 
 import (
 	"errors"
 	"fmt"
-	"regexp"
 	"sort"
 	"sync"
+
+	"github.com/jcrussell/solvent-streets/internal/metric"
 )
 
 // Scale kinds the dashboard paints (Kind picks the colour ramp) and
@@ -43,7 +41,7 @@ const (
 	FormatUSD     = "usd"     // dollars
 	FormatPercent = "percent" // a 0..1 share in, "N%" out
 	FormatArea    = "area"    // square metres in, the viewer's area unit out
-	FormatDensity = "density" // per km² in, per the viewer's large area unit (km² or sq mi) out
+	FormatDensity = "density" // per m² in, per the viewer's large area unit (km² or sq mi) out
 )
 
 // Scale modes. Bands (the default, and what an empty Mode means so files
@@ -68,13 +66,13 @@ const (
 
 // Per-resource hex properties a Derivation may combine: the covered share and
 // area from hexgrid.geojson, the apportioned parking spaces,
-// and the client's year-1 cost estimate (the resource's year-1 need from
-// hex-cost-summary.json split by the hex's share of that resource's area).
+// and the client's year-1 need (the resource's year-1 need from
+// hex-cost-summary.json split by the hex's part of that resource's area).
 const (
-	PropShare   = "share"
-	PropArea    = "area"
-	PropSpaces  = "spaces"
-	PropEstCost = "est_cost"
+	PropShare     = "share"
+	PropArea      = "area"
+	PropSpaces    = "spaces"
+	PropYear1Need = "year1_need"
 )
 
 // Derivation describes how the dashboard computes a derived metric. See the
@@ -89,7 +87,7 @@ type Derivation struct {
 
 func (d Derivation) validate(key string) error {
 	switch d.Prop {
-	case PropShare, PropArea, PropSpaces, PropEstCost:
+	case PropShare, PropArea, PropSpaces, PropYear1Need:
 	default:
 		return fmt.Errorf("hexmetric: %s derives from unknown property %q", key, d.Prop)
 	}
@@ -102,8 +100,8 @@ func (d Derivation) validate(key string) error {
 			return fmt.Errorf("hexmetric: %s is a sum but names a denominator", key)
 		}
 	case OpRatio:
-		if !keyRe.MatchString(d.Den) {
-			return fmt.Errorf("hexmetric: %s ratio denominator %q must be a metric key", key, d.Den)
+		if err := metric.CheckHex(d.Den); err != nil {
+			return fmt.Errorf("hexmetric: %s ratio denominator: %w", key, err)
 		}
 	default:
 		return fmt.Errorf("hexmetric: %s has unknown derivation op %q", key, d.Op)
@@ -129,11 +127,13 @@ type Scale struct {
 	Ticks []float64 `json:"ticks,omitempty"`
 }
 
-// Spec describes one per-hex metric.
+// Spec describes how the dashboard presents one catalog metric per hex.
 type Spec struct {
-	Key    string `json:"key"`
-	Label  string `json:"label"`
-	Unit   string `json:"unit"`   // SI-ish unit of the stored value ("s", "", "m2", "usd")
+	// Key is the metric's catalog key (internal/metric).
+	Key   string `json:"key"`
+	Label string `json:"label"`
+	// Unit is the catalog's unit for Key; Register fills it.
+	Unit   string `json:"unit"`
 	Source string `json:"source"` // one line on where the numbers come from
 	Format string `json:"format"` // one of the Format* constants
 	Scale  Scale  `json:"scale"`
@@ -149,14 +149,21 @@ type Spec struct {
 // Derived reports whether s is computed by the dashboard rather than stored.
 func (s Spec) Derived() bool { return s.Derive != nil }
 
-var keyRe = regexp.MustCompile(`^[a-z][a-z0-9]*(_[a-z0-9]+)*$`)
-
-// Validate rejects a Spec the dashboard could not render: a malformed key, no
-// label, an unknown format or scale kind/transform, no band edges, or band
-// edges that are not strictly ascending.
+// Validate rejects a Spec the dashboard could not render: a key the catalog
+// does not hold per hex (a stored Spec) or at all (a derived one), no label,
+// an unknown format or scale kind/transform, no band edges, or band edges
+// that are not strictly ascending.
 func (s Spec) Validate() error {
-	if !keyRe.MatchString(s.Key) {
-		return fmt.Errorf("hexmetric: key %q must be lowercase snake_case", s.Key)
+	def, ok := metric.Lookup(s.Key)
+	switch {
+	case !ok:
+		return fmt.Errorf("hexmetric: %q is not in the metric catalog (internal/metric)", s.Key)
+	case s.Derive == nil && !def.Level.AtHex():
+		return fmt.Errorf("hexmetric: %s is a %s metric, not stored per hex, so it needs a derivation", s.Key, def.Level)
+	case s.Derive != nil && def.Level == metric.City:
+		return fmt.Errorf("hexmetric: %s is a city-wide metric and has no per-hex value", s.Key)
+	case s.Unit != "" && s.Unit != def.Unit:
+		return fmt.Errorf("hexmetric: %s unit %q differs from the catalog's %q", s.Key, s.Unit, def.Unit)
 	}
 	if s.Label == "" {
 		return fmt.Errorf("hexmetric: %s has no label", s.Key)
@@ -235,6 +242,8 @@ func TryRegister(s Spec) error {
 	if err := s.Validate(); err != nil {
 		return err
 	}
+	def, _ := metric.Lookup(s.Key)
+	s.Unit = def.Unit
 	mu.Lock()
 	defer mu.Unlock()
 	if _, dup := registry[s.Key]; dup {

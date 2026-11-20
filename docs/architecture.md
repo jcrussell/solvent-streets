@@ -78,7 +78,8 @@ with their own defaults. Parking lots are already polygons. Buffered
 geometries go into an R-tree. The city is tiled with flat-top hexes of the
 configured edge and clipped to the city boundary. For each hex, the features
 it touches are unioned and clipped to the hex, which gives its paved area
-(`paved_area_m2`) and percent covered (`coverage_pct`, 0–100). Hex polygons are
+(`paved_area`, m²) and the paved proportion of the hex (`paved_share`, 0..1).
+Hex polygons are
 projected back to WGS84 only for output.
 
 Geometry is pure Go, `peterstace/simplefeatures`. Several of its constructors
@@ -91,13 +92,24 @@ deduplicate features at the seams.
 
 ## Per-hex metrics
 
-Every per-hex value is a row of `hex_metrics`: a metric, the subject it is
-measured over, and the value. Pavement coverage is just more metric keys
-(`paved_area_m2`, `coverage_pct`, and `parking_spaces` for parking) over a
-resource subject (`roads`, `roads:city`, ...); `internal/results` maps the
-pavement compute onto those rows. Every other metric is registered in
-`internal/hexmetric` and has subject `""`. Two producers write registered
-metrics:
+Every per-hex value is a row of `hex_metrics`, and every city-wide one a row
+of `city_metrics`: a metric, the subject it is measured over, and the value.
+Every metric key, stored or derived, is declared once in the metric catalog
+(`internal/metric`) with its unit, the level it lives at (city, hex, both, or
+derived by the dashboard) and what it means. Registration enforces the
+naming rule of [JSON conventions](#json-conventions), and
+`SaveCityMetrics` / `SaveHexMetrics` refuse a key the catalog does not store
+at that level. The key is the name the measure has everywhere: in the
+database, `hex-metrics.json`, `meta.json`'s `metrics`, the page config's
+`hex_metrics`, `?metric=` and `pvmt snapshots diff`.
+
+Pavement coverage is just more metric keys (`paved_area`, `paved_share`, and
+`estimated_spaces` for parking) over a resource subject (`roads`,
+`roads:city`, ...); `internal/results` maps the pavement compute onto those
+rows. `internal/hexmetric` is presentation only: a Spec names a catalog key
+and adds the label, format, colour scale and, for a derived metric, how the
+dashboard computes it. Every other per-hex metric has subject `""`. Two
+producers write them:
 
 - **Fire response.** `internal/services` routes from fire stations over a
   graph built from the stored roads. A hex on the road network that no
@@ -126,7 +138,9 @@ use, so hex ids line up. No producer reads another producer's stored results.
 
 The dashboard paints every coloring from that registry. Stored metrics ship in
 `hex-metrics.json`. *Derived* metrics are registered beside
-them: coverage %, paved area, parking spaces and year-1 cost in
+them under the key of the measure they compute: coverage % (`paved_share`),
+paved area (`paved_area`), parking spaces (`estimated_spaces`) and year-1
+need (`year1_need`) in
 `internal/hexmetric/builtin.go`, and the per-resident ratios in
 `internal/population`. Each declares how to combine the per-resource values in
 `hexgrid.geojson`, and the browser resolves it. A new coloring is therefore a

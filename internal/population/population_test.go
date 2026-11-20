@@ -10,6 +10,7 @@ import (
 
 	"github.com/jcrussell/solvent-streets/internal/geo"
 	"github.com/jcrussell/solvent-streets/internal/hexmetric"
+	"github.com/jcrussell/solvent-streets/internal/metric"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 )
 
@@ -69,7 +70,7 @@ func TestApportion_ConservesTotalsAndDensity(t *testing.T) {
 		t.Fatalf("density rows %d != population rows %d", len(m.Density), len(m.Population))
 	}
 	for _, d := range m.Density {
-		if want := popBy[d.HexID] / (area[d.HexID] / 1e6); math.Abs(d.Value-want) > 1e-6 {
+		if want := popBy[d.HexID] / area[d.HexID]; math.Abs(d.Value-want) > 1e-12 {
 			t.Errorf("hex %s density %v, want %v", d.HexID, d.Value, want)
 		}
 	}
@@ -78,16 +79,16 @@ func TestApportion_ConservesTotalsAndDensity(t *testing.T) {
 // TestSpecs: the stored and derived population metrics are registered, and
 // the ratios divide by the stored population above MinResidents.
 func TestSpecs(t *testing.T) {
-	for _, k := range []string{KeyPopulation, KeyHousingUnits, KeyDensity} {
+	for _, k := range []string{metric.Population, metric.HousingUnits, metric.PopulationDensity} {
 		s, ok := hexmetric.Lookup(k)
 		if !ok || s.Derived() {
 			t.Errorf("%s must be a registered stored metric", k)
 		}
 	}
-	for _, k := range []string{KeyRoadAreaPerResident, KeyNeedPerResident} {
+	for _, k := range []string{metric.MaintainedAreaPerResident, metric.Year1NeedPerResident} {
 		s, ok := hexmetric.Lookup(k)
-		if !ok || !s.Derived() || s.Derive.Op != hexmetric.OpRatio || s.Derive.Den != KeyPopulation || s.Derive.MinDen != MinResidents {
-			t.Errorf("%s must be a ratio over %s, got %+v", k, KeyPopulation, s.Derive)
+		if !ok || !s.Derived() || s.Derive.Op != hexmetric.OpRatio || s.Derive.Den != metric.Population || s.Derive.MinDen != MinResidents {
+			t.Errorf("%s must be a ratio over %s, got %+v", k, metric.Population, s.Derive)
 		}
 	}
 }

@@ -3,12 +3,13 @@ package export
 import (
 	"context"
 	"fmt"
+	"math"
 	"sort"
 
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/geo"
 	"github.com/jcrussell/solvent-streets/internal/hexmetric"
-	"github.com/jcrussell/solvent-streets/internal/population"
+	"github.com/jcrussell/solvent-streets/internal/metric"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/internal/results"
 	"github.com/jcrussell/solvent-streets/internal/services"
@@ -109,7 +110,7 @@ type MetricSummaryJSON struct {
 // resolvedSpec returns the spec (and covered threshold) to publish for a
 // metric: the registry's, unless a service produces it, in which case the
 // bands and the methodology line (Source) follow the service spec. The turnout is the one the snapshot's run
-// for the service recorded (services.MetricTurnoutS), since its stored times
+// for the service recorded (metric.TurnoutS), since its stored times
 // include it; the travel threshold, a presentation setting, is the config's
 // ([[services]] overrides applied). A run that recorded no turnout falls back
 // to the config's. ok is false when the metric has no threshold.
@@ -142,7 +143,7 @@ func runTurnout(ctx context.Context, entry CityEntry, service string) (turnout f
 		return 0, false, fmt.Errorf("listing %s run settings: %w", service, err)
 	}
 	for _, r := range rows {
-		if r.Metric == services.MetricTurnoutS && r.Subject == subject && r.Class == "" {
+		if r.Metric == metric.TurnoutS && r.Subject == subject && r.Class == "" {
 			return r.Value, true, nil
 		}
 	}
@@ -231,7 +232,7 @@ func buildMetricJSON(ctx context.Context, entry CityEntry, spec hexmetric.Spec, 
 	m := MetricJSON{Label: spec.Label, Unit: spec.Unit, Format: spec.Format, Source: spec.Source, Scale: spec.Scale, ThresholdS: threshold, Values: make(map[string]float64, len(rows))}
 	refIDs := map[string]bool{}
 	for _, r := range rows {
-		m.Values[r.HexID] = round2(r.Value)
+		m.Values[r.HexID] = roundMetric(r.Value)
 		if r.Ref != "" {
 			refIDs[r.Ref] = true
 		}
@@ -328,7 +329,7 @@ func buildMetricSummaries(ctx context.Context, entry CityEntry, grid *DrawnGrid)
 // data gets only the none-inside test.
 func flagSparsePoints(sums map[string]MetricSummaryJSON) {
 	var residents float64
-	if pop, ok := sums[population.KeyPopulation]; ok && pop.Total != nil {
+	if pop, ok := sums[metric.Population]; ok && pop.Total != nil {
 		residents = *pop.Total
 	}
 	for key, s := range sums {
@@ -477,7 +478,7 @@ func summarizeMetric(spec hexmetric.Spec, rows []db.HexMetric, unreachable int, 
 	sort.Float64s(vals)
 	sum := MetricSummaryJSON{
 		Label: spec.Label, Unit: spec.Unit, Format: spec.Format,
-		HexCount: len(vals), Min: round2(vals[0]), Median: round2(Median(vals)), Max: round2(vals[len(vals)-1]),
+		HexCount: len(vals), Min: roundMetric(vals[0]), Median: roundMetric(Median(vals)), Max: roundMetric(vals[len(vals)-1]),
 		PointCount: len(refs),
 	}
 	if spec.Additive {
@@ -485,7 +486,7 @@ func summarizeMetric(spec hexmetric.Spec, rows []db.HexMetric, unreachable int, 
 		for _, v := range vals {
 			total += v
 		}
-		total = round2(total)
+		total = roundMetric(total)
 		sum.Total = &total
 	}
 	if hasThreshold {
@@ -495,6 +496,17 @@ func summarizeMetric(spec hexmetric.Spec, rows []db.HexMetric, unreachable int, 
 		sum.WithinThresholdShare = &share
 	}
 	return sum, true
+}
+
+// roundMetric rounds a stored metric's value for emission: two decimals at a
+// magnitude of 1 or more (seconds, residents), four significant figures
+// below it, so a small-unit value (residents per m², about 0.0003 to 0.02)
+// keeps its digits instead of flattening to 0 or 0.01.
+func roundMetric(v float64) float64 {
+	if math.Abs(v) >= 1 {
+		return round2(v)
+	}
+	return roundSig(v, 4)
 }
 
 // hasHexGrid reports whether hexgrid.geojson will exist for the city: it is

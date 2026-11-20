@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/jcrussell/solvent-streets/internal/export"
-	"github.com/jcrussell/solvent-streets/internal/population"
+	"github.com/jcrussell/solvent-streets/internal/metric"
 )
 
 // dataDirsWithLabel returns every per-city data directory in the site, each
@@ -101,7 +101,7 @@ func (r *runner) checkMeta(label, path string) {
 // pavedPerResident is the city's paved area per resident in m², or 0 when
 // the site carries no population for it.
 func pavedPerResident(meta export.MetaJSON) float64 {
-	pop, ok := meta.Metrics[population.KeyPopulation]
+	pop, ok := meta.Metrics[metric.Population]
 	if !ok || pop.Total == nil || *pop.Total <= 0 {
 		return 0
 	}

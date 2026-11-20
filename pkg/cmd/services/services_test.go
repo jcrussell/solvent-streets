@@ -13,6 +13,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
+	"github.com/jcrussell/solvent-streets/internal/metric"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/internal/services"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
@@ -67,7 +68,7 @@ func fixtureStore(saved *[]db.HexMetric, commits *[]map[string]int64) *dbtest.Mo
 				*saved = append(*saved, r)
 			}
 			if len(rows) == 0 {
-				*saved = append(*saved, db.HexMetric{Metric: services.MetricFire, RunID: runID, HexID: "<empty>"})
+				*saved = append(*saved, db.HexMetric{Metric: metric.FireResponseS, RunID: runID, HexID: "<empty>"})
 			}
 			return nil
 		},
@@ -117,8 +118,8 @@ func TestServicesCompute_StoresFireMetric(t *testing.T) {
 	spec := services.Registry["fire"]
 	var minV, maxV = saved[0].Value, saved[0].Value
 	for _, m := range saved {
-		if m.Metric != services.MetricFire || m.RunID != saved[0].RunID || m.Ref != "osm:node:9" {
-			t.Fatalf("row %+v: want metric %s under one run referencing osm:node:9", m, services.MetricFire)
+		if m.Metric != metric.FireResponseS || m.RunID != saved[0].RunID || m.Ref != "osm:node:9" {
+			t.Fatalf("row %+v: want metric %s under one run referencing osm:node:9", m, metric.FireResponseS)
 		}
 		if m.Value < spec.TurnoutS {
 			t.Errorf("row %+v below turnout %v", m, spec.TurnoutS)
@@ -312,8 +313,8 @@ func TestServicesCompute_NoReachCommitsEmptyRun(t *testing.T) {
 		t.Errorf("no warning that no station reached the network; stderr:\n%s", errOut.String())
 	}
 	for _, r := range saved {
-		if r.Metric != services.MetricFire || r.Subject != services.SubjectUnreachable || r.RunID != saved[0].RunID {
-			t.Fatalf("expected only unreachable %s rows of one run, got %+v", services.MetricFire, r)
+		if r.Metric != metric.FireResponseS || r.Subject != services.SubjectUnreachable || r.RunID != saved[0].RunID {
+			t.Fatalf("expected only unreachable %s rows of one run, got %+v", metric.FireResponseS, r)
 		}
 	}
 	if !committedOnlyFire(commits, saved[0].RunID) {
@@ -453,7 +454,7 @@ func TestServicesCompute_FreezesFacilitiesAndTurnout(t *testing.T) {
 	}
 	var turnout []db.CityMetric
 	for _, m := range store.CityMetrics {
-		if m.Metric == services.MetricTurnoutS {
+		if m.Metric == metric.TurnoutS {
 			turnout = append(turnout, m)
 		}
 	}

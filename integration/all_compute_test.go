@@ -106,7 +106,7 @@ func hexStatsByID(t *testing.T, ctx context.Context, store db.Store, rt resource
 }
 
 // assertHexStatsEqual compares two hex-stat sets by hex id, requiring identical
-// Area and PctCovered — an inline-vs-shared grid must produce byte-identical
+// Area and Share — an inline-vs-shared grid must produce byte-identical
 // per-hex output.
 func assertHexStatsEqual(t *testing.T, label string, got, want map[string]results.HexCoverage) {
 	t.Helper()
@@ -119,9 +119,9 @@ func assertHexStatsEqual(t *testing.T, label string, got, want map[string]result
 			t.Errorf("%s: hex %s present in standalone but missing from all-compute", label, id)
 			continue
 		}
-		if g.Area != w.Area || g.PctCovered != w.PctCovered {
-			t.Errorf("%s: hex %s differs: all-compute {area=%v pct=%v} != standalone {area=%v pct=%v}",
-				label, id, g.Area, g.PctCovered, w.Area, w.PctCovered)
+		if g.Area != w.Area || g.Share != w.Share {
+			t.Errorf("%s: hex %s differs: all-compute {area=%v share=%v} != standalone {area=%v share=%v}",
+				label, id, g.Area, g.Share, w.Area, w.Share)
 		}
 	}
 }

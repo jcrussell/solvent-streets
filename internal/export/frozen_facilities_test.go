@@ -8,6 +8,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
+	"github.com/jcrussell/solvent-streets/internal/metric"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/internal/results"
 	"github.com/jcrussell/solvent-streets/internal/services"
@@ -39,8 +40,8 @@ func TestBuildHexMetrics_MarkersAndLegendFromTheRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := c.store.SaveHexMetrics(ctx, run.ID, []db.HexMetric{
-		{HexID: h[0], Metric: services.MetricFire, Value: 300, Ref: "osm:node:9"},
-		{HexID: h[1], Metric: services.MetricFire, Value: 400, Ref: configID},
+		{HexID: h[0], Metric: metric.FireResponseS, Value: 300, Ref: "osm:node:9"},
+		{HexID: h[1], Metric: metric.FireResponseS, Value: 400, Ref: configID},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +52,7 @@ func TestBuildHexMetrics_MarkersAndLegendFromTheRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := c.store.SaveCityMetrics(ctx, run.ID, []db.CityMetric{
-		{Metric: services.MetricTurnoutS, Subject: db.ServiceProducer("fire"), Value: 80},
+		{Metric: metric.TurnoutS, Subject: db.ServiceProducer("fire"), Value: 80},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +81,7 @@ func TestBuildHexMetrics_MarkersAndLegendFromTheRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := hm.Metrics[services.MetricFire]
+	m := hm.Metrics[metric.FireResponseS]
 	if len(m.Points) != 2 {
 		t.Fatalf("points = %+v, want the run's two stations", m.Points)
 	}
@@ -123,11 +124,11 @@ func TestBuildHexMetrics_SourceStatesTheRunsTurnout(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := c.store.SaveHexMetrics(ctx, run.ID, []db.HexMetric{{HexID: h[0], Metric: services.MetricFire, Value: 300}}); err != nil {
+		if err := c.store.SaveHexMetrics(ctx, run.ID, []db.HexMetric{{HexID: h[0], Metric: metric.FireResponseS, Value: 300}}); err != nil {
 			t.Fatal(err)
 		}
 		if err := c.store.SaveCityMetrics(ctx, run.ID, []db.CityMetric{
-			{Metric: services.MetricTurnoutS, Subject: db.ServiceProducer("fire"), Value: tc.turnout},
+			{Metric: metric.TurnoutS, Subject: db.ServiceProducer("fire"), Value: tc.turnout},
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -142,7 +143,7 @@ func TestBuildHexMetrics_SourceStatesTheRunsTurnout(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got := hm.Metrics[services.MetricFire].Source; !strings.Contains(got, tc.want) {
+		if got := hm.Metrics[metric.FireResponseS].Source; !strings.Contains(got, tc.want) {
 			t.Errorf("turnout %v: source = %q, want it to contain %q", tc.turnout, got, tc.want)
 		}
 	}

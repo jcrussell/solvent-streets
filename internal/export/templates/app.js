@@ -360,7 +360,7 @@
         // key. Declared here (like the tab guards) so a ?metric= deep link
         // survives the init IIFE and the per-city load can honour it once the
         // city's files are in.
-        const DEFAULT_METRIC = 'coverage_share';
+        const DEFAULT_METRIC = 'paved_share';
         /** @type {Record<string, PvmtHexMetric>} */
         const derivedMetrics = {};
         for (const spec of (PVMT_CONFIG.hex_metrics || [])) derivedMetrics[spec.key] = spec;
@@ -1002,7 +1002,7 @@
                 for (const f of features) {
                     const hid = f.properties.hex_id;
                     if (!byHex[hid]) {
-                        byHex[hid] = { geometry: f.geometry, area: 0, share: 0, est_cost: 0, spaces: 0 };
+                        byHex[hid] = { geometry: f.geometry, area: 0, share: 0, year1_need: 0, spaces: 0 };
                     }
                     byHex[hid].area += f.properties.area || 0;
                     byHex[hid].share += f.properties.share || 0;
@@ -1017,7 +1017,7 @@
                 for (const f of features) {
                     const hid = f.properties.hex_id;
                     if (!byHex[hid]) continue;
-                    byHex[hid].est_cost += ((f.properties.area || 0) / cs.total_area) * cs.year1_need;
+                    byHex[hid].year1_need += ((f.properties.area || 0) / cs.total_area) * cs.year1_need;
                 }
             }
 
@@ -1031,7 +1031,7 @@
             if (metric) {
                 for (const hid of metricExtraHexes(metric)) {
                     if (!byHex[hid] && hexGeomById[hid]) {
-                        byHex[hid] = { geometry: hexGeomById[hid], area: 0, share: 0, est_cost: 0, spaces: 0 };
+                        byHex[hid] = { geometry: hexGeomById[hid], area: 0, share: 0, year1_need: 0, spaces: 0 };
                     }
                 }
             }
@@ -1054,7 +1054,7 @@
                         ...extra,
                         area: data.area,
                         share: Math.min(data.share, 1),
-                        est_cost: data.est_cost
+                        year1_need: data.year1_need
                     }
                 });
             }
@@ -1236,14 +1236,14 @@
 
         // blendedTotal sums a derivation property over the city's toggled
         // resources in the current scope: the city-wide numerator of a
-        // per-resident ratio. est_cost totals each resource's year-1 cost
+        // per-resident ratio. year1_need totals each resource's year-1 cost
         // (the per-hex estimate splits exactly that by area share).
         function blendedTotal(prop) {
             const byType = hexDataByScope[currentScope] || {};
             const cs = costSummaryByScope[currentScope] || {};
             let total = 0;
             for (const t of activeTypes) {
-                if (prop === 'est_cost') {
+                if (prop === 'year1_need') {
                     if (cs[t] && cs[t].total_area > 0) total += cs[t].year1_need || 0;
                     continue;
                 }
@@ -1543,7 +1543,7 @@
                     tooltip.innerHTML =
                         '<strong>Coverage:</strong> ' + (p.share != null ? Math.round(p.share * 100) : 0) + '%<br>' +
                         '<strong>Area:</strong> ' + fmtArea(p.area || 0) + '<br>' +
-                        '<strong>Est. year-1 cost:</strong> ' + fmtMoney(p.est_cost || 0) +
+                        '<strong>Est. year-1 cost:</strong> ' + fmtMoney(p.year1_need || 0) +
                         (p.spaces > 0 ? '<br><strong>Est. Parking Spaces:</strong> ' + Math.round(p.spaces).toLocaleString() : '') +
                         metricTooltipLine(p);
                     tooltip.style.display = 'block';
@@ -1655,7 +1655,7 @@
         }
         // DERIVE_PROPS maps a derivation's per-resource property onto the
         // blended hex record buildBlendedHexFC accumulates.
-        const DERIVE_PROPS = { share: 'share', area: 'area', spaces: 'spaces', est_cost: 'est_cost' };
+        const DERIVE_PROPS = { share: 'share', area: 'area', spaces: 'spaces', year1_need: 'year1_need' };
         // derivedInputPresent reports whether this city has data for a derived
         // metric's per-resource property: a coloring with nothing to show (no
         // parking spaces, no forecast cost) is not offered rather than
@@ -1663,7 +1663,7 @@
         function derivedInputPresent(prop) {
             const byType = hexDataByScope[currentScope] || {};
             const types = [...activeTypes].filter(t => (byType[t] || []).length > 0);
-            if (prop === 'est_cost') {
+            if (prop === 'year1_need') {
                 const cs = costSummaryByScope[currentScope] || {};
                 return types.some(t => cs[t] && cs[t].total_area > 0);
             }
@@ -1778,10 +1778,10 @@
             }
         }
 
-        // densityInUnit converts a per-km² density to per the viewer's large
+        // densityInUnit converts a per-m² density to per the viewer's large
         // area unit (km², or sq mi in imperial).
-        function densityInUnit(perKm2) {
-            return perKm2 / toAreaVeryLarge(1e6);
+        function densityInUnit(perSqM) {
+            return perSqM / toAreaVeryLarge(1);
         }
 
         // compactNum renders a legend edge in at most ~3 characters of digits:
@@ -2085,7 +2085,7 @@
                     if (area <= 0) continue;
                     count++;
                     sumArea += area;
-                    sumCost += f.properties.est_cost || 0;
+                    sumCost += f.properties.year1_need || 0;
                     sumShareArea += (f.properties.share || 0) * area;
                 }
                 const wPct = sumArea > 0 ? (sumShareArea / sumArea) * 100 : 0;

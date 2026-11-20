@@ -20,6 +20,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/forecast"
 	"github.com/jcrussell/solvent-streets/internal/geo"
 	"github.com/jcrussell/solvent-streets/internal/goldentest"
+	"github.com/jcrussell/solvent-streets/internal/metric"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/internal/results"
 	"github.com/jcrussell/solvent-streets/internal/services"
@@ -121,7 +122,7 @@ func jsFixtureEntry(t *testing.T) CityEntry {
 	// fixture meta.json has the real estimated_spaces key the stats panel and
 	// Compare specs read; the shared fixture itself stays untouched.
 	for i, m := range store.CityMetrics {
-		if m.Metric == resource.MetricParkingSpaces && m.Subject == string(resource.TypeParking) && m.Class == "" {
+		if m.Metric == metric.EstimatedSpaces && m.Subject == string(resource.TypeParking) && m.Class == "" {
 			store.CityMetrics[i].Value = jsFixtureParkingSpaces
 		}
 	}
@@ -137,11 +138,11 @@ func jsFixtureEntry(t *testing.T) CityEntry {
 	// cover only the hexes hexgrid.geojson draws.
 	h := drawnHexIDs(t, entry, 3)
 	store.HexMetrics = append(store.HexMetrics,
-		db.HexMetric{HexID: h[0], Metric: services.MetricFire, Value: 300, Ref: jsFixtureStationID},
-		db.HexMetric{HexID: h[1], Metric: services.MetricFire, Value: 700, Ref: jsFixtureStationID},
+		db.HexMetric{HexID: h[0], Metric: metric.FireResponseS, Value: 300, Ref: jsFixtureStationID},
+		db.HexMetric{HexID: h[1], Metric: metric.FireResponseS, Value: 700, Ref: jsFixtureStationID},
 		// On the network but reached by no station: no value, counted
 		// against the within-threshold share.
-		db.HexMetric{HexID: h[2], Metric: services.MetricFire, Subject: services.SubjectUnreachable})
+		db.HexMetric{HexID: h[2], Metric: metric.FireResponseS, Subject: services.SubjectUnreachable})
 	store.HexMetrics = append(store.HexMetrics, results.HexCoverageRows(resource.TypeRoads,
 		[]results.HexCoverage{{HexID: h[0], Area: 1}, {HexID: h[1], Area: 1}})...)
 	// Matches a city option in the rendered index.html, so meta.project_name and
@@ -205,14 +206,14 @@ func writeJSFixtureTree(t *testing.T, dir string) {
 	}) {
 		t.Fatalf("fixture meta.json parking stat lacks estimated_spaces=%d; the parking specs would test nothing: %+v", jsFixtureParkingSpaces, meta.Stats)
 	}
-	if s, ok := meta.Metrics[services.MetricFire]; !ok || s.HexCount != 2 {
-		t.Fatalf("fixture meta.json lacks the %s summary over 2 painted hexes; the metrics specs would test nothing: %+v", services.MetricFire, meta.Metrics)
+	if s, ok := meta.Metrics[metric.FireResponseS]; !ok || s.HexCount != 2 {
+		t.Fatalf("fixture meta.json lacks the %s summary over 2 painted hexes; the metrics specs would test nothing: %+v", metric.FireResponseS, meta.Metrics)
 	}
 	hm, err := BuildHexMetrics(ctx, entry)
 	if err != nil {
 		t.Fatalf("build hex metrics: %v", err)
 	}
-	if hm == nil || len(hm.Metrics[services.MetricFire].Points) != 1 {
+	if hm == nil || len(hm.Metrics[metric.FireResponseS].Points) != 1 {
 		t.Fatalf("fixture hex-metrics.json lacks the fire metric with its station: %+v", hm)
 	}
 	writeFixtureJSON(t, dir, "hex-metrics.json", hm)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/jcrussell/solvent-streets/internal/metric"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 )
 
@@ -21,7 +22,7 @@ func TestMockStore_DefaultListReturnsEmptyNotNil(t *testing.T) {
 	if got, err := m.ListFeatures(ctx, resource.TypeRoads); err != nil || got == nil {
 		t.Errorf("ListFeatures: want non-nil empty slice, got %v / %v", got, err)
 	}
-	if got, err := m.ListHexMetrics(ctx, resource.MetricPavedArea, "roads"); err != nil || got == nil {
+	if got, err := m.ListHexMetrics(ctx, metric.PavedArea, "roads"); err != nil || got == nil {
 		t.Errorf("ListHexMetrics: want non-nil empty slice, got %v / %v", got, err)
 	}
 	if got, err := m.ListSnapshots(ctx); err != nil || got == nil {

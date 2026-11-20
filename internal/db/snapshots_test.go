@@ -53,12 +53,12 @@ func roadsRun(t *testing.T, store Store, area float64) func(int64) {
 	return func(run int64) {
 		ctx := context.Background()
 		if err := store.SaveCityMetrics(ctx, run, []CityMetric{
-			{Metric: "paved_area_m2", Subject: "roads", Value: area},
-			{Metric: "paved_area_m2", Subject: "roads", Class: "primary", Value: area},
+			{Metric: "paved_area", Subject: "roads", Value: area},
+			{Metric: "paved_area", Subject: "roads", Class: "primary", Value: area},
 		}); err != nil {
 			t.Fatal(err)
 		}
-		if err := store.SaveHexMetrics(ctx, run, []HexMetric{{HexID: "h1", Metric: "paved_area_m2", Subject: "roads", Value: area}}); err != nil {
+		if err := store.SaveHexMetrics(ctx, run, []HexMetric{{HexID: "h1", Metric: "paved_area", Subject: "roads", Value: area}}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -79,7 +79,7 @@ func fireRun(t *testing.T, store Store, rows ...HexMetric) func(int64) {
 func parkingRun(t *testing.T, store Store, area float64) func(int64) {
 	t.Helper()
 	return func(run int64) {
-		if err := store.SaveCityMetrics(context.Background(), run, []CityMetric{{Metric: "paved_area_m2", Subject: "parking", Value: area}}); err != nil {
+		if err := store.SaveCityMetrics(context.Background(), run, []CityMetric{{Metric: "paved_area", Subject: "parking", Value: area}}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -94,7 +94,7 @@ func cityArea(t *testing.T, store Store, subject string) (area float64, ok bool)
 		t.Fatalf("ListCityMetrics(%s): %v", subject, err)
 	}
 	for _, m := range rows {
-		if m.Metric == "paved_area_m2" && m.Class == "" {
+		if m.Metric == "paved_area" && m.Class == "" {
 			return m.Value, true
 		}
 	}
@@ -247,7 +247,7 @@ func TestSnapshot_PinnedReadIsTheWholeCity(t *testing.T) {
 	if park, ok := cityArea(t, pinned, "parking"); !ok || park != 7 {
 		t.Errorf("pinned parking = (%v, %v), want 7: a pin reads every part, not only the run that made it", park, ok)
 	}
-	stats, err := pinned.ListHexMetrics(ctx, "paved_area_m2", "roads")
+	stats, err := pinned.ListHexMetrics(ctx, "paved_area", "roads")
 	if err != nil || len(stats) != 1 || stats[0].Value != 100 {
 		t.Errorf("pinned roads hex rows = (%+v, %v), want the one 100 row", stats, err)
 	}
@@ -764,7 +764,7 @@ func TestHexMetrics_WriteOnce(t *testing.T) {
 		if err := store.SaveHexMetrics(ctx, run, []HexMetric{{HexID: "h1", Metric: "population", Value: 12}}); err != nil {
 			t.Fatal(err)
 		}
-		if err := store.SaveHexMetrics(ctx, run, []HexMetric{{HexID: "h1", Metric: "density", Value: 3, Ref: "x"}}); err != nil {
+		if err := store.SaveHexMetrics(ctx, run, []HexMetric{{HexID: "h1", Metric: "housing_units", Value: 3, Ref: "x"}}); err != nil {
 			t.Fatal(err)
 		}
 		if err := store.SaveHexMetrics(ctx, run, []HexMetric{{HexID: "h1", Metric: "population", Value: 9}}); err == nil {
@@ -775,7 +775,7 @@ func TestHexMetrics_WriteOnce(t *testing.T) {
 	if len(pop) != 1 || pop[0].HexID != "h1" || pop[0].Value != 12 || pop[0].Metric != "population" {
 		t.Errorf("population = %+v, want the first save (h1=12)", pop)
 	}
-	den, _ := store.ListHexMetrics(ctx, "density", "")
+	den, _ := store.ListHexMetrics(ctx, "housing_units", "")
 	if len(den) != 1 || den[0].Ref != "x" {
 		t.Errorf("density = %+v, want its own row", den)
 	}
@@ -792,24 +792,24 @@ func TestSaveHexMetrics_Atomic(t *testing.T) {
 	store := openTestStore(t)
 	run, _ := commitRun(t, store, "h", "census", func(run int64) {
 		if err := store.SaveHexMetrics(ctx, run, []HexMetric{
-			{HexID: "h1", Metric: "a_metric", Value: 1},
-			{HexID: "h1", Metric: "b_metric", Value: 2},
+			{HexID: "h1", Metric: "population", Value: 1},
+			{HexID: "h1", Metric: "housing_units", Value: 2},
 		}); err != nil {
 			t.Fatal(err)
 		}
 	})
 	raw := store.(*sqliteStore).db
 	if _, err := raw.ExecContext(ctx, `CREATE TRIGGER fail_b BEFORE INSERT ON hex_metrics
-		WHEN NEW.metric = 'b_metric' BEGIN SELECT RAISE(ABORT, 'boom'); END`); err != nil {
+		WHEN NEW.metric = 'housing_units' BEGIN SELECT RAISE(ABORT, 'boom'); END`); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.SaveHexMetrics(ctx, run, []HexMetric{
-		{HexID: "h2", Metric: "a_metric", Value: 10},
-		{HexID: "h2", Metric: "b_metric", Value: 20},
+		{HexID: "h2", Metric: "population", Value: 10},
+		{HexID: "h2", Metric: "housing_units", Value: 20},
 	}); err == nil {
 		t.Fatal("expected the aborted insert to fail the save")
 	}
-	for key, want := range map[string]float64{"a_metric": 1, "b_metric": 2} {
+	for key, want := range map[string]float64{"population": 1, "housing_units": 2} {
 		rows, err := store.ListHexMetrics(ctx, key, "")
 		if err != nil {
 			t.Fatal(err)
@@ -827,27 +827,27 @@ func TestHasHexMetric(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)
 	both := []string{"roads", "parking"}
-	if ok, err := store.HasHexMetric(ctx, "paved_area_m2", both); err != nil || ok {
+	if ok, err := store.HasHexMetric(ctx, "paved_area", both); err != nil || ok {
 		t.Fatalf("no snapshot: (%v, %v), want (false, nil)", ok, err)
 	}
 	_, snap := commitRun(t, store, "hash", "parking", func(run int64) {
-		if err := store.SaveHexMetrics(ctx, run, []HexMetric{{HexID: "h1", Metric: "paved_area_m2", Subject: "parking", Value: 1}}); err != nil {
+		if err := store.SaveHexMetrics(ctx, run, []HexMetric{{HexID: "h1", Metric: "paved_area", Subject: "parking", Value: 1}}); err != nil {
 			t.Fatal(err)
 		}
 	})
-	if ok, err := store.HasHexMetric(ctx, "paved_area_m2", []string{"roads"}); err != nil || ok {
+	if ok, err := store.HasHexMetric(ctx, "paved_area", []string{"roads"}); err != nil || ok {
 		t.Errorf("roads only: (%v, %v), want (false, nil)", ok, err)
 	}
-	if ok, err := store.HasHexMetric(ctx, "coverage_pct", both); err != nil || ok {
+	if ok, err := store.HasHexMetric(ctx, "paved_share", both); err != nil || ok {
 		t.Errorf("another metric: (%v, %v), want (false, nil)", ok, err)
 	}
-	if ok, err := store.HasHexMetric(ctx, "paved_area_m2", both); err != nil || !ok {
+	if ok, err := store.HasHexMetric(ctx, "paved_area", both); err != nil || !ok {
 		t.Errorf("roads+parking: (%v, %v), want (true, nil)", ok, err)
 	}
-	if ok, _ := store.WithLatestCompute("other").HasHexMetric(ctx, "paved_area_m2", both); ok {
+	if ok, _ := store.WithLatestCompute("other").HasHexMetric(ctx, "paved_area", both); ok {
 		t.Error("a different config hash must not see the rows")
 	}
-	if ok, _ := store.WithSnapshot(snap+100).HasHexMetric(ctx, "paved_area_m2", both); ok {
+	if ok, _ := store.WithSnapshot(snap+100).HasHexMetric(ctx, "paved_area", both); ok {
 		t.Error("a pin to a snapshot that does not exist must see nothing")
 	}
 }
@@ -860,13 +860,13 @@ func TestCityMetrics_RoundTrip(t *testing.T) {
 	store := openTestStore(t)
 	run, _ := commitRun(t, store, "h", "parking", func(run int64) {
 		if err := store.SaveCityMetrics(ctx, run, []CityMetric{
-			{Metric: "parking_spaces", Subject: "parking", Value: 31},
-			{Metric: "paved_area_m2", Subject: "parking", Value: 900},
-			{Metric: "paved_area_m2", Subject: "parking", Class: "parking", Value: 900},
+			{Metric: "estimated_spaces", Subject: "parking", Value: 31},
+			{Metric: "paved_area", Subject: "parking", Value: 900},
+			{Metric: "paved_area", Subject: "parking", Class: "parking", Value: 900},
 		}); err != nil {
 			t.Fatal(err)
 		}
-		if err := store.SaveCityMetrics(ctx, run, []CityMetric{{Metric: "paved_area_m2", Subject: "parking", Value: 1}}); err == nil {
+		if err := store.SaveCityMetrics(ctx, run, []CityMetric{{Metric: "paved_area", Subject: "parking", Value: 1}}); err == nil {
 			t.Error("a second parking total in one run succeeded, want a primary-key failure")
 		}
 	})
@@ -881,7 +881,7 @@ func TestCityMetrics_RoundTrip(t *testing.T) {
 			t.Errorf("row %+v: want run %d and the run's timestamp", m, run)
 		}
 	}
-	if want := []string{"parking//parking_spaces", "parking//paved_area_m2", "parking/parking/paved_area_m2"}; !slices.Equal(got, want) {
+	if want := []string{"parking//estimated_spaces", "parking//paved_area", "parking/parking/paved_area"}; !slices.Equal(got, want) {
 		t.Errorf("rows = %v, want %v", got, want)
 	}
 }

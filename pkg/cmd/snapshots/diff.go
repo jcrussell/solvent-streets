@@ -12,10 +12,9 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/export"
-	"github.com/jcrussell/solvent-streets/internal/population"
+	"github.com/jcrussell/solvent-streets/internal/metric"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/internal/results"
-	"github.com/jcrussell/solvent-streets/internal/services"
 	"github.com/jcrussell/solvent-streets/internal/units"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
@@ -345,7 +344,7 @@ func diffCity(ctx context.Context, root db.RootStorer, cfg *config.Config, ca, c
 		if k == pavedKey {
 			row.Paved = m
 		}
-		if k.metric == population.KeyPopulation {
+		if k.metric == metric.Population {
 			row.popDelta = m.Delta
 		}
 	}
@@ -360,13 +359,13 @@ func diffCity(ctx context.Context, root db.RootStorer, cfg *config.Config, ca, c
 type measureKey struct{ metric, subject string }
 
 // pavedKey is the headline: the combined paved area over every jurisdiction.
-var pavedKey = measureKey{resource.MetricPavedArea, string(resource.TypeCombined)}
+var pavedKey = measureKey{metric.PavedArea, string(resource.TypeCombined)}
 
 // fire* name the fire coverage measures: the median response and the share
 // of the network within the threshold.
 var (
-	fireMedianKey = measureKey{services.MetricFire, "median"}
-	fireWithinKey = measureKey{"within_threshold_share", services.MetricFire}
+	fireMedianKey = measureKey{metric.FireResponseS, "median"}
+	fireWithinKey = measureKey{"within_threshold_share", metric.FireResponseS}
 )
 
 // measures is one side of a city's comparison.
@@ -404,12 +403,12 @@ func loadMeasures(ctx context.Context, entry export.CityEntry) (measures, error)
 	if err != nil {
 		return m, err
 	}
-	for _, key := range []string{population.KeyPopulation, population.KeyHousingUnits} {
+	for _, key := range []string{metric.Population, metric.HousingUnits} {
 		if s, ok := sums[key]; ok && s.Total != nil {
 			m.values[measureKey{key, ""}] = *s.Total
 		}
 	}
-	if s, ok := sums[services.MetricFire]; ok {
+	if s, ok := sums[metric.FireResponseS]; ok {
 		m.fire = &s
 		m.values[fireMedianKey] = s.Median
 		if s.WithinThresholdShare != nil {
@@ -436,7 +435,7 @@ func measureKeys(a, b measures) []measureKey {
 		switch {
 		case k == pavedKey:
 			return 0
-		case k.metric == resource.MetricPavedArea || k.metric == resource.MetricFeatureCount || k.metric == resource.MetricParkingSpaces:
+		case k.metric == metric.PavedArea || k.metric == metric.FeatureCount || k.metric == metric.EstimatedSpaces:
 			return 1
 		case k.subject == "":
 			return 2

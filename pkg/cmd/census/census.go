@@ -12,6 +12,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/geo"
+	"github.com/jcrussell/solvent-streets/internal/metric"
 	"github.com/jcrussell/solvent-streets/internal/population"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/pkg/cmd/compute"
@@ -35,7 +36,7 @@ func NewCmdCensus(f *cmdutil.Factory) *cobra.Command {
 		Long: `Ingest 2020 Census blocks with their population and housing-unit counts
 (from the Census Bureau's TIGERweb service), apportion those counts onto the
 hex grid by area, and view status. The results land as per-hex metrics —
-population, housing_units, population_per_km2 — that the dashboard offers
+population, housing_units, population_density — that the dashboard offers
 under "Color by", together with per-resident ratios (maintained area
 and year-1 need per resident) it derives from them.
 
@@ -159,7 +160,7 @@ func NewCmdCompute(f *cmdutil.Factory, runF func(context.Context, *Options) erro
 		Short: "Apportion Census block counts onto the hex grid",
 		Long: `Spread each stored Census block's population and housing units onto the
 hexes it overlaps, in proportion to the overlapping area, and store per hex:
-population, housing_units and population_per_km2 (population over the hex's
+population, housing_units and population_density (residents per m² of the hex's
 own boundary-clipped area). The result updates the census part of the
 city's latest compute, so a later roads compute leaves it in place; run
 'pvmt snapshots create <name>' to publish it. A city
@@ -268,9 +269,9 @@ func apportion(ctx context.Context, out, errOut io.Writer, opts *Options, city *
 		key  string
 		rows []db.HexMetric
 	}{
-		{population.KeyPopulation, m.Population},
-		{population.KeyHousingUnits, m.HousingUnits},
-		{population.KeyDensity, m.Density},
+		{metric.Population, m.Population},
+		{metric.HousingUnits, m.HousingUnits},
+		{metric.PopulationDensity, m.Density},
 	} {
 		for _, r := range set.rows {
 			r.Metric = set.key

@@ -135,7 +135,7 @@ test('the region panel stays open and closable after a resource toggle and follo
   assert.equal(statValue(h, 'Est. year-1 cost'), '$21.0K');
   // One name for the metric: the panel row reads as the "Color by" option
   // does.
-  assert.equal(h.win.PVMT_CONFIG.hex_metrics.find((m) => m.key === 'est_cost_usd').label, 'Est. year-1 cost');
+  assert.equal(h.win.PVMT_CONFIG.hex_metrics.find((m) => m.key === 'year1_need').label, 'Est. year-1 cost');
 
   untick(h, 'parking');
   assert.ok(h.$('#stats .region-detail'), 'the toggle closed the region panel');

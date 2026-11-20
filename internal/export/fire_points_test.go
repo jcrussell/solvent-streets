@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/jcrussell/solvent-streets/internal/db"
-	"github.com/jcrussell/solvent-streets/internal/population"
+	"github.com/jcrussell/solvent-streets/internal/metric"
 	"github.com/jcrussell/solvent-streets/internal/services"
 )
 
@@ -24,10 +24,10 @@ func TestMetricSummary_StationsInsideAndOutside(t *testing.T) {
 		{ID: "osm:node:idle", Name: "Idle", Source: "osm", Lon: -122.46, Lat: 37.56},
 	}
 	fire := func(hex, ref string, v float64) db.HexMetric {
-		return db.HexMetric{HexID: hex, Metric: services.MetricFire, Value: v, Ref: ref}
+		return db.HexMetric{HexID: hex, Metric: metric.FireResponseS, Value: v, Ref: ref}
 	}
 	people := func(n float64) db.HexMetric {
-		return db.HexMetric{HexID: h[0], Metric: population.KeyPopulation, Value: n}
+		return db.HexMetric{HexID: h[0], Metric: metric.Population, Value: n}
 	}
 	floor := services.Registry["fire"].SparsePer100k
 	if floor <= 0 {
@@ -67,7 +67,7 @@ func TestMetricSummary_StationsInsideAndOutside(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			s := meta.Metrics[services.MetricFire]
+			s := meta.Metrics[metric.FireResponseS]
 			if s.InsidePointCount == nil || s.OutsidePointCount == nil {
 				t.Fatalf("summary = %+v, want the inside/outside split", s)
 			}
@@ -90,9 +90,9 @@ func TestMetricSummary_StationsInsideAndOutside(t *testing.T) {
 // station counting as outside.
 func TestMetricSummary_NoBoundaryNoSplit(t *testing.T) {
 	sum := MetricSummaryJSON{PointCount: 2}
-	sums := map[string]MetricSummaryJSON{services.MetricFire: sum}
+	sums := map[string]MetricSummaryJSON{metric.FireResponseS: sum}
 	flagSparsePoints(sums)
-	if got := sums[services.MetricFire]; got.PointsIncomplete || got.PointsCaveat != "" {
+	if got := sums[metric.FireResponseS]; got.PointsIncomplete || got.PointsCaveat != "" {
 		t.Errorf("summary without a split = %+v, want no flag", got)
 	}
 }

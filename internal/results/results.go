@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jcrussell/solvent-streets/internal/db"
+	"github.com/jcrussell/solvent-streets/internal/metric"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 )
 
@@ -37,9 +38,9 @@ type Cohort struct {
 
 // HexCoverage is one hex's paved area and paved share for a resource.
 type HexCoverage struct {
-	HexID      string
-	Area       float64 // m^2
-	PctCovered float64 // percent
+	HexID string
+	Area  float64 // m^2
+	Share float64 // paved proportion of the hex, 0..1
 }
 
 // CityMetricLister is the read surface the city-wide loaders need.
@@ -68,11 +69,11 @@ func subjects(types []resource.Type) []string {
 func TotalRows(t resource.Type, tot Totals) []db.CityMetric {
 	s := subject(t)
 	rows := []db.CityMetric{
-		{Metric: resource.MetricPavedArea, Subject: s, Value: tot.Area},
-		{Metric: resource.MetricFeatureCount, Subject: s, Value: float64(tot.Features)},
+		{Metric: metric.PavedArea, Subject: s, Value: tot.Area},
+		{Metric: metric.FeatureCount, Subject: s, Value: float64(tot.Features)},
 	}
 	if t.Bare() == resource.TypeParking {
-		rows = append(rows, db.CityMetric{Metric: resource.MetricParkingSpaces, Subject: s, Value: float64(tot.Spaces)})
+		rows = append(rows, db.CityMetric{Metric: metric.EstimatedSpaces, Subject: s, Value: float64(tot.Spaces)})
 	}
 	return rows
 }
@@ -84,8 +85,8 @@ func CohortRows(t resource.Type, cohorts []Cohort) []db.CityMetric {
 	rows := make([]db.CityMetric, 0, 2*len(cohorts))
 	for _, c := range cohorts {
 		rows = append(rows,
-			db.CityMetric{Metric: resource.MetricPavedArea, Subject: s, Class: c.Class, Value: c.Area},
-			db.CityMetric{Metric: resource.MetricFeatureCount, Subject: s, Class: c.Class, Value: float64(c.Features)},
+			db.CityMetric{Metric: metric.PavedArea, Subject: s, Class: c.Class, Value: c.Area},
+			db.CityMetric{Metric: metric.FeatureCount, Subject: s, Class: c.Class, Value: float64(c.Features)},
 		)
 	}
 	return rows
@@ -97,8 +98,8 @@ func HexCoverageRows(t resource.Type, cov []HexCoverage) []db.HexMetric {
 	rows := make([]db.HexMetric, 0, 2*len(cov))
 	for _, h := range cov {
 		rows = append(rows,
-			db.HexMetric{HexID: h.HexID, Metric: resource.MetricPavedArea, Subject: s, Value: h.Area},
-			db.HexMetric{HexID: h.HexID, Metric: resource.MetricCoveragePct, Subject: s, Value: h.PctCovered},
+			db.HexMetric{HexID: h.HexID, Metric: metric.PavedArea, Subject: s, Value: h.Area},
+			db.HexMetric{HexID: h.HexID, Metric: metric.PavedShare, Subject: s, Value: h.Share},
 		)
 	}
 	return rows
@@ -134,11 +135,11 @@ func addTotal(totals map[resource.Type]Totals, t resource.Type, m db.CityMetric)
 		return
 	}
 	switch m.Metric {
-	case resource.MetricPavedArea:
+	case metric.PavedArea:
 		tot.Area = m.Value
-	case resource.MetricFeatureCount:
+	case metric.FeatureCount:
 		tot.Features = int(m.Value)
-	case resource.MetricParkingSpaces:
+	case metric.EstimatedSpaces:
 		tot.Spaces = int(m.Value)
 	}
 	totals[t] = tot
@@ -148,7 +149,7 @@ func addTotal(totals map[resource.Type]Totals, t resource.Type, m db.CityMetric)
 // class), restarting the split when the row comes from a newer run than
 // cohortRun[t] and skipping rows of an older one.
 func addCohort(cohorts map[resource.Type][]Cohort, cohortRun map[resource.Type]int64, t resource.Type, m db.CityMetric) {
-	if m.Metric != resource.MetricPavedArea && m.Metric != resource.MetricFeatureCount {
+	if m.Metric != metric.PavedArea && m.Metric != metric.FeatureCount {
 		return
 	}
 	switch run, ok := cohortRun[t]; {
@@ -162,7 +163,7 @@ func addCohort(cohorts map[resource.Type][]Cohort, cohortRun map[resource.Type]i
 		list = append(list, Cohort{Class: m.Class})
 	}
 	c := &list[len(list)-1]
-	if m.Metric == resource.MetricPavedArea {
+	if m.Metric == metric.PavedArea {
 		c.Area = m.Value
 	} else {
 		c.Features = int(m.Value)
@@ -226,28 +227,28 @@ func LoadCohorts(ctx context.Context, s CityMetricLister, t resource.Type) ([]Co
 // LoadHexCoverage reads t's per-hex coverage, ordered by hex id; nil when t
 // has none.
 func LoadHexCoverage(ctx context.Context, s HexMetricLister, t resource.Type) ([]HexCoverage, error) {
-	area, err := s.ListHexMetrics(ctx, resource.MetricPavedArea, subject(t))
+	area, err := s.ListHexMetrics(ctx, metric.PavedArea, subject(t))
 	if err != nil {
 		return nil, err
 	}
-	pct, err := s.ListHexMetrics(ctx, resource.MetricCoveragePct, subject(t))
+	share, err := s.ListHexMetrics(ctx, metric.PavedShare, subject(t))
 	if err != nil {
 		return nil, err
 	}
-	pctByHex := make(map[string]float64, len(pct))
-	for _, m := range pct {
-		pctByHex[m.HexID] = m.Value
+	shareByHex := make(map[string]float64, len(share))
+	for _, m := range share {
+		shareByHex[m.HexID] = m.Value
 	}
 	var out []HexCoverage
 	for _, m := range area {
-		out = append(out, HexCoverage{HexID: m.HexID, Area: m.Value, PctCovered: pctByHex[m.HexID]})
+		out = append(out, HexCoverage{HexID: m.HexID, Area: m.Value, Share: shareByHex[m.HexID]})
 	}
 	return out, nil
 }
 
 // HasHexCoverage reports whether any of types has per-hex coverage.
 func HasHexCoverage(ctx context.Context, s HexMetricLister, types []resource.Type) (bool, error) {
-	return s.HasHexMetric(ctx, resource.MetricPavedArea, subjects(types))
+	return s.HasHexMetric(ctx, metric.PavedArea, subjects(types))
 }
 
 // LoadCohortsByType reads the cohort splits of types in one query. Types

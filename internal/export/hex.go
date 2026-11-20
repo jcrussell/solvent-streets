@@ -10,6 +10,7 @@ import (
 
 	"github.com/jcrussell/solvent-streets/internal/forecast"
 	"github.com/jcrussell/solvent-streets/internal/geo"
+	"github.com/jcrussell/solvent-streets/internal/metric"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/internal/results"
 )
@@ -193,7 +194,7 @@ func aggregateHexStats(ctx context.Context, entry CityEntry) (map[string]*hexAgg
 				// for both scopes: sameCoverage compares the maps exactly, so
 				// asymmetric rounding would silently switch off the city_same
 				// dedup for every parking hex.
-				a.set(res, scope, round2(st.Area), round4(st.PctCovered/100), math.Round(spaces[st.HexID]))
+				a.set(res, scope, round2(st.Area), round4(st.Share), math.Round(spaces[st.HexID]))
 			}
 		}
 	}
@@ -211,7 +212,7 @@ func aggregateHexStats(ctx context.Context, entry CityEntry) (map[string]*hexAgg
 
 // roadDecayRates returns each city-jurisdiction road hex's decay rate keyed by
 // hex ID, for hexgrid's "k". The roads compute stores the blend at no override
-// (resource.MetricDefaultDecayRate, k0 = Σ area_c·rate_c / Σ area_c over the
+// (metric.DefaultDecayRate, k0 = Σ area_c·rate_c / Σ area_c over the
 // hex's classes); an override scales every road class by the same factor
 // (forecast.ClassDecayRate → ScaleRoadDecay: rate·override/anchor), so it
 // scales the blend by that factor too:
@@ -221,7 +222,7 @@ func aggregateHexStats(ctx context.Context, entry CityEntry) (map[string]*hexAgg
 // which keeps k on the rates forecast.json and the seed cohorts use. Rounded to
 // four significant figures, which never flattens a positive rate to zero.
 func roadDecayRates(ctx context.Context, entry CityEntry) (map[string]float64, error) {
-	rows, err := entry.Store.ListHexMetrics(ctx, resource.MetricDefaultDecayRate, resource.Subject(resource.TypeRoads.With(resource.ScopeCity)))
+	rows, err := entry.Store.ListHexMetrics(ctx, metric.DefaultDecayRate, resource.Subject(resource.TypeRoads.With(resource.ScopeCity)))
 	if err != nil {
 		return nil, fmt.Errorf("listing hex road decay rates: %w", err)
 	}
@@ -241,7 +242,7 @@ func roadDecayRates(ctx context.Context, entry CityEntry) (map[string]float64, e
 }
 
 // hexSpaces returns t's per-hex parking spaces keyed by hex ID, read from
-// hex_metrics (resource.MetricParkingSpaces). The parking compute writes its
+// hex_metrics (metric.EstimatedSpaces). The parking compute writes its
 // coverage and its spaces under ONE run, and the snapshot holds one parking
 // run, so the two always describe the same compute. The map is empty, never
 // nil, when t carries no spaces.
@@ -250,7 +251,7 @@ func hexSpaces(ctx context.Context, entry CityEntry, t resource.Type, stats []re
 	if t.Bare() != resource.TypeParking || len(stats) == 0 {
 		return out, nil
 	}
-	rows, err := entry.Store.ListHexMetrics(ctx, resource.MetricParkingSpaces, resource.Subject(t))
+	rows, err := entry.Store.ListHexMetrics(ctx, metric.EstimatedSpaces, resource.Subject(t))
 	if err != nil {
 		return nil, fmt.Errorf("listing hex parking spaces for %s: %w", t, err)
 	}

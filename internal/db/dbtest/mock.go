@@ -96,10 +96,14 @@ func (m *MockStore) ListFeatures(ctx context.Context, rt resource.Type) ([]db.Fe
 }
 
 // SaveCityMetrics delegates to SaveCityMetricsFunc if set, otherwise
-// appends rows to CityMetrics under runID.
+// appends rows to CityMetrics under runID, refusing a key the metric catalog
+// does not store city-wide as the real store does.
 func (m *MockStore) SaveCityMetrics(ctx context.Context, runID int64, rows []db.CityMetric) error {
 	if m.SaveCityMetricsFunc != nil {
 		return m.SaveCityMetricsFunc(ctx, runID, rows)
+	}
+	if err := db.CheckCityMetrics(rows); err != nil {
+		return err
 	}
 	for _, r := range rows {
 		r.RunID = runID
@@ -128,10 +132,14 @@ func (m *MockStore) ListCityMetrics(ctx context.Context, subjects []string) ([]d
 }
 
 // SaveHexMetrics delegates to SaveHexMetricsFunc if set, otherwise appends
-// rows to HexMetrics under runID.
+// rows to HexMetrics under runID, refusing a key the metric catalog does not
+// store per hex as the real store does.
 func (m *MockStore) SaveHexMetrics(ctx context.Context, runID int64, rows []db.HexMetric) error {
 	if m.SaveHexMetricsFunc != nil {
 		return m.SaveHexMetricsFunc(ctx, runID, rows)
+	}
+	if err := db.CheckHexMetrics(rows); err != nil {
+		return err
 	}
 	for _, r := range rows {
 		r.RunID = runID

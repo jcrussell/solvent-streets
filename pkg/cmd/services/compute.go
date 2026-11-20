@@ -10,6 +10,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/geo"
+	"github.com/jcrussell/solvent-streets/internal/metric"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/internal/services"
 	"github.com/jcrussell/solvent-streets/internal/tui"
@@ -415,7 +416,7 @@ func saveRunContext(ctx context.Context, store db.Store, runID int64, spec servi
 		return fmt.Errorf("save facilities: %w", err)
 	}
 	if err := store.SaveCityMetrics(ctx, runID, []db.CityMetric{
-		{Metric: services.MetricTurnoutS, Subject: Producer(spec.Name), Value: spec.TurnoutS},
+		{Metric: metric.TurnoutS, Subject: Producer(spec.Name), Value: spec.TurnoutS},
 	}); err != nil {
 		return fmt.Errorf("save turnout: %w", err)
 	}
