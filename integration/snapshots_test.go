@@ -82,7 +82,7 @@ func TestSnapshots_LatestComputeSwapsOnlyItsPart(t *testing.T) {
 		t.Errorf("parts after roads compute = %v, want the same set as %v", second, first)
 	}
 	if got := hexMetricCount(t, store, "fire_response_s"); got != fireRows {
-		t.Errorf("fire coverage after a roads recompute = %d hexes, want the same %d (it used to vanish)", got, fireRows)
+		t.Errorf("fire coverage after a roads recompute = %d hexes, want the same %d", got, fireRows)
 	}
 
 	// 3. No stations left: the fire part is dropped, nothing else moves.

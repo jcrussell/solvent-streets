@@ -19,9 +19,9 @@ func growthRateOf(t *testing.T, cfg *Config, slug string) float64 {
 // TestGrowthRate_ExplicitPerCityZeroOverridesTopLevel:
 // growth_rate is the only forecast field where 0 is a value rather than an
 // unset sentinel: "this city's network does not grow" is a real statement, and
-// it has to beat a positive top-level rate. applyCityForecastProv used to guard
-// on `ov.GrowthRate != 0`, so the explicit zero was indistinguishable from an
-// absent field and the city silently inherited 0.02.
+// it has to beat a positive top-level rate. A guard on `ov.GrowthRate != 0` in
+// applyCityForecastProv could not tell the explicit zero from an absent field,
+// and the city would silently inherit 0.02.
 func TestGrowthRate_ExplicitPerCityZeroOverridesTopLevel(t *testing.T) {
 	dir := t.TempDir()
 	path := writeTOML(t, dir, "pvmt.toml", `
@@ -60,12 +60,11 @@ growth_rate = -0.01
 	}
 }
 
-// TestGrowthRate_ExplicitZeroSurvivesIncludeFlatten covers the second half of
-// r312, which is where the value was actually being erased. mergeIncludedCities
-// flattens each child city's calibration through effectiveForecast, and
-// forecastIsZero discarded any block whose fields were all zero — so a city
-// whose only override was `growth_rate = 0` had that override dropped at merge
-// time and inherited the PARENT's rate instead.
+// TestGrowthRate_ExplicitZeroSurvivesIncludeFlatten: mergeIncludedCities
+// flattens each child city's calibration through effectiveForecast, and a
+// forecastIsZero that discarded any block whose fields were all zero would
+// drop a city's only override, `growth_rate = 0`, at merge time, leaving it
+// the PARENT's rate instead.
 func TestGrowthRate_ExplicitZeroSurvivesIncludeFlatten(t *testing.T) {
 	dir := t.TempDir()
 	writeTOML(t, dir, "metro/pvmt.toml", `
@@ -277,8 +276,8 @@ growth_rate = 0.0
 // both declares [[include]] and states its own top-level [forecast], because
 // the merge would silently re-calibrate every included city. It asks
 // forecastIsZero, which only sees an explicit `growth_rate = 0` through the
-// presence bit — and parseConfig used to set that bit AFTER validating, so the
-// bit was always false at gate time.
+// presence bit, so parseConfig must set that bit BEFORE validating or it is
+// always false at gate time.
 //
 // The root config was still caught by the post-merge Validate, but an
 // INTERMEDIATE parent (included by the root, and itself including a child) is

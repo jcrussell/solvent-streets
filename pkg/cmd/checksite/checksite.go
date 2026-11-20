@@ -199,7 +199,7 @@ func runCheckSite(ctx context.Context, opts *Options) error {
 
 	// The checks are CPU/IO bound and run sequentially; interleave a
 	// cancellation probe so a SIGINT aborts promptly instead of grinding
-	// through every remaining check (finding 881e).
+	// through every remaining check.
 	checks := []func(*site){
 		r.checkStructure,
 		r.checkReferences,
@@ -225,7 +225,7 @@ func runCheckSite(ctx context.Context, opts *Options) error {
 			// process.
 			//
 			// With nothing recorded there is no verdict to report, so a clean
-			// interrupt stays quiet (finding 881e) — but it is still an
+			// interrupt stays quiet — but it is still an
 			// interrupt, so the bare ctx error is returned and exitCode maps it
 			// to 1 — never 0, or `pvmt check-site && deploy` would publish a
 			// site whose remaining checks never ran.

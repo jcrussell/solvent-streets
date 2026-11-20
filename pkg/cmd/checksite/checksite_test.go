@@ -72,7 +72,7 @@ func TestCheckSite_ValidSite(t *testing.T) {
 	}
 }
 
-// TestCheckSite_CanceledContext pins finding 881e: a canceled context must
+// TestCheckSite_CanceledContext: a canceled context must
 // abort the check run promptly (before finish) and return the cancellation
 // error, instead of grinding through every check with ctx ignored.
 func TestCheckSite_CanceledContext(t *testing.T) {
@@ -737,8 +737,8 @@ func TestCheckSite_CompletedRunHasNoInterruptLine(t *testing.T) {
 	}
 }
 
-// TestCheckSite_InterruptedWithNoFailuresStaysQuiet is the companion guard for
-// finding 881e: with nothing recorded there is no verdict to report, so a clean
+// TestCheckSite_InterruptedWithNoFailuresStaysQuiet is the companion guard to
+// TestCheckSite_CanceledContext: with nothing recorded there is no verdict to report, so a clean
 // interrupt must abort quietly rather than printing a summary for checks that
 // never ran. Quiet, but not successful — the bare context.Canceled it returns
 // now maps to exit 1, so `check-site && deploy` cannot publish a site whose

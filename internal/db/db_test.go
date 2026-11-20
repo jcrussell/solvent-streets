@@ -610,7 +610,7 @@ func TestForeignKeyEnforcement(t *testing.T) {
 	}
 }
 
-// TestOpenDSN pins the itpe fix: the sqlite DSN is built by appending a
+// TestOpenDSN: the sqlite DSN is built by appending a
 // pragma query string to the path, so a path already containing '?' would
 // corrupt that query string and silently drop the WAL/busy_timeout/
 // foreign_keys pragmas. Open must reject such a path, and for a clean path

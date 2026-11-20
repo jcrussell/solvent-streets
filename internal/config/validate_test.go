@@ -518,7 +518,7 @@ func TestConfig_Validate_MinHexArea_RejectsNegative(t *testing.T) {
 }
 
 // TestConfig_Validate_PerCityMinHexArea_RejectsNegative mirrors the top-level
-// check for the per-city override (l51o): ResolvedMinHexArea guards on `> 0`,
+// check for the per-city override: ResolvedMinHexArea guards on `> 0`,
 // so a negative literal would silently fall through to the top-level value and
 // discard the threshold the author wrote. 0 is allowed — it means "inherit".
 func TestConfig_Validate_PerCityMinHexArea_RejectsNegative(t *testing.T) {
@@ -544,7 +544,7 @@ func TestConfig_Validate_PerCityMinHexArea_RejectsNegative(t *testing.T) {
 	}
 }
 
-// TestConfig_ResolvedMinHexArea pins the per-city resolution chain (l51o):
+// TestConfig_ResolvedMinHexArea pins the per-city resolution chain:
 // per-city override > top-level [display] > DefaultMinHexArea, with a nil city
 // treated as "no override". Mirrors ResolvedHexEdge, to which the threshold is
 // coupled.
@@ -571,10 +571,10 @@ func TestConfig_ResolvedMinHexArea(t *testing.T) {
 	}
 }
 
-// TestConfig_Validate_CoordinateDecimals locks in itca: a negative or absurdly
-// large export.coordinate_decimals is rejected up front rather than silently
-// falling back to DefaultCoordinateDecimals (a negative literal used to load
-// clean and lose the intended precision). 0 means "use the default" and passes.
+// TestConfig_Validate_CoordinateDecimals: a negative or absurdly large
+// export.coordinate_decimals is rejected up front rather than silently
+// falling back to DefaultCoordinateDecimals and losing the intended
+// precision. 0 means "use the default" and passes.
 func TestConfig_Validate_CoordinateDecimals(t *testing.T) {
 	city := []CityConfig{{Name: "Oakland", Overpass: true}}
 
@@ -601,7 +601,7 @@ func TestConfig_Validate_CoordinateDecimals(t *testing.T) {
 	}
 }
 
-// TestConfig_Validate_DataSource locks in f7l7: a city with neither overpass
+// TestConfig_Validate_DataSource: a city with neither overpass
 // nor an arcgis_url has no data source and would silently produce an empty
 // dataset, so it is rejected (chaining ErrInvalidConfig). A city with either
 // source — or both — is accepted.

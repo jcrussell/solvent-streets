@@ -516,11 +516,11 @@ func (q *ArcGISQuery) confirmRepeatedPageIsComplete(ctx context.Context, client 
 // applied our resultRecordCount — and a layer that ignores resultRecordCount
 // ignores resultOffset too (supportsPagination:false / pre-10.3), which is why
 // its pages repeat. Our cap therefore cannot be the binding limit; only the
-// server's can. Comparing against it anyway reported pageTruncated for a layer
-// we had read completely, and Fetch refused to store it: a layer with
-// maxRecordCount 10000 holding 6000 rows served all 6000 in one page, repeated
-// them on page 2, and then hard-errored. Fails safe (stored rows survive), but
-// it is a false refusal on data we hold in full.
+// server's can. Comparing against it anyway would report pageTruncated for a
+// layer read completely, and Fetch would refuse to store it: a layer with
+// maxRecordCount 10000 holding 6000 rows serves all 6000 in one page, repeats
+// them on page 2, and would then hard-error. That fails safe (stored rows
+// survive), but it is a false refusal on data held in full.
 //
 // Known, accepted false positive: a layer holding exactly the effective cap in
 // rows, on an offset-ignoring server, errors despite being complete. At exactly

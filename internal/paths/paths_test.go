@@ -49,7 +49,7 @@ func TestResolveNoMkdir(t *testing.T) {
 	}
 }
 
-// TestResolveRejectsUnsafeToolName pins odsq: Resolve validates toolName so
+// TestResolveRejectsUnsafeToolName: Resolve validates toolName so
 // the join onto the per-OS base cannot escape it.
 func TestResolveRejectsUnsafeToolName(t *testing.T) {
 	cases := []struct {
@@ -129,7 +129,7 @@ func TestResolveIgnoresRelativeXDG(t *testing.T) {
 
 // TestResolveRejectsRelativeHome: os.UserHomeDir
 // returns $HOME verbatim on Unix and errors only when it is empty, so a
-// relative $HOME used to yield a cwd-relative Paths.State / Paths.Data (and
+// relative $HOME would yield a cwd-relative Paths.State / Paths.Data (and
 // Config / Cache, via the stdlib resolvers) with no error. Unlike a relative
 // XDG var there is no fallback to ignore it into, so Resolve must error.
 func TestResolveRejectsRelativeHome(t *testing.T) {

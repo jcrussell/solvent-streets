@@ -44,8 +44,8 @@ func TestPavement_BufferFeatures_LineString(t *testing.T) {
 }
 
 func TestPavement_BufferFeatures_MultiLineString(t *testing.T) {
-	// ArcGIS f=geojson emits MultiLineString for multi-part centerlines; these
-	// were previously dropped silently. Two disjoint parts buffer to one merged
+	// ArcGIS f=geojson emits MultiLineString for multi-part centerlines, and
+	// they must not be dropped. Two disjoint parts buffer to one merged
 	// corridor with positive area.
 	features := []Feature{
 		{

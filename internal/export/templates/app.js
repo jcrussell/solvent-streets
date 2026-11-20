@@ -5115,7 +5115,7 @@
                 // this, a null/undefined value yields NaN sort keys and bar
                 // widths that corrupt the whole category.
                 // A city missing a layer the metric reads is listed below the
-                // ranking as n/a instead of ranked on a zero (56r1).
+                // ranking as n/a instead of ranked on a zero.
                 var lacks = function(m) { return (cat.needs || []).filter(function(rt) { return m.unranked.includes(rt); }); };
                 var unavailable = allMetrics.filter(function(m) { return lacks(m).length > 0; });
                 var pool = allMetrics.filter(function(m) { return lacks(m).length === 0 && (!cat.filter || cat.filter(m)); });

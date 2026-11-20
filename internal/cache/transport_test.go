@@ -391,7 +391,7 @@ func TestWriteCache_MetaNotWrittenWhenBodyFails(t *testing.T) {
 	}
 }
 
-// TestCachingTransport_MultiValuedHeaderRoundTrip pins 69vw: a response
+// TestCachingTransport_MultiValuedHeaderRoundTrip: a response
 // with repeated headers (Set-Cookie, Vary) must round-trip through the
 // disk cache with every value preserved, not collapsed to one.
 func TestCachingTransport_MultiValuedHeaderRoundTrip(t *testing.T) {
@@ -435,9 +435,9 @@ func TestCachingTransport_MultiValuedHeaderRoundTrip(t *testing.T) {
 	}
 }
 
-// TestCachingTransport_BypassSkipsCacheRead pins jk9e: a --force (WithBypass)
+// TestCachingTransport_BypassSkipsCacheRead: a --force (WithBypass)
 // request must not read the cache at all. We seed a corrupt entry that
-// readCache would delete (b136); under bypass readCache is never called, so
+// readCache would delete; under bypass readCache is never called, so
 // the corrupt files survive. Origin returns 500 so writeCache does not
 // recreate them, making the "never read" behavior observable.
 func TestCachingTransport_BypassSkipsCacheRead(t *testing.T) {
@@ -479,7 +479,7 @@ func TestCachingTransport_BypassSkipsCacheRead(t *testing.T) {
 	}
 }
 
-// TestReadCache_RemovesCorruptEntry pins b136 (partial): readCache deletes a
+// TestReadCache_RemovesCorruptEntry: readCache deletes a
 // meta/body pair whose meta fails to unmarshal, best-effort.
 func TestReadCache_RemovesCorruptEntry(t *testing.T) {
 	dir := t.TempDir()

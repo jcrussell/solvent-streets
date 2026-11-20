@@ -175,7 +175,7 @@ func TestInsolvencyYear_DiscriminatesUnderfunding(t *testing.T) {
 
 // TestSimulate_CycleOne_MatchesLegacy is the back-compat guard: at N=1 the gating
 // factor is 1, so the year-1 do-nothing need equals the full-network retreatment
-// cost computed directly — the pre-gating behavior.
+// cost computed directly, as if there were no gating.
 func TestSimulate_CycleOne_MatchesLegacy(t *testing.T) {
 	const initialPCI, decay, growth = 70.0, 0.05, 0.01
 	p := NewParams(growth, nil, 1, 1)

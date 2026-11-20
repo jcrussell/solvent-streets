@@ -103,8 +103,8 @@ test('scenarios without material quantities ask for a fresh export', async () =>
 
 // The intensity table shows each tier's per-1000 m2 figures as the seed
 // carries them under metric display, and converts them under imperial: the
-// fixture page is imperial, and the table used to stay in kg/m2 there while
-// every other figure on the tab switched.
+// fixture page is imperial, so a table left in kg/m2 would disagree with
+// every other figure on the tab.
 test('the tier table reads its figures from the seed in the display units', async () => {
   const { win, $, $$, flush } = await ready();
   const headers = () => $$('#materials-tier-table thead th').map((th) => th.textContent);

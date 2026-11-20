@@ -13,8 +13,8 @@ import (
 // an index over only that label's geoms, run ComputeHexStats over the full
 // grid, and set areas[label] = sum. Crucially it assigns areas[label] for
 // EVERY distinct label, so a label whose geoms cover no hex yields a 0.0 key
-// rather than being absent — exactly what the old loop did by keying off every
-// class in classGeoms. This is the reference the single-pass
+// rather than being absent, as keying off every class in classGeoms does.
+// This is the reference the single-pass
 // ComputeHexCoverageByGroup must match exactly, including the zero keys.
 func computeByGroupPerClass(t *testing.T, hexes []Hex, geoms []geom.Geometry, labels []string) map[string]float64 {
 	t.Helper()
@@ -31,7 +31,7 @@ func computeByGroupPerClass(t *testing.T, hexes []Hex, geoms []geom.Geometry, la
 			sum += s.Area
 		}
 		// Set unconditionally (even sum == 0) so the reference key set is "one
-		// key per distinct label", matching the old ComputeRoadCohortAreas.
+		// key per distinct label", as ComputeRoadCohortAreas reports.
 		areas[label] = sum
 	}
 	return areas
@@ -55,7 +55,7 @@ func assertMapEqual(t *testing.T, got, want map[string]float64) {
 }
 
 // TestComputeHexCoverageByGroup_EqualsPerClass proves the single-pass cohort
-// computation is EXACTLY equivalent to the old per-class approach (one index +
+// computation is EXACTLY equivalent to the per-class approach (one index +
 // ComputeHexStats per class). The fixture deliberately includes:
 //   - same-class overlap inside hexes: two "residential" features overlap, so
 //     the shared area must be dedup'd and counted once for residential.

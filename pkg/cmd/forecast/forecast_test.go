@@ -215,10 +215,9 @@ func TestRenderBaselineTable_AreaPctSumsTo100UnderGrowth(t *testing.T) {
 	}
 }
 
-// TestRunForecast_StaleSnapshotsSayWhy: a city
-// computed only under other settings used to print "no compute results for
-// roads, skipping" once per resource and exit 3 with no hint why. Now it says
-// once, with export's wording, and still exits 3 (ErrNoResults).
+// TestRunForecast_StaleSnapshotsSayWhy: a city computed only under other
+// settings says why once, with export's wording, rather than "no compute
+// results for roads, skipping" per resource, and exits 3 (ErrNoResults).
 func TestRunForecast_StaleSnapshotsSayWhy(t *testing.T) {
 	ios, _, _, stderr := iostreams.Test()
 	cfg := &config.Config{}

@@ -433,8 +433,8 @@ func TestBuildCohorts_WithOverride(t *testing.T) {
 	if len(cohorts) != 2 {
 		t.Fatalf("expected 2 cohorts, got %d", len(cohorts))
 	}
-	// The override scales each class's default proportionally (it no longer
-	// flattens every class to one rate), so the per-class ordering is preserved.
+	// The override scales each class's default proportionally rather than
+	// flattening every class to one rate, so the per-class ordering is preserved.
 	for _, c := range cohorts {
 		want := ScaleRoadDecay(DefaultDecayRates[c.Classification], 0.05)
 		if c.DecayRate != want {

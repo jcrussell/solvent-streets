@@ -915,8 +915,8 @@ func failingWaterFetcher(_ context.Context, _ *http.Client, _ [4]float64, _ inge
 
 // TestStripWaterFromBoundary_FetchErrorIsHard: a
 // failed water fetch is an ErrWaterFetch error, not a soft warn. Falling
-// back used to save the unstripped boundary, which every later ingest then
-// reused, so one Overpass hiccup left open water in the city's area.
+// back would save the unstripped boundary, which every later ingest reuses,
+// so one Overpass hiccup would leave open water in the city's area.
 func TestStripWaterFromBoundary_FetchErrorIsHard(t *testing.T) {
 	boundary := `{"type":"Polygon","coordinates":[[[-71.06,42.36],[-71.05,42.36],[-71.05,42.37],[-71.06,42.37],[-71.06,42.36]]]}`
 
@@ -1011,11 +1011,11 @@ func TestStripWaterFromBoundary_NoWaterIsNoOp(t *testing.T) {
 }
 
 // TestResolveSources_DisabledSourceExplainsItself:
-// `--source overpass` on a city with overpass unset used to fail with
-// `resolving source "overpass": unknown source: overpass`, because
-// SourceByName builds AllSources and reports "unknown" when nothing matches.
-// But "overpass" IS a valid --source value (the --source flag rejects
-// anything else before this point), so the user typed nothing wrong — their
+// `--source overpass` on a city with overpass unset must not fail with
+// `resolving source "overpass": unknown source: overpass` (SourceByName
+// reports "unknown" when nothing matches). "overpass" IS a valid --source
+// value (the --source flag rejects anything else before this point), so the
+// user typed nothing wrong — their
 // config disagrees with their flag, and "unknown source" sends them hunting for
 // a typo.
 func TestResolveSources_DisabledSourceExplainsItself(t *testing.T) {
@@ -1213,8 +1213,8 @@ func TestResolveSources_OwnSourcedTakesItsOwnSource(t *testing.T) {
 
 // TestReplaceScope: only a --source all run whose
 // every source succeeded replaces the whole resource. A single-source run on
-// a city that also uses another source used to wipe that source's rows (all
-// 9,992 Livermore OSM ways on `pvmt roads ingest --source arcgis`).
+// a city that also uses another source keeps that source's rows (all 9,992
+// Livermore OSM ways on `pvmt roads ingest --source arcgis`).
 func TestReplaceScope(t *testing.T) {
 	tests := []struct {
 		name      string

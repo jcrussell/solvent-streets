@@ -218,7 +218,7 @@ func TestForEachCity(t *testing.T) {
 	})
 }
 
-// TestCityOverride_AmbiguousMatch pins finding 79hj: when two or more
+// TestCityOverride_AmbiguousMatch: when two or more
 // [[cities]] resolve to the same slug/name, `--city X` must fail with a clear
 // ambiguity error rather than silently operating on the first match. A unique
 // match still resolves, and an unknown value still reports "not found".
@@ -278,9 +278,9 @@ func TestCityOverride_AmbiguousMatch(t *testing.T) {
 // TestResolveConfigID pins the contract that the helper returns
 // cfg.ConfigID, not cfg.SourcePath. This is load-bearing because every
 // `pvmt all|status|snapshots` subcommand uses ResolveConfigID to key
-// the cities table; keying on SourcePath would leak $HOME paths into the DB and broke
-// gensite/pvmt-all collation. A regression to SourcePath would
-// reintroduce the kevc symptom without breaking any other test.
+// the cities table; keying on SourcePath would leak $HOME paths into the DB
+// and break gensite/pvmt-all collation, and would split one city's rows
+// across path spellings without breaking any other test.
 func TestResolveConfigID(t *testing.T) {
 	t.Run("returns ConfigID not SourcePath", func(t *testing.T) {
 		cfg := &config.Config{

@@ -440,7 +440,7 @@ func TestHttpClient_RedirectToPrivateBlockedEndToEnd(t *testing.T) {
 	}
 }
 
-// TestRootDBWithClose_ClosesOnlyIfOpened pins finding 9tsq: the shutdown
+// TestRootDBWithClose_ClosesOnlyIfOpened: the shutdown
 // close func must (a) be a no-op when the DB was never opened — so DB-free
 // commands don't create/close the database — and (b) actually close the
 // underlying handle when RootDB was opened during the run.
@@ -499,7 +499,7 @@ func newTestFactoryForHTTP(t *testing.T) *cmdutil.Factory {
 }
 
 // TestConfigFactory_EmitsLoadWarningsOnce covers the visible half of the
-// [[include]] merge (vf6m): internal/config has no IOStreams, so it records
+// [[include]] merge: internal/config has no IOStreams, so it records
 // its non-fatal notices on the Config and the lazy Config closure prints them.
 // Emitting from here rather than from a PersistentPreRunE middleware is what
 // keeps them lazy and scoped — see configFactory — so this test pins all three

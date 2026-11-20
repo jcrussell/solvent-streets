@@ -97,7 +97,7 @@ func TestBuildHexMetrics_MarkersAndLegendFromTheRun(t *testing.T) {
 	}
 }
 
-// TestBuildHexMetrics_SourceStatesTheRunsTurnout is the znqw regression: the
+// TestBuildHexMetrics_SourceStatesTheRunsTurnout: the
 // published methodology line names the turnout the run's times include, not
 // the registry's NFPA 1710 80 s, when [[services]] turnout_s overrode it.
 func TestBuildHexMetrics_SourceStatesTheRunsTurnout(t *testing.T) {

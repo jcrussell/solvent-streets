@@ -31,7 +31,7 @@ type Server struct {
 
 	// indexTemplate and gameTemplate lazily parse the (embedded, deterministic)
 	// page templates once for the server's lifetime. Templates do not depend
-	// on the unit system — display units are a client-side preference (frlu) —
+	// on the unit system — display units are a client-side preference —
 	// so a single cached parse per page suffices.
 	indexTemplate func() (*template.Template, error)
 	gameTemplate  func() (*template.Template, error)

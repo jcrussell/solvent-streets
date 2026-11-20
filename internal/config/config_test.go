@@ -431,8 +431,7 @@ overpass = true
 	}
 }
 
-// TestLoad_ConfigIDStableAcrossPathSpellings is the kevc regression
-// guard: the same file loaded via an absolute path and via a relative
+// TestLoad_ConfigIDStableAcrossPathSpellings: the same file loaded via an absolute path and via a relative
 // path (different cwd) must produce the same ConfigID, since both
 // callers should reach the same cities row.
 func TestLoad_ConfigIDStableAcrossPathSpellings(t *testing.T) {

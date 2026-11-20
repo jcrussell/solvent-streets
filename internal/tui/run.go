@@ -38,7 +38,7 @@ func Run(ctx context.Context, label string, steps []Step, done DoneConfig, workF
 	// raw mode) and returns a non-nil error from p.Run() instead of leaving
 	// the terminal wedged. WithoutCatchPanics would skip that cleanup. The
 	// worker goroutine keeps its own recover (it runs outside the loop, so
-	// Bubbletea's recovery does not cover it). (am3l)
+	// Bubbletea's recovery does not cover it).
 	p := tea.NewProgram(model)
 
 	writer := NewProgressWriter(p)

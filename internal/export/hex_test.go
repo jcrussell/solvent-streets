@@ -156,7 +156,7 @@ func TestFilterHexSlivers_DropsBelowThreshold(t *testing.T) {
 	}
 }
 
-// TestCityHexGrid_HonorsPerCityMinHexArea pins l51o's runtime half: the shared
+// TestCityHexGrid_HonorsPerCityMinHexArea pins the per-city min_hex_area's runtime half: the shared
 // grid resolves the sliver threshold per city (Config.ResolvedMinHexArea), not
 // from the top level alone, so a city that tuned min_hex_area alongside its hex
 // edge actually gets its threshold. The /play board draws the same
@@ -687,7 +687,7 @@ func TestSharedClip_MatchesUnconditionalOverlay(t *testing.T) {
 		projectedLonLatSquare(t, proj, "inside-hole", -122.45, 37.55, -122.448, 37.552),   // drop (disjoint)
 	}
 
-	// Reference: the pre-optimization behavior — unconditional overlay per hex.
+	// Reference: an unconditional overlay per hex.
 	boundaryGeom, _, err := geo.GeoJSONToProjectedGeometry(boundaryWithHole, proj)
 	if err != nil {
 		t.Fatalf("project boundary: %v", err)

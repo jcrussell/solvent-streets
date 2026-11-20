@@ -269,7 +269,7 @@ func classifyWaterElement(ctx context.Context, e overpassElement, bboxArea float
 // fraction cap adds nothing here and actively misfires for cities whose
 // admin boundary extends into open water: their query bbox is mostly water,
 // so the legitimate bay ring exceeds the cap and gets wrongly rejected
-// (Foster City's SF Bay ring, 85.6% of a bay-dominated bbox — bd-86aa). The
+// (Foster City's SF Bay ring, 85.6% of a bay-dominated bbox). The
 // downstream clip-to-boundary (geo.SubtractGeoJSON) and the aggregate
 // waterStripMinAreaRatio backstop guard against any over-subtraction.
 func closeAndAcceptCoastline(ctx context.Context, chainIdx int, chain [][2]float64, bbox [4]float64, bboxArea float64, probes *landProbeIndex) (polys []waterPolygon, fracSum float64) {
@@ -372,8 +372,8 @@ const (
 // already validated by land probes + CW orientation in closeCoastlineChain
 // (see closeAndAcceptCoastline). The cap would misfire there for cities
 // whose admin boundary extends into open water — Foster City's bbox is
-// ~85% San Francisco Bay, so its legitimate bay ring (85.6% of bbox) was
-// wrongly rejected by this cap until bd-86aa. The lesson: a city's query
+// ~85% San Francisco Bay, so its legitimate bay ring (85.6% of bbox) would
+// be wrongly rejected by a tighter cap. A city's query
 // bbox is NOT always land-scale; a boundary reaching into a bay or ocean
 // produces a legitimate near-bbox-sized water ring. Tune alongside
 // waterStripMinAreaRatio (pkg/cmd/ingest/ingest.go) since both gate the

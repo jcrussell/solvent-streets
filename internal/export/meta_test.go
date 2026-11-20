@@ -50,7 +50,7 @@ func newMockEntry(totals map[resource.Type]results.Totals) CityEntry {
 	}
 }
 
-// TestBuildMeta_PrefersCombinedOverSum is the cx2 regression: when the
+// TestBuildMeta_PrefersCombinedOverSum: when the
 // "combined" totals exist, BuildMeta must use it for total_paved
 // instead of the (overcounted) sum of per-resource rows.
 func TestBuildMeta_PrefersCombinedOverSum(t *testing.T) {
@@ -78,7 +78,7 @@ func TestBuildMeta_PrefersCombinedOverSum(t *testing.T) {
 	}
 }
 
-// TestBuildMultiCityMeta_AggregatesAcrossEntries is the dul regression: the
+// TestBuildMultiCityMeta_AggregatesAcrossEntries: the
 // multi-city landing must not silently render the first sub-city's totals as
 // the regional headline. Per-resource Stats and TotalPaved must sum across
 // entries; CityArea must be the union of sub-city boundaries.
@@ -195,11 +195,10 @@ func newMockEntryWithBoundary(totals map[resource.Type]results.Totals, boundary 
 	}
 }
 
-// TestBuildMeta_FallsBackToSumWhenCombinedMissing covers the transitional
-// state where `pvmt all compute` has not yet been re-run after the cx2 fix
-// landed: BuildMeta must still produce a non-zero total_paved by summing
-// per-resource rows. The sum overcounts buffer overlap (the original bug),
-// but reporting zero would be worse.
+// TestBuildMeta_FallsBackToSumWhenCombinedMissing: with no combined totals
+// stored, BuildMeta still produces a non-zero total_paved by summing
+// per-resource rows. The sum overcounts buffer overlap, but reporting zero
+// would be worse.
 func TestBuildMeta_FallsBackToSumWhenCombinedMissing(t *testing.T) {
 	totals := map[resource.Type]results.Totals{
 		mtRoads:     {Area: 1000},
@@ -585,7 +584,7 @@ const degenerateBoundaryGeoJSON = `{"type":"MultiPolygon","coordinates":[` +
 	`[[[-121.77,37.68],[-121.76,37.68],[-121.76,37.69],[-121.77,37.69],[-121.77,37.68]]],` +
 	`[[[-121.50,37.50],[-121.50,37.50],[-121.50,37.50],[-121.50,37.50]]]]}`
 
-// TestBoundaryArea_DegenerateWarningNamesCity is the v8q4 regression: the
+// TestBoundaryArea_DegenerateWarningNamesCity: the
 // export-side "dropped degenerate sub-polygons" warning must say which city
 // it is about, for a single-city meta and for each sub-city of a multi-city
 // sum, or an operator cannot tell which source to fix.

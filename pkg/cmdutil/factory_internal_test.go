@@ -11,8 +11,8 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
 )
 
-// TestStoreCache_BuildsOncePerKey pins the memoization primitive behind finding
-// xygq: get runs the build func at most once per key, so a second CityDB() call
+// TestStoreCache_BuildsOncePerKey pins the memoization primitive behind
+// Factory.cityStores: get runs the build func at most once per key, so a second CityDB() call
 // (which routes through this cache) never re-runs EnsureCity. Distinct keys get
 // distinct builds, and a build error is not cached (retryable).
 func TestStoreCache_BuildsOncePerKey(t *testing.T) {
@@ -56,7 +56,7 @@ func TestStoreCache_BuildsOncePerKey(t *testing.T) {
 	})
 }
 
-// TestWithCity_MemoizesStore pins the withCity end of finding xygq: repeated
+// TestWithCity_MemoizesStore pins the withCity end of the store memo: repeated
 // CityDB() calls on a city-scoped factory copy return the SAME store without
 // re-running the EnsureCity + ForCity + WithLatestCompute chain. Without the memo
 // each call rebuilds a fresh *sqliteStore (WithLatestCompute copies), so identity

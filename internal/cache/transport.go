@@ -108,7 +108,7 @@ func (t *CachingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	// Two things suppress the read entirely: TTL=0 (cache fully disabled)
 	// and a per-request --force bypass (cache.WithBypass). Checking bypass
 	// BEFORE readCache means --force never pays the disk read + unmarshal
-	// only to discard the result (jk9e). Leaving haveCache false also
+	// only to discard the result. Leaving haveCache false also
 	// disables the conditional-request / 304 path below, which would
 	// otherwise re-serve the old body; the fresh response is still written
 	// back to the cache.
@@ -322,8 +322,8 @@ func (t *CachingTransport) readCache(metaPath, bodyPath string) (*entryMeta, []b
 	if err := json.Unmarshal(metaData, &meta); err != nil {
 		// Corrupt meta: the entry can never be served, so drop the whole
 		// (meta, body) pair best-effort rather than letting it wedge this
-		// key until manual cache clear. This is deliberately narrow — no
-		// size/age eviction, which is deferred (b136 partial).
+		// key until manual cache clear. This is deliberately narrow — size
+		// and age eviction are `pvmt cache prune`'s.
 		_ = os.Remove(metaPath)
 		_ = os.Remove(bodyPath)
 		return nil, nil, false

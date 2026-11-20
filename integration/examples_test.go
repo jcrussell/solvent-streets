@@ -23,11 +23,9 @@ var externalExampleConsumers = map[string]string{
 // examples/ must survive config.Load, so a validation rule that outdates a
 // shipped config fails on the PR that adds the rule.
 //
-// The rule from f7l7 (a city needs overpass = true or an arcgis_url) landed
-// without touching the release workflow's own hand-rolled pvmt.toml, and
-// because the smoke job only runs on tag push, nothing noticed for three
-// months. The smoke job now runs against examples/livermore-ca and this test
-// covers it — along with every other example, which had no test at all.
+// The release smoke job runs against examples/livermore-ca, and only on tag
+// push, so a validation rule that broke it would go unnoticed until a
+// release. This test loads it, along with every other example, on every PR.
 //
 // Load, not LoadFS: examples/all is built entirely from [[include]], which
 // LoadFS rejects outright, so going through Load also catches a broken or

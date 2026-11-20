@@ -401,7 +401,7 @@ func TestFetch_MetadataRequestPreservesEndpointQueryString(t *testing.T) {
 }
 
 // TestFetch_HealthyPaginationSkipsLayerMetadata pins the laziness that makes
-// the ofbo check free: a server that terminates normally — via the flag or an
+// the repeated-page check free: a server that terminates normally — via the flag or an
 // empty page — never reaches the repeated-page arm, so it must never pay for
 // the extra metadata request.
 func TestFetch_HealthyPaginationSkipsLayerMetadata(t *testing.T) {
@@ -442,11 +442,10 @@ func TestFetch_HealthyPaginationSkipsLayerMetadata(t *testing.T) {
 	}
 }
 
-// TestFetch_PaginationExceededTransferLimit pins the fix for the truncation
-// bug: ArcGIS servers clamp each response to their own maxRecordCount, which
+// TestFetch_PaginationExceededTransferLimit: ArcGIS servers clamp each response to their own maxRecordCount, which
 // can be below our requested arcgisMaxRecords. Pages here are far smaller than
-// arcgisMaxRecords, so the old "short page == last page" heuristic would have
-// stopped after page 1. Paging must instead follow exceededTransferLimit.
+// arcgisMaxRecords, so a "short page == last page" heuristic would stop after
+// page 1. Paging must instead follow exceededTransferLimit.
 func TestFetch_PaginationExceededTransferLimit(t *testing.T) {
 	const pageSize = 100 // well under arcgisMaxRecords
 	const lastPageSize = 50
@@ -783,7 +782,7 @@ func TestFetch_RefusesLoopback(t *testing.T) {
 }
 
 // TestFetch_AllowPrivateOptIn confirms the override path: with
-// AllowPrivate=true, a loopback URL is no longer refused at the SSRF
+// AllowPrivate=true, a loopback URL is not refused at the SSRF
 // layer (and reaches the real fetch, which here returns a valid empty
 // FeatureCollection).
 func TestFetch_AllowPrivateOptIn(t *testing.T) {
@@ -804,7 +803,7 @@ func TestFetch_AllowPrivateOptIn(t *testing.T) {
 	}
 }
 
-// TestFetch_DeduplicatesAcrossPages pins the cross-page dedup (ak42): Esri
+// TestFetch_DeduplicatesAcrossPages pins the cross-page dedup: Esri
 // offset paging can re-return a boundary OBJECTID on the next page (reorder /
 // mid-clamp overlap). The deduped result must contain each OBJECTID once, while
 // pagination still advances off the RAW server row count (so the overlap does
@@ -854,7 +853,7 @@ func TestFetch_DeduplicatesAcrossPages(t *testing.T) {
 	}
 }
 
-// TestParseArcGISGeoJSON_LargeOBJECTIDPrecision pins the UseNumber fix (j4x8):
+// TestParseArcGISGeoJSON_LargeOBJECTIDPrecision pins UseNumber decoding:
 // an OBJECTID above 2^53 must keep full integer precision as the feature id /
 // dedupe key. Plain json.Unmarshal into `any` decodes numbers to float64, which
 // would round 9007199254740993 down to ...992 and collide with a neighbour.
@@ -889,7 +888,7 @@ func TestParseArcGISGeoJSON_LargeOBJECTIDPrecision(t *testing.T) {
 
 // TestParseArcGISPage_SingleParseDerivesAll pins that one decode of a page body
 // yields the error envelope, features, and the exceededTransferLimit flag
-// consistently (6xti). Here a well-formed FeatureCollection carries the flag
+// consistently. Here a well-formed FeatureCollection carries the flag
 // nested under top-level "properties" and has no error.
 func TestParseArcGISPage_SingleParseDerivesAll(t *testing.T) {
 	body := makeArcGISPage(3, 1, true) // 3 features, exceeded=true under "properties"
@@ -1022,7 +1021,7 @@ func TestFetch_OffsetIgnoringServerStopsCleanly(t *testing.T) {
 }
 
 // TestFetch_OffsetIgnoringServerOverOurCapSucceeds:
-// the false-refusal case that sat between the two ofbo halves below.
+// the false-refusal case that sat between the two repeated-page halves below.
 //
 // Same wire signature again — offset ignored, rows repeat, no
 // exceededTransferLimit — but the page is LARGER than the resultRecordCount we

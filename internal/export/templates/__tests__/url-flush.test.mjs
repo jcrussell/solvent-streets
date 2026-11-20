@@ -1,7 +1,7 @@
 // Financials sliders write the URL once input pauses (Router.replaceSoon).
 // A finished edit must still reach the history entry
 // when the reader leaves at once: by leaving the page, or by Back right
-// after letting go of the slider (peer review of 4hzr).
+// after letting go of the slider.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { load } from './harness.mjs';

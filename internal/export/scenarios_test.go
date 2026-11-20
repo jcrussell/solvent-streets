@@ -24,9 +24,9 @@ import (
 // partial output that would mislead the downstream dashboard.
 //
 // Mirrors internal/server/handlers_test.go TestBuildForecasts_DBErrorEvicts for
-// the export-command path. Regression caught: reverting buildResourceForecast
-// to silent-swallow the underlying error (the pre-bkz behavior) breaks
-// errors.Is and lets exportScenariosForCity return nil with no files.
+// the export-command path: a buildResourceForecast that swallowed the
+// underlying error would break errors.Is and let exportScenariosForCity
+// return nil with no files.
 func TestExportScenariosForCity_PropagatesDBError(t *testing.T) {
 	sentinel := errors.New("db unavailable")
 	store := &dbtest.MockStore{

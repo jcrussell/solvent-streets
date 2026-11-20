@@ -47,7 +47,7 @@ func TestReadyURL(t *testing.T) {
 	}
 }
 
-// TestNosniffMiddleware pins s68f: every response carries
+// TestNosniffMiddleware: every response carries
 // X-Content-Type-Options: nosniff.
 func TestNosniffMiddleware(t *testing.T) {
 	h := nosniffMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -170,10 +170,9 @@ func TestRecoveryMiddleware_Panic(t *testing.T) {
 }
 
 // TestServer_RejectsOversizedHeaders proves the MaxHeaderBytes cap is real.
-// It previously read 1 << 20 -- byte-identical to net/http.DefaultMaxHeaderBytes,
-// which is also what http.Server uses when the field is zero -- so the line
-// added nothing while the comment beside it claimed hardening that never
-// happened. Only a cap strictly below the stdlib default does anything, so this
+// A cap of 1 << 20 would equal net/http.DefaultMaxHeaderBytes, which is also
+// what http.Server uses when the field is zero, and add nothing. Only a cap
+// strictly below the stdlib default does anything, so this
 // asserts a 128 KiB header is refused while an ordinary one is served -- the
 // control request is load-bearing, not decoration: it is what stops a transport
 // error from a dead server counting as "refused".

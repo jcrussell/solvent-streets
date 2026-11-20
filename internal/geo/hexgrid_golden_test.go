@@ -394,7 +394,7 @@ func TestClipHexesToBoundary_CoincidentEdge(t *testing.T) {
 // edge). geom.Union/UnionMany propagate that 1-D part into their output, so
 // clipHexToCandidates must RetainPolygonal or the stored hex geometry serializes
 // as a malformed GeometryCollection. We assert the retained geometry is a clean
-// Polygon with the correct area. (On v0.59.0 the overlay ops no longer error on a
+// Polygon with the correct area. (The overlay ops do not error on a
 // mixed-dimension operand; this guards the geometry stays polygonal, not against
 // a panic.)
 func TestClipHexesToBoundary_MixedDimRetainsPolygonal(t *testing.T) {

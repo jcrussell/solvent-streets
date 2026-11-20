@@ -24,7 +24,7 @@ func (m panicModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m panicModel) View() tea.View { return tea.NewView("") }
 
-// TestProgramCatchesModelPanic pins am3l: Run constructs the Bubbletea
+// TestProgramCatchesModelPanic: Run constructs the Bubbletea
 // program WITHOUT tea.WithoutCatchPanics, so a panic in the model's Update
 // (which runs on the event loop) is caught by Bubbletea — it restores the
 // terminal and returns an error — instead of propagating and wedging the

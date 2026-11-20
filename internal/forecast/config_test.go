@@ -63,7 +63,7 @@ func TestSidewalkCostTiers_CustomScaledNotFullPrice(t *testing.T) {
 // TestNewParamsForResource_SidewalkEffIsDiscounted is the end-to-end check:
 // with custom road tiers, the sidewalk projected cost at any PCI is
 // SidewalkCostRatio× the road projected cost — i.e. eff $/m² ratio ≈ 0.6, the
-// value the audit expected (LA was ≈ 0.98 before the fix).
+// value the sidewalk discount stands for.
 func TestNewParamsForResource_SidewalkEffIsDiscounted(t *testing.T) {
 	custom := []CostTier{
 		{MinPCI: 70, MaxPCI: 100, CostPerSqM: 15.0, Label: "Good"},

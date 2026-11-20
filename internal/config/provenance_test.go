@@ -304,8 +304,8 @@ func TestResolve_EmitsExpectedFields(t *testing.T) {
 	}
 }
 
-// TestResolve_EmitsMinHexArea pins the diagnostic surface for l51o. Once
-// min_hex_area has a per-city layer, `config show --sources` has to be able to
+// TestResolve_EmitsMinHexArea pins the diagnostic surface for the per-city
+// min_hex_area: with a per-city layer, `config show --sources` has to be able to
 // answer "which one won?" for it — docs/configuration.md lists it as a
 // per-city-overridable field and points at --sources for exactly that. Both
 // layers are asserted, plus the "unset reports default" case, since a field

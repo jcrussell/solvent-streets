@@ -30,7 +30,7 @@ import (
 // ingest+compute fan-out. status is intentionally absent — `pvmt status`
 // already covers every resource without a per-resource flag, so wiring
 // `pvmt all status` would just duplicate it.
-// TestForEachResource_ErrAllSourcesFailedContinues pins finding 0yfp: a
+// TestForEachResource_ErrAllSourcesFailedContinues: a
 // total-source-failure for ONE resource must warn and continue the fan-out
 // (so parking/sidewalks still run), not abort the whole pass with an early
 // return. It must still be REPORTED at the end, though — swallowing it made
@@ -128,10 +128,8 @@ func ingestFactory(ios *iostreams.IOStreams, store db.Store) *cmdutil.Factory {
 	}
 }
 
-// TestAllIngest_InProcessFanOut pins the behavior `all ingest` used to get from
-// building a throwaway ingest cobra command per resource and running it via
-// ExecuteContext: every resource is visited and the request context reaches
-// each run.
+// TestAllIngest_InProcessFanOut: `all ingest` fans out in process, so every
+// resource is visited and the request context reaches each run.
 //
 // The load-bearing assertion is the empty stderr warning check. Every ingest
 // failure mode here lands on the same ErrNoResults from the command —
@@ -244,9 +242,8 @@ func TestAllIngest_ForceBypassesTheCache(t *testing.T) {
 
 // TestAllIngest_BoundaryFailureSkipsCity: every
 // ingest step needs the city boundary, so when it cannot be resolved the city
-// is skipped after one attempt and one warning. Each step used to resolve it
-// on its own, so a failing Overpass re-issued the boundary and water-strip
-// queries for every step of every city, with a warning each time.
+// is skipped after one attempt and one warning, rather than every step
+// re-issuing the boundary and water-strip queries, each with a warning.
 func TestAllIngest_BoundaryFailureSkipsCity(t *testing.T) {
 	ios, _, _, errBuf := iostreams.Test()
 	wantErr := errors.New("database is locked")
@@ -344,9 +341,9 @@ func TestAllIngest_MidFanOutCancelAborts(t *testing.T) {
 }
 
 // TestAllIngest_MidFanOutDeadlineAborts is the DeadlineExceeded twin of the
-// above. forEachResource used to abort on context.Canceled ONLY, so an expired
-// deadline fell through to warn-and-continue: every remaining resource failed
-// identically and the run still exited 0.
+// above. forEachResource aborts on an expired deadline as on context.Canceled;
+// warn-and-continue would fail every remaining resource identically and still
+// exit 0.
 //
 // The deadline has to expire mid-fan-out to exercise that check. An
 // already-expired one is caught by cmdutil.ForEachCity's pre-check before the
@@ -502,9 +499,9 @@ func TestAllCompute_CombinedFailureIsFatal(t *testing.T) {
 // inside a step's TUI never cancels the request context (raw mode swallows
 // SIGINT); it surfaces only as the step returning tui.ErrInterrupted. That
 // must abort the city like any cancellation: no further resource passes, no
-// combined pass, no best-effort steps, and nothing committed. It used to be
-// demoted to "roads failed: interrupted" and the run carried on through every
-// step, committed, and moved to the next city.
+// combined pass, no best-effort steps, and nothing committed, rather than a
+// "roads failed: interrupted" warning and a run that carries on, commits and
+// moves to the next city.
 func TestAllCompute_TUIInterruptAbortsCity(t *testing.T) {
 	ios, _, _, errOut := iostreams.Test()
 	var listed []resource.Type

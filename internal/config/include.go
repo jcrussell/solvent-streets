@@ -35,7 +35,7 @@ const maxIncludeDepth = 32
 
 // loadParseHook, when non-nil, is invoked with the absolute path of every file
 // loadResolved actually parses (a cache miss). Test-only seam for the
-// parse-memoization guarantee (scpj); nil in production.
+// parse-memoization guarantee; nil in production.
 var loadParseHook func(abs string)
 
 // calibrationWarning is one recorded disagreement: a city whose calibration
@@ -103,7 +103,7 @@ func relTo(baseDir, path string) string {
 
 // mergeState is the bookkeeping shared by every [[include]] of one config:
 // byslug indexes parent.Cities so a slug lookup is O(1) instead of a rescan
-// per child city (117k), fromInclude maps a slug contributed by an include to
+// per child city, fromInclude maps a slug contributed by an include to
 // the absolute path of the include that contributed it *first* — the one whose
 // already-set fields win — and warn is the Load-wide warning sink. byslug and
 // fromInclude are per-file; warn is shared across the whole Load.
@@ -180,7 +180,7 @@ func loadResolved(abs string, ancestors map[string]bool, depth int, cache map[st
 	}
 
 	// Index the parent's own cities once so mergeIncludedCities can look up a
-	// slug in O(1) instead of rescanning every parent city per child (117k).
+	// slug in O(1) instead of rescanning every parent city per child.
 	// byslug is maintained across include sites (appends update it); fromInclude
 	// records which include first contributed each slug (vs declared directly)
 	// so first-include-wins applies only to include-vs-include collisions.

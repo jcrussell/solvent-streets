@@ -140,7 +140,7 @@ func TestBuildHexMetrics(t *testing.T) {
 // facilities its run recorded that the rows reference, the markers
 // hex-metrics.json carries, so it is inside + outside. A reference to no
 // recorded facility has no position: it is not a point, so it is in neither
-// the count nor the split (it used to be in point_count only).
+// the count nor the split.
 func TestBuildMeta_PointCountsAddUp(t *testing.T) {
 	h := metricsHexIDs(t)
 	rows := []db.HexMetric{

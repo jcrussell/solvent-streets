@@ -32,7 +32,7 @@ func TestClassifyJurisdiction(t *testing.T) {
 		{"state highway operator", map[string]string{"operator": "Oregon State Highway Division"}, JurisdictionState},
 		{"state route worded", map[string]string{"ref": "State Route 26"}, JurisdictionState},
 
-		// E1 regression: county/city DOTs must NOT be classified as state
+		// County/city DOTs must NOT be classified as state
 		// despite containing "dot"/"department of transportation".
 		{"county dot stays county", map[string]string{"operator": "Los Angeles County DOT", "highway": "secondary"}, JurisdictionCounty},
 		{"county dept of transportation stays county", map[string]string{"operator": "Miami-Dade County Department of Transportation", "highway": "secondary"}, JurisdictionCounty},
@@ -110,8 +110,8 @@ func TestClassifyJurisdiction(t *testing.T) {
 		{"county transportation department stays county", map[string]string{"operator": "Clark County Transportation Department", "highway": "secondary"}, JurisdictionCounty},
 		{"city transportation department stays city", map[string]string{"operator": "City of Reno Transportation Department", "highway": "residential"}, JurisdictionCity},
 
-		// A4 deny-list regression pins: these non-postal prefixes must keep
-		// matching isStateRef. An allow list of real USPS codes would
+		// Deny-list pins: these non-postal prefixes must keep matching
+		// isStateRef. An allow list of real USPS codes would
 		// silently move them into the City bucket.
 		{"texas farm to market", map[string]string{"ref": "FM 1960", "highway": "primary"}, JurisdictionState},
 		{"texas ranch to market", map[string]string{"ref": "RM 620", "highway": "primary"}, JurisdictionState},
@@ -262,8 +262,7 @@ func TestClassifyJurisdiction(t *testing.T) {
 		{"street named CORD 45 is not a county route", map[string]string{"ref": "CORD 45", "highway": "residential"}, JurisdictionCity},
 
 		// The 12118-feature Colorado promise spelledCountyRefRe's comment
-		// makes. Part 1 of fu74 is the change most likely to break it: if the
-		// designator alternation ever admits a digit, every one of these flips
+		// makes: if the designator alternation ever admits a digit, every one of these flips
 		// State -> County.
 		{"colorado route stays state not county", map[string]string{"ref": "CO 121", "highway": "primary"}, JurisdictionState},
 		{"colorado low-numbered route stays state", map[string]string{"ref": "CO 30", "highway": "primary"}, JurisdictionState},
@@ -626,7 +625,7 @@ func TestSummary(t *testing.T) {
 // among County/State/Federal cannot move a published number — but routing one
 // to City moves lane area into the city cohort and inflates AnnualNeed and
 // FundingGap. That makes "not City" the invariant actually worth pinning, and
-// it is what makes the akvx reclassification provably area-neutral.
+// it is what makes the lettered-route reclassification provably area-neutral.
 //
 // Every prefix here denotes a route some government above the municipality is
 // responsible for (or, for PR, a private owner). None should ever reach the
@@ -638,8 +637,7 @@ func TestRefPrefixesNeverFallToCity(t *testing.T) {
 		"I 80", "I-80", "IH 35", "US 101", "NF 61", "FR 2N72", "FS 370",
 		// County
 		"CR 12", "CH 93", "CC 215", "TR 40",
-		// County, lettered and spelled forms. These
-		// are the 9480 features that used to fall through to City.
+		// County, lettered and spelled forms: 9480 features in the corpus.
 		"CR S21", "CR N8", "CR G8", "CR-S6", "CTH PP", "CTH E",
 		"County Highway S21", "County Road 12",
 		"CR S-40", "CR G", "CR LL", "CR H",
@@ -683,17 +681,15 @@ func TestRefPrefixesNeverFallToCity(t *testing.T) {
 // TestMunicipalTransportationDepartments pins municipal DOTs to City end to end,
 // through ClassifyJurisdiction rather than the operator predicates alone.
 //
-// The bug: isStateOperator tested for the bare substring "department of
-// transportation", so "Columbus Department of Transportation" (Columbus OH
-// ships in examples/top-50-cities) and DC's "District Department of
-// Transportation" put municipally-maintained lane area in the State cohort,
-// understating both cities' AnnualNeed and FundingGap. The reversed word order
-// had been anchored on a state name for exactly this reason; the anchoring was
-// applied to one order only.
+// A state operator is anchored on a state name in both word orders. A bare
+// substring test for "department of transportation" would put
+// "Columbus Department of Transportation" (Columbus OH ships in
+// examples/top-50-cities) and DC's "District Department of Transportation",
+// municipally-maintained lane area, in the State cohort, understating both
+// cities' AnnualNeed and FundingGap.
 //
-// highway=secondary is covered too. ClassifyJurisdiction used to route a
-// secondary way to County unless isCityOperator claimed it, and these rows keep a municipal DOT's secondaries in
-// City whatever the County rules become.
+// highway=secondary is covered too: these rows keep a municipal DOT's
+// secondaries in City whatever the County rules become.
 func TestMunicipalTransportationDepartments(t *testing.T) {
 	tests := []struct {
 		name string
@@ -758,12 +754,10 @@ func TestMunicipalTransportationDepartments(t *testing.T) {
 // TestAbbreviatedStateTransportationAgencies pins abbreviated state DOTs to
 // State end to end, through ClassifyJurisdiction rather than the operator predicates alone.
 //
-// The regression: anchoring the DOT qualifier on stateNameSuffixRe -- the 52
-// spelled-out state names -- meant a state DOT named by abbreviation or by a
-// territory failed isStateTransportationAgency, PASSED
-// isLocalTransportationAgency, and fell through to City. The bare
-// strings.Contains(operator, "department of transportation") it replaced had
-// caught all of them.
+// Anchoring the DOT qualifier on stateNameSuffixRe alone -- the 52
+// spelled-out state names -- would make a state DOT named by abbreviation or
+// by a territory fail isStateTransportationAgency, PASS
+// isLocalTransportationAgency, and fall through to City.
 //
 // Both residential and secondary are covered, so a class-specific County or
 // City rule cannot make a half-fix look like success. Fixing only

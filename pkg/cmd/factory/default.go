@@ -527,7 +527,7 @@ func buildCityDB(f *cmdutil.Factory) func() (db.Store, error) {
 			return nil, err
 		}
 		// Honor the per-invocation context installed by the root command's
-		// PersistentPreRunE (finding 0nyu). Falls back to Background when no
+		// PersistentPreRunE. Falls back to Background when no
 		// request ctx was set (e.g. a command exempt from PersistentPreRunE).
 		return cmdutil.PinnedCityStore(f.RequestContext(), root, f.Config, city)
 	}

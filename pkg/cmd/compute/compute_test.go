@@ -137,7 +137,7 @@ func TestRunCompute_Success(t *testing.T) {
 	}
 }
 
-// TestRunCompute_ChatterToErrOut pins finding 752q: in the plain (non-TTY,
+// TestRunCompute_ChatterToErrOut: in the plain (non-TTY,
 // non-JSON) path, human progress chatter ("Loading...", "Total: N features",
 // "Generated N hexes", ...) must land on ErrOut, while the actual result DATA
 // (printResults / printCohortBreakdown) stays on Out. A redirected stdout must

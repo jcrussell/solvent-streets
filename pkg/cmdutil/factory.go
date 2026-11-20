@@ -73,14 +73,14 @@ type Factory struct {
 	// request ctx — read it via RequestContext() so EnsureCity honors
 	// cancellation instead of falling back to context.Background().
 	// It is an interface value, so copying the Factory by value is safe
-	// (no copylocks). See finding 0nyu.
+	// (no copylocks).
 	requestCtx context.Context
 
 	// cityStores memoizes city-scoped stores so repeated CityDB() calls
 	// (and value-copies made by withCity) don't re-run EnsureCity on
 	// every access. It lives behind a pointer so a copied Factory shares
 	// the same cache; it is keyed by (slug, configID) so a copy scoped to
-	// city A never hands back city B's store. See finding xygq.
+	// city A never hands back city B's store.
 	cityStores *storeCache
 }
 

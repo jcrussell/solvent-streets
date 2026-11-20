@@ -16,7 +16,7 @@ import (
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 )
 
-// TestRunCombined_DedupesCrossResourceOverlap exercises the cx2 fix end-to-end:
+// TestRunCombined_DedupesCrossResourceOverlap exercises the combined dedupe end-to-end:
 // when a road buffer and a parking polygon overlap, the "combined" row's area
 // is strictly less than the sum of per-resource areas computed against the same
 // hex grid; summing per-resource rows instead would inflate paved_share by

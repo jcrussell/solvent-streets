@@ -27,7 +27,7 @@ const (
 	testGeomPolygon    = "Polygon"
 )
 
-// TestTruncate_RuneSafe pins 6pty: the error-snippet truncate must clip on
+// TestTruncate_RuneSafe: the error-snippet truncate must clip on
 // a rune boundary, never splitting a multi-byte UTF-8 rune (which would
 // leave an invalid string in the surfaced error message).
 func TestTruncate_RuneSafe(t *testing.T) {
@@ -360,7 +360,7 @@ func TestParseOverpassResponse_TruncationRemark(t *testing.T) {
 }
 
 // TestParseOverpassResponse_MalformedJSONIsParseError pins the typed-sentinel
-// classification of a malformed-JSON parse failure (u78a): isParseError must
+// classification of a malformed-JSON parse failure: isParseError must
 // match via errors.Is on errOverpassParse, not a fragile substring of the
 // formatted message, so fetchSplitting still splits the bbox and retries.
 func TestParseOverpassResponse_MalformedJSONIsParseError(t *testing.T) {

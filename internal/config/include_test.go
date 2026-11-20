@@ -146,10 +146,9 @@ tags = ["Boston"]
 
 // TestInclude_ConflictingCalibration: the same city reached through two
 // includes with *different* non-empty calibration keeps the FIRST include's
-// values (vf6m — the behavior examples/all's header has always documented)
-// and records a warning rather than hard-erroring. This inverts the original
-// 3vhw expectation: a conflict used to abort the load, which made examples/all
-// — the config `make site` builds — unloadable. Identical or empty calibration
+// values (the behavior examples/all's header documents) and records a
+// warning rather than hard-erroring: aborting the load would make
+// examples/all — the config `make site` builds — unloadable. Identical or empty calibration
 // on the second include is not a disagreement and stays silent (subtests
 // below and TestInclude_ConflictingMinHexArea).
 func TestInclude_ConflictingCalibration(t *testing.T) {
@@ -357,9 +356,9 @@ path = "../a/pvmt.toml"
 //
 // It is also the headline case for the per-field union: this is the real
 // examples/all Los Angeles shape, where the metro sets decay_rate + cost_tiers
-// and the national list sets growth_rate. Under the old block-atomic rule LA
-// kept the metro block whole and lost growth_rate entirely; now it keeps the
-// metro's decay and tiers AND gains the national growth rate, and only the two
+// and the national list sets growth_rate. A block-atomic rule would keep the
+// metro block whole and lose growth_rate entirely; LA keeps the metro's decay
+// and tiers AND gains the national growth rate, and only the two
 // fields both files actually set — hex_edge_m and min_hex_area — are contested.
 func TestInclude_SupersededWarningNamesEverything(t *testing.T) {
 	dir := t.TempDir()
@@ -524,12 +523,9 @@ path = "../national/pvmt.toml"
 	}
 }
 
-// TestInclude_NoFieldIsDroppedSilently closes the hole the old code had in the
-// opposite direction from the one it guarded: hex_edge_m and min_hex_area were
-// checked only when the FIRST include had set them, so a value contributed by
-// a later include when the first left it unset vanished with no warning at all
-// — while the same situation on a forecast scalar was reported. Under the
-// union both are backfills. Asserted for every calibration field so the two
+// TestInclude_NoFieldIsDroppedSilently: a hex_edge_m or min_hex_area that a
+// later include contributes when the first left it unset is a backfill, as
+// on a forecast scalar, not a value that vanishes with no warning. Asserted for every calibration field so the two
 // families stay consistent.
 func TestInclude_NoFieldIsDroppedSilently(t *testing.T) {
 	dir := t.TempDir()
@@ -1133,7 +1129,7 @@ tags = ["West"]
 }
 
 // TestInclude_DiamondParsedOnce: the same leaf reached via two parents is
-// parsed exactly once within a single Load (scpj memoization) yet still merges
+// parsed exactly once within a single Load (memoized) yet still merges
 // once with the union of both paths' tags. Before memoization the leaf was
 // re-read and re-parsed on the second path.
 func TestInclude_DiamondParsedOnce(t *testing.T) {
@@ -1241,7 +1237,7 @@ hex_edge_m = 55
 	}
 }
 
-// TestInclude_FlattensMinHexArea pins l51o: an included example's
+// TestInclude_FlattensMinHexArea: an included example's
 // [grid].min_hex_area is carried onto each of its cities by the merge, the
 // way hex_edge_m is. Without the flatten the child's [display] is discarded
 // with the rest of its non-[[cities]] settings and every city silently falls
@@ -1285,9 +1281,9 @@ min_hex_area = 5
 	}
 }
 
-// TestInclude_ParentMinHexAreaRejected pins the invariant half of l51o: once
-// min_hex_area is per-city calibration that the merge flattens, an including
-// file may no longer set the top-level form. A parent threshold sized for the
+// TestInclude_ParentMinHexAreaRejected: min_hex_area is per-city calibration
+// that the merge flattens, so an including file may not set the top-level
+// form. A parent threshold sized for the
 // default 100 m grid would otherwise apply to every included city that did not
 // tune its own — and a metro that flattened a fine hex edge (greater-boston's
 // 60 m Cambridge grid, ~9.4k m² hexes) would have every hex filtered out,
@@ -1338,8 +1334,8 @@ path = "../leaf/pvmt.toml"
 	})
 }
 
-// TestInclude_PerCityMinHexAreaBeatsParent exercises the resolution l51o exists
-// to arbitrate, end-to-end through a real merge rather than a struct literal: a
+// TestInclude_PerCityMinHexAreaBeatsParent exercises the per-city min_hex_area
+// resolution end-to-end through a real merge rather than a struct literal: a
 // child that tuned min_hex_area keeps its value, while a sibling city that set
 // nothing falls through to the parent's top level. The parent value has to be
 // injected post-Load, since a parent that declares it in TOML is now rejected
@@ -1380,10 +1376,9 @@ overpass = true
 }
 
 // TestInclude_ConflictingMinHexArea: the sliver threshold gets the same
-// treatment as the hex edge it is coupled to (l51o) — first-include-wins plus
-// a warning naming the field. Originally (l51o) this was a hard error; vf6m
-// inverted that along with hex_edge_m and forecast, since first-winning on one
-// and erroring on the other would be incoherent either way round. An unset or
+// treatment as the hex edge it is coupled to — first-include-wins plus a
+// warning naming the field, as for hex_edge_m and forecast, since
+// first-winning on one and erroring on the other would be incoherent. An unset or
 // identical value on the second include still defers to the first, silently.
 func TestInclude_ConflictingMinHexArea(t *testing.T) {
 	writeThree := func(t *testing.T, aDisplay, bDisplay string) string {
@@ -1827,8 +1822,8 @@ path = "../mid/pvmt.toml"
 // TestInclude_GridPairCannotSplitAcrossIncludes pins the worse of the two
 // grid-pair failures: it fails SILENTLY.
 //
-// hex_edge_m and min_hex_area used to union independently, so a city could take
-// a fine grid from one include and a sliver threshold sized for a coarse one
+// If hex_edge_m and min_hex_area unioned independently, a city could take a
+// fine grid from one include and a sliver threshold sized for a coarse one
 // from another. A 60 m flat-top hex is ~9353 sq m, so a 20000 sq m threshold
 // makes filterHexSlivers drop every hex in the city. The snapshot hash covers
 // only the edge (the threshold is applied at export), so it matches, and the

@@ -485,7 +485,7 @@ func splitEntryName(name string) (key, ext string, ok bool) {
 }
 
 // isLegacyBody reports whether name is a pre-v0.5.0 uncompressed body
-// (`<key>.json`). The transport no longer reads these, so prune sweeps each
+// (`<key>.json`). The transport does not read these, so prune sweeps each
 // one as residue; without this an upgraded install would keep them forever,
 // since prune leaves names it does not recognize alone.
 func isLegacyBody(name string) bool {

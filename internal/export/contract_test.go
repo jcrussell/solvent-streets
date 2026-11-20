@@ -422,7 +422,7 @@ func TestResolvedTOML_StripsZeroCurrentBudget(t *testing.T) {
 	}
 }
 
-// TestResolvedTOML_ShowsPerCityMinHexArea pins l51o's Config-tab half: the
+// TestResolvedTOML_ShowsPerCityMinHexArea pins the per-city min_hex_area's Config-tab half: the
 // per-city min_hex_area must be published as its *resolved* value. CityConfig
 // emits the field unconditionally, so an unresolved city would print
 // `min_hex_area = 0.0` right below a top level showing the resolved default —
@@ -515,7 +515,7 @@ func TestResolvedTOML_ShowsPerCityResolvedCalibration(t *testing.T) {
 	if !strings.Contains(out, "250") {
 		t.Errorf("per-city hex_edge_m override (250) not shown in Config tab:\n%s", out)
 	}
-	// Every city now carries its resolved forecast, so decay_rate appears
+	// Every city carries its resolved forecast, so decay_rate appears
 	// per-city (2 cities) on top of the top-level occurrence.
 	if got := strings.Count(out, "decay_rate"); got < 2 {
 		t.Errorf("expected per-city resolved forecast (decay_rate ≥2 occurrences), got %d:\n%s", got, out)

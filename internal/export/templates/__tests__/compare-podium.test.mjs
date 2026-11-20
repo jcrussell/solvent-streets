@@ -123,7 +123,7 @@ test('Years to Insolvency medals follow the same floor', async () => {
 
 // That board sorts by insolvency year, not by score, so its leader can fail
 // the floor while the runner-up passes. Medals stop at the first city under
-// the floor: no silver without a gold, and no award (4nlz peer review).
+// the floor: no silver without a gold, and no award.
 test('Years to Insolvency shows no silver under an unmedalled leader', async () => {
   const { doc } = await renderWith([city('alpha-ca', 40, 20), city('beta-ca', 60, 12)]);
   const ins = lbBlock(doc, 'Years to Insolvency');

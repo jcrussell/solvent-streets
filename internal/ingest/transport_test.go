@@ -392,9 +392,9 @@ func TestRetryTransport_ReturnsLastResponseOnExhaustion(t *testing.T) {
 }
 
 // TestRetryTransport_DoesNotMutateCallerRequest locks in the
-// clone-before-mutate contract. The retry transport
-// previously rebound req.Body on retries (via req.GetBody), mutating the
-// caller's *http.Request. Cloning per attempt keeps the original untouched.
+// clone-before-mutate contract: the retry transport rebinds the body on
+// retries (via req.GetBody) on a clone per attempt, so the caller's
+// *http.Request stays untouched.
 func TestRetryTransport_DoesNotMutateCallerRequest(t *testing.T) {
 	srv := newSeqServer(t,
 		seqResponse{status: 500, body: "error"},

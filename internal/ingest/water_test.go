@@ -397,7 +397,7 @@ func TestParseWaterResponse_AcceptsLargeCoastlineRingInWaterDominatedBBox(t *tes
 		t.Fatal(err)
 	}
 	if result == "" {
-		t.Fatal("large coastline water ring was dropped; expected it to be accepted (bd-86aa)")
+		t.Fatal("large coastline water ring was dropped; expected it to be accepted")
 	}
 	var parsed struct {
 		Type        string           `json:"type"`
@@ -410,7 +410,7 @@ func TestParseWaterResponse_AcceptsLargeCoastlineRingInWaterDominatedBBox(t *tes
 		t.Fatalf("expected exactly 1 water polygon, got %d: %s", len(parsed.Coordinates), result)
 	}
 	// Confirm the accepted ring is the large (water) side, > 0.8 of the
-	// bbox — i.e. exactly the ring the old cap rejected.
+	// bbox — i.e. a ring the bbox-fraction cap alone would reject.
 	const bboxArea = 100.0
 	area := math.Abs(ringSignedArea(parsed.Coordinates[0][0]))
 	if frac := area / bboxArea; frac <= maxOuterBboxAreaFraction {
@@ -619,7 +619,7 @@ func closedWayBody(id int64, ring [][2]float64) string {
 		id, strings.Join(pts, ","))
 }
 
-// TestFetchOSMWater_SplitsOnTruncation is the qus4 regression: the
+// TestFetchOSMWater_SplitsOnTruncation: the
 // full-bbox water query truncates (timeout remark), so fetchOSMWater
 // must split into quadrants, collect their raw elements, dedup a water
 // body that spans a quadrant boundary, and assemble ONCE against the
@@ -1981,7 +1981,7 @@ func TestAssembleWater_IslandInSeaIsAHole(t *testing.T) {
 }
 
 // TestParseWaterResponse_AcceptsLargeCoastlineRingWithRoadProbes is the
-// road-probe twin of the Foster City guard (bd-86aa): the coastline path
+// road-probe twin of the Foster City guard: the coastline path
 // stays uncapped with dense probes, and roads in the small land triangle
 // pick the large water side.
 func TestParseWaterResponse_AcceptsLargeCoastlineRingWithRoadProbes(t *testing.T) {

@@ -146,7 +146,7 @@ func NewCmdRoot(f *cmdutil.Factory) *cobra.Command {
 		c.SetContext(logs.WithLogger(c.Context(), f.Logger.With("cmd", c.CommandPath())))
 		// Install the per-invocation context so lazily-built factory closures
 		// (e.g. CityDB) can honor cancellation instead of falling back to
-		// context.Background() (finding 0nyu). Carries the logger + signal ctx.
+		// context.Background(). Carries the logger + signal ctx.
 		f.SetRequestContext(c.Context())
 		for _, m := range middlewares {
 			if err := m(cmd, f); err != nil {

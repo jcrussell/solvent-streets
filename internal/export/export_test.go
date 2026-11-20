@@ -646,8 +646,8 @@ func TestSortCitiesByName_PlaceThenState(t *testing.T) {
 
 // TestRunMultiCity_WritesCompareRollup: a
 // multi-city export writes compare.json beside cities.json, one entry per
-// exported city, each a strict subset of that city's files, and far smaller
-// than the four files the Compare and Aggregate tabs used to fetch.
+// exported city, each a strict subset of that city's files and far smaller
+// than them.
 func TestRunMultiCity_WritesCompareRollup(t *testing.T) {
 	cfg := &config.Config{}
 	entries := []CityEntry{

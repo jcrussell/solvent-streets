@@ -13,8 +13,8 @@ import (
 
 // uaClient wraps srv's client with the UserAgent transport so tests exercise
 // the production middleware stack, which stamps User-Agent unconditionally on
-// every round-trip. The per-source fetch code no longer sets User-Agent itself
-// (lpqh) — a bare srv.Client() would therefore carry no pvmt UA. Tests that
+// every round-trip. The per-source fetch code does not set User-Agent itself,
+// so a bare srv.Client() would carry no pvmt UA. Tests that
 // assert the outbound UA must drive requests through this wrapped client.
 func uaClient(srv *httptest.Server) *http.Client {
 	c := srv.Client()
@@ -111,7 +111,7 @@ func TestFetchCityBoundary_EmptyResults(t *testing.T) {
 
 func TestFetchCityBoundary_Non200(t *testing.T) {
 	// The non-200 path must read+drain the (bounded) body and fold a snippet
-	// of it into the error, matching the overpass/arcgis idiom (l47u). Nominatim
+	// of it into the error, matching the overpass/arcgis idiom. Nominatim
 	// rate-limit / block pages carry a human-readable body worth surfacing.
 	const bodyMsg = "Rate limit exceeded; see usage policy"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -140,10 +140,9 @@ func TestRunGC_ArcGISOnlyKeepsOverpassByDefault(t *testing.T) {
 
 // TestRunGC_RetainedCountFailureIsNotFatal:
 // retainedOverpassRows issues a SECOND GCScan purely to derive the cosmetic
-// "kept (overpass off)" line. scanCities used to wrap its error as `scan %s`
-// and return it, so a query that feeds nothing but an informational message
-// could fail a gc run whose real scan — and whole sweep — had succeeded.
-// It must warn and carry on instead.
+// "kept (overpass off)" line. A query that feeds nothing but an informational
+// message must not fail a gc run whose real scan — and whole sweep —
+// succeeded: it warns and carries on.
 //
 // The city deliberately omits overpass and sets arcgis_url: that is the only
 // shape for which retainedOverpassRows touches the DB at all (it returns

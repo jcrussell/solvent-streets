@@ -292,10 +292,9 @@ func TestCitySelector_NoFilterRowWithoutChoice(t *testing.T) {
 	}
 }
 
-// TestLayerTogglesInGearMenu asserts the #toggles container now lives inside
-// the #gear-menu popover (under a "Layers" row) and is no longer inside the
-// stats panel. The change-handler selector "#toggles input" still resolves
-// because #toggles exists; this test pins the relocation.
+// TestLayerTogglesInGearMenu asserts the #toggles container lives inside the
+// #gear-menu popover (under a "Layers" row), not inside the stats panel. The
+// change-handler selector "#toggles input" resolves because #toggles exists.
 func TestLayerTogglesInGearMenu(t *testing.T) {
 	tmpl := parseDashboardTemplates(t)
 
@@ -319,7 +318,7 @@ func TestLayerTogglesInGearMenu(t *testing.T) {
 		t.Error("gear-toggles-row missing from gear-menu")
 	}
 
-	// The stats panel (after the gear menu) must not contain #toggles anymore.
+	// The stats panel (after the gear menu) must not contain #toggles.
 	statsMarkup := out[gearEnd:]
 	if strings.Contains(statsMarkup, `id="toggles"`) {
 		t.Error("#toggles still present outside the gear menu (stats panel)")

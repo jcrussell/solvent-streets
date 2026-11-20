@@ -85,7 +85,7 @@ func exists(t *testing.T, path string) bool {
 	return err == nil
 }
 
-// TestPrune_AgeRemovesStaleEntriesOnly is the age half of b136: an entry
+// TestPrune_AgeRemovesStaleEntriesOnly is the age half of prune: an entry
 // untouched for longer than MaxAge goes, a recent one stays, and both
 // files of the removed pair are unlinked (not just the body).
 func TestPrune_AgeRemovesStaleEntriesOnly(t *testing.T) {
@@ -254,10 +254,9 @@ func TestPrune_CanceledSweepAccountsForUnsweptTemps(t *testing.T) {
 	}
 }
 
-// TestPrune_CanceledScanCreditsScannedEntries: a
-// cancel that lands in the SCAN (stat-ing a large cache dir) used to discard
-// every entry grouped so far, so runPrune printed "0 B remaining" for a cache
-// still entirely on disk. The files already scanned must be credited.
+// TestPrune_CanceledScanCreditsScannedEntries: a cancel that lands in the
+// SCAN (stat-ing a large cache dir) credits the files already scanned, so
+// runPrune does not print "0 B remaining" for a cache still entirely on disk.
 func TestPrune_CanceledScanCreditsScannedEntries(t *testing.T) {
 	dir := t.TempDir()
 	const entries = 5
@@ -303,7 +302,7 @@ func TestPrune_MaxAgeZeroDisablesAgePruning(t *testing.T) {
 	}
 }
 
-// TestPrune_SizeEvictsOldestFirst is the size half of b136: over the cap,
+// TestPrune_SizeEvictsOldestFirst is the size half of prune: over the cap,
 // entries go in mtime order (LRU) until the total fits, and no further.
 func TestPrune_SizeEvictsOldestFirst(t *testing.T) {
 	dir := t.TempDir()

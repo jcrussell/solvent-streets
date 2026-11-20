@@ -197,7 +197,7 @@ func TestRunPrune_EmptyCacheSaysSo(t *testing.T) {
 	}
 }
 
-// TestNewCmdPrune_ResolvesHTTPCacheDirFromPaths pins step 1 of b136: the
+// TestNewCmdPrune_ResolvesHTTPCacheDirFromPaths: the
 // command must reach the same directory the client factory writes, via
 // Paths.HTTPCacheDir, with no duplicated "http" literal.
 func TestNewCmdPrune_ResolvesHTTPCacheDirFromPaths(t *testing.T) {

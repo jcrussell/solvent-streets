@@ -21,7 +21,7 @@ import (
 // the broken cohort and a 2.5× margin below the worst working case.
 // Living-document: tune up only with evidence that a real-world
 // working city dropped below this floor; tune down only after seeing a
-// real inversion squeak through. Solvent-streets-e5mk.
+// real inversion squeak through.
 const stripCoverageMinRatio = 0.15
 
 // ErrBoundaryInvertedVsRoads signals that BOTH the stripped boundary

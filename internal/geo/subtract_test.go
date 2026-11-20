@@ -192,7 +192,7 @@ func TestSubtractGeoJSON_OverlappingPolygonsWithSharedEdge(t *testing.T) {
 
 	result, err := SubtractGeoJSON(context.Background(), boundary, water)
 	if err != nil {
-		t.Fatalf("SubtractGeoJSON: %v (expected success post-i3ih fix)", err)
+		t.Fatalf("SubtractGeoJSON: %v (want success)", err)
 	}
 	if result == "" {
 		t.Fatal("expected non-empty result")

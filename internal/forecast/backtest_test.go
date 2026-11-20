@@ -35,8 +35,8 @@ var backtestCities = []backtestCity{
 // the §6 figures quoted in config.go's DefaultCostMultiplier comment stay put.
 const backtestYears = 25
 
-// TestBacktest_TreatmentCycleClosesSec5Gap is the offline regression gate for the
-// solvency-dollar-fidelity epic (qehh). For each representative city it proves:
+// TestBacktest_TreatmentCycleClosesSec5Gap is the offline regression gate for
+// solvency dollar fidelity. For each representative city it proves:
 //  1. gated break_even == un-gated break_even / N (the core fix is applied), and
 //  2. gated break_even / current_budget is a realistic single-digit multiple —
 //     the overstatement a 1-year cycle gives (validation.md §5) is closed.
@@ -84,7 +84,7 @@ func TestBacktest_TreatmentCycleClosesSec5Gap(t *testing.T) {
 				t.Errorf("%s: gated break_even is still %.1f× the budget — §5 gap not closed (expected single-digit, ~1)", c.name, gatedRatio)
 			}
 
-			// Property 3 (cost×cycle calibration gate, epic g98u): break_even per m²
+			// Property 3 (cost×cycle calibration gate): break_even per m²
 			// must track the cited real hold-steady spend, pinning the otherwise-
 			// degenerate cost×N balance (break_even(N)==break_even(1)/N exactly, so
 			// cost and cycle trade off freely; only an external anchor fixes them).

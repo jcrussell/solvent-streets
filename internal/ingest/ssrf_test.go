@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-// TestCheckPublicAddr pins the SSRF address policy (1nws): the stdlib
+// TestCheckPublicAddr pins the SSRF address policy: the stdlib
 // private/loopback/link-local predicates PLUS the special-use prefix blocklist,
 // with IPv4-mapped IPv6 collapsed via Unmap first so a mapped private/loopback
 // address cannot slip through.

@@ -254,8 +254,8 @@ func runComputeTUI(ctx context.Context, opts *Options) error {
 	return tui.Run(ctx, label, steps, done, func(ctx context.Context, out io.Writer, errOut io.Writer, notify tui.PhaseNotifier) error {
 		// In the TUI both result DATA and progress chatter render through the
 		// progress writer (out); warnings render through the warn writer
-		// (errOut). Preserves the pre-split behavior where chatter appeared as
-		// progress detail rather than as warnings.
+		// (errOut), so chatter shows as progress detail rather than as
+		// warnings.
 		return doCompute(ctx, out, out, errOut, notify, opts)
 	})
 }
