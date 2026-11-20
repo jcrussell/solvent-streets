@@ -208,6 +208,78 @@
             map.once('load', resolve);
         });
 
+        // ---- Board framing -----------------------------------------------------
+        // boardBounds is the board's [[west, south], [east, north]] extent, set
+        // at boot; fitBoard frames it. The extent is a loop over every vertex,
+        // not Math.min(...all), which overflows the call stack on a large
+        // city's board (Houston's holds over 100k vertices).
+        /** @type {[[number, number], [number, number]] | null} */
+        let boardBounds = null;
+        /**
+         * @param {any[]} features
+         * @returns {[[number, number], [number, number]] | null}
+         */
+        function boardExtent(features) {
+            let west = Infinity, south = Infinity, east = -Infinity, north = -Infinity;
+            /** @param {number[][]} ring */
+            const addRing = ring => {
+                for (const c of ring) {
+                    if (c[0] < west) west = c[0];
+                    if (c[0] > east) east = c[0];
+                    if (c[1] < south) south = c[1];
+                    if (c[1] > north) north = c[1];
+                }
+            };
+            for (const f of features) {
+                const g = f.geometry;
+                if (!g) continue;
+                if (g.type === 'Polygon') g.coordinates.forEach(addRing);
+                else if (g.type === 'MultiPolygon') g.coordinates.forEach(/** @param {number[][][]} poly */ poly => poly.forEach(addRing));
+            }
+            return west <= east ? [[west, south], [east, north]] : null;
+        }
+
+        // boardFitPadding is the padding a fit to the board uses: the HUD and
+        // the bottom dock's panels float over the map (on a phone the HUD is a
+        // strip across the top and the dock one across the bottom), so each
+        // panel pads the side it covers by how far it reaches in from it. A
+        // panel near a corner hugs whichever side costs the smaller strip of
+        // map, as the dashboard's mapFitPadding does. A hidden panel has no
+        // box, and a padding that would leave too little map falls back to
+        // the plain one, since MapLibre refuses a fit that cannot be made.
+        const FIT_PAD = 40;
+        const FIT_MIN_VIEW = 120;
+        function boardFitPadding() {
+            const pad = { top: FIT_PAD, right: FIT_PAD, bottom: FIT_PAD, left: FIT_PAD };
+            const mapEl = document.getElementById('map');
+            if (!mapEl) return pad;
+            const m = mapEl.getBoundingClientRect();
+            if (!m.width || !m.height) return pad;
+            const out = { ...pad };
+            for (const id of ['hud', 'controls', 'legend']) {
+                const el = document.getElementById(id);
+                if (!el) continue;
+                const p = el.getBoundingClientRect();
+                if (!p.width || !p.height) continue;
+                const top = (p.top + p.bottom) / 2 < m.top + m.height / 2;
+                const left = (p.left + p.right) / 2 < m.left + m.width / 2;
+                const vertical = Math.max(0, top ? p.bottom - m.top : m.bottom - p.top);
+                const horizontal = Math.max(0, left ? p.right - m.left : m.right - p.left);
+                if (vertical * m.width <= horizontal * m.height) {
+                    const side = top ? 'top' : 'bottom';
+                    out[side] = Math.max(out[side], Math.round(vertical) + FIT_PAD);
+                } else {
+                    const side = left ? 'left' : 'right';
+                    out[side] = Math.max(out[side], Math.round(horizontal) + FIT_PAD);
+                }
+            }
+            if (m.width - out.left - out.right < FIT_MIN_VIEW || m.height - out.top - out.bottom < FIT_MIN_VIEW) return pad;
+            return out;
+        }
+        function fitBoard() {
+            if (boardBounds) map.fitBounds(boardBounds, { padding: boardFitPadding() });
+        }
+
         // ---- Game state (JS holds only view/loop state, never rules) ---------
         // Treatments are always automatic: the engine picks the right tier per hex by
         // its condition. There is no manual tier selector, so this is fixed at 'auto'.
@@ -391,6 +463,8 @@
             if (!gameConfig) return;
             setInGameUI(true);
             showHint();
+            // Reframe under the in-game panels, which were hidden at boot.
+            fitBoard();
             seedGame();
         }
 
@@ -766,22 +840,10 @@
             // Fit the map to the ACTUAL board rather than the embedded region
             // CENTER (which, in multi-city static export, is the region centroid —
             // off-screen for wide configs). The initial center/zoom-13 is just a
-            // pre-fetch placeholder; this overrides it once the real board is known.
-            // features is non-empty here (the empty case returned above).
-            {
-                const coords = features.flatMap(f => {
-                    const g = f.geometry;
-                    if (!g) return [];
-                    if (g.type === 'Polygon') return g.coordinates.flatMap(ring => ring);
-                    if (g.type === 'MultiPolygon') return g.coordinates.flatMap(poly => poly.flatMap(ring => ring));
-                    return [];
-                });
-                if (coords.length > 0) {
-                    const lngs = coords.map(c => c[0]);
-                    const lats = coords.map(c => c[1]);
-                    map.fitBounds([[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]], { padding: 40 });
-                }
-            }
+            // pre-fetch placeholder; this overrides it once the real board is
+            // known, and Start reframes it under the in-game panels.
+            boardBounds = boardExtent(features);
+            fitBoard();
 
             // 4. Interaction: the brush is always on. Disable dragPan/dragRotate so
             //    left-drag paints (instead of panning) and right-drag pans the map;

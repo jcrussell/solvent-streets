@@ -83,6 +83,48 @@ test('play: the board and the projection carry the seed cost overhead', async ()
   assert.equal(sent.at(-1).cost_overhead, 1.35, 'the projection priced work bare');
 });
 
+// On a phone the HUD is a strip across the top of the map and the dock one
+// across the bottom, so the fit Start makes pads both by what they cover.
+test('play: Start frames the board clear of the HUD and the dock', async () => {
+  const h = load({ page: 'play', wasm: true, data: boardData(seedJSON), before(win) {
+    const state = JSON.stringify({ status: 'running', year: 0, treasury: 1, annual_budget: 1, changed: [] });
+    win.gameInit = () => state;
+    win.gameTick = () => state;
+  } });
+  await h.flush();
+  h.fireMap('load');
+  await h.flush(12);
+  const box = (left, top, right, bottom) => () => ({ left, top, right, bottom, width: right - left, height: bottom - top });
+  const doc = h.doc;
+  doc.getElementById('map').getBoundingClientRect = box(0, 44, 390, 844);
+  doc.getElementById('hud').getBoundingClientRect = box(8, 52, 340, 132);
+  doc.getElementById('controls').getBoundingClientRect = box(8, 700, 382, 836);
+  doc.getElementById('legend').getBoundingClientRect = box(200, 660, 382, 690);
+  h.$('#start-btn').click();
+  h.win.stopLoop();
+
+  const opts = JSON.parse(JSON.stringify(h.win.__fitOptions.at(-1)));
+  // HUD: 88 px in from the top; the legend sits highest in the dock, 184 px
+  // up from the bottom. Each side gets that plus the plain 40.
+  assert.deepEqual(opts.padding, { top: 128, right: 40, bottom: 224, left: 40 });
+  assert.deepEqual(JSON.parse(JSON.stringify(h.win.__fitBounds.at(-1))), JSON.parse(JSON.stringify(h.win.__fitBounds[0])),
+    'Start framed something other than the board');
+});
+
+// A large city's board holds more vertices than Math.min(...all) can take
+// as arguments; the extent is still found.
+test('play: a board of 200k vertices is framed', async () => {
+  const grid = structuredClone(hexgridJSON);
+  const hex = grid.features.find((f) => f.properties.k > 0);
+  const ring = hex.geometry.type === 'Polygon' ? hex.geometry.coordinates[0] : hex.geometry.coordinates[0][0];
+  const big = [];
+  for (let i = 0; i < 200_000; i++) big.push(ring[i % ring.length]);
+  hex.geometry = { type: 'Polygon', coordinates: [big] };
+  const { get, win } = await bootBoard({ ...boardData(seedJSON), 'hexgrid.geojson': grid });
+  assert.ok(get('gameConfig'), 'the board did not boot');
+  assert.equal(win.__fitBounds.length, 1, 'the board was not framed');
+});
+
 // The start screen opens at the cited street budget,
 // else at the roads hold-steady budget, as the Financials slider does.
 const roadsForecast = forecastJSON.find((f) => f.resource_type === 'roads');
