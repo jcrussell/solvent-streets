@@ -59,9 +59,8 @@ effect on the next read.
 Every config on the machine shares one database and one cache. On macOS the
 `XDG_*` variables are ignored. The cache stores
 upstream responses gzip-compressed. Because it belongs to no single config, a
-config only sets how old an entry its own runs accept (`[cache] ttl`, a week by
-default; see [HTTP cache](#http-cache-cache)); `pvmt cache prune` manages its
-size (see
+config only sets how old an entry its own runs accept
+([HTTP cache](#http-cache-cache)), and `pvmt cache prune` bounds its size (see
 [troubleshooting](troubleshooting.md#disk-usage-the-http-cache-keeps-growing)).
 
 ## Cities
@@ -152,12 +151,14 @@ prints a `warning:` naming the city, the field, both values and both files.
 
 An included file's calibration is flattened into per-city values. So the
 including file may not set top-level `[grid]` or `[forecast]`, because those
-would silently recalibrate the included cities. The exception is `[forecast].horizon_years`, the one horizon every
-included file must already agree with ([Forecast](#forecast)). Its `[display].units` and `[export]` apply as usual. An
-included file's `[display].units` and `[export]` are not carried over. Its
-`[[services]]` apply to its own cities: an included city's coverage is
-computed and published under the `[[services]]` of the file that declares it,
-and the including file's apply only to the cities it declares itself.
+would silently recalibrate the included cities. The exception is
+`[forecast].horizon_years`, the config's one horizon
+([Forecast](#forecast)). The including file's own `[display].units` and
+`[export]` apply as usual, and an included file's are not carried over. An
+included file's `[[services]]` apply to its own cities: an included city's
+coverage is computed and published under the `[[services]]` of the file that
+declares it, and the including file's apply only to the cities it declares
+itself.
 
 ### Config identity (`config_id`)
 
@@ -174,7 +175,8 @@ config_id = "austin-tx"
 A city pulled in through `[[include]]` keeps the `config_id` of the file that
 declared it. So `examples/all` reads exactly the data each example's own ingest
 and compute produce, with no ingest of its own, and an ingest or compute run
-from `examples/all` writes into, and replaces, those examples' data. This holds
+from `examples/all` writes into, and replaces, those examples' data, fetching
+a city several of them share once. This holds
 while the including config resolves the same
 [compute inputs](#snapshots-and-the-config-hash) for the city. When it doesn't,
 the city reads nothing until it is computed under the including config, and
@@ -187,9 +189,15 @@ row and overwrite each other's data, so give each config its own.
 
 Computed results are stored per city under a hash of just the resolved
 settings that change them. Every compute updates the city's *latest compute*
-under its current hash, which `pvmt forecast` and `pvmt status` read.
-`pvmt snapshots create <name>` freezes every city's latest compute as one named
-snapshot, and export and serve publish the newest (or `--snapshot NAME`).
+under its current hash, which `pvmt forecast` and `pvmt status` read. A
+*snapshot* is a named, immutable tag over every configured city, like a git
+tag: `pvmt snapshots create <name>` freezes every city's latest compute at
+once, or refuses and freezes nothing, and export and serve publish the newest
+snapshot (or the one `--snapshot` names). Publishing is therefore always a
+deliberate step, and rolling back is deleting the newest snapshot or
+publishing an older one. By convention a snapshot is named for the month its
+data was cut (`2026-11`, and `2026-11.1` for a second cut that month).
+`pvmt snapshots --help` covers the commands, names and refusals.
 
 | Changes the hash (recompute the city) | Does not |
 |---|---|
@@ -201,6 +209,9 @@ snapshot, and export and serve publish the newest (or `--snapshot NAME`).
 | | data sources: `overpass`, `arcgis_url`, `allow_private_arcgis`, `boundary_relation_id` |
 | | ingest settings: `[cache]`, `[overpass]`, `PVMT_OVERPASS_URL` |
 
+An explicit default (`hex_edge_m = 100`) hashes the same as leaving it out.
+The exception is `turnout_s`, whose default lives in the services registry.
+
 Forecasts are never stored. Every reader simulates them from the stored
 results under the settings in force, so a forecast edit takes effect on the
 next read. Editing a data source changes what the next ingest fetches, not the
@@ -210,9 +221,7 @@ part records the features and boundary it was computed from, and
 from data ingested again since, naming the compute to rerun (see
 [troubleshooting](troubleshooting.md#snapshots-create-refuses-a-city)). After
 a single `pvmt roads compute`, for example, the combined total and the service
-coverage still read the old roads, so create asks for `pvmt all compute`. An
-explicit default (`hex_edge_m = 100`) hashes the same as leaving it out. The exception is
-`turnout_s`, whose default lives in the services registry.
+coverage still read the old roads, so create asks for `pvmt all compute`.
 
 A service run freezes the facilities it routed from, names included, and the
 turnout it used. The map's station markers and the coverage legend therefore
@@ -225,33 +234,19 @@ compute under the old hash is kept, so reverting the setting makes it current
 again without a recompute. The exception is a new pvmt release that changes
 compute logic: its hashes differ from every older release's, so `pvmt gc`
 drops latest computes made by an older pvmt and sweeps their runs, except the
-ones a snapshot holds. A snapshot
-never changes after it is created: it keeps the hash, `hex_edge_m`, boundary,
-stations and turnout it was created with, and exports exactly as created after
-any later ingest or config edit. Export and serve warn when a city in the
-published snapshot was frozen under other settings than the current ones (see
-[troubleshooting](troubleshooting.md#snapshot-was-created-under-other-settings)).
-Export refuses, before writing anything, when a city has no snapshot (see
-[troubleshooting](troubleshooting.md#city-has-no-snapshot)). `pvmt status` and
-`pvmt snapshots show <name>` show each city's hash in a snapshot.
+ones a snapshot holds.
 
-A snapshot is a named, immutable tag over every configured city, like a git
-tag. `pvmt snapshots create 2026-11` freezes each city's latest compute under
-its current hash and `hex_edge_m`, all at once or not at all: it refuses the
-snapshot when any city's parts were not all computed from the features and
-boundary stored now, listing every refused city (see
-[troubleshooting](troubleshooting.md#snapshots-create-refuses-a-city)). A
-name is 1 to 64 letters, digits, `.`, `_` or `-`, starting with a letter or
-digit; `latest` is reserved. By convention a snapshot is named for the
-month its data was cut (`2026-11`): that keeps data snapshots apart from
-pvmt's own version tags (`v0.5.0`) and sorts them in date order. A second
-cut in the same month can take a suffix (`2026-11.1`). Creating a name that
-exists is refused: to
-replace a snapshot, `pvmt snapshots delete 2026-11` and create it again. To
-roll back, delete the newest snapshot, or publish an older one with
-`pvmt export --snapshot NAME`. `pvmt snapshots diff A B` compares two
-snapshots' results city by city, and `pvmt snapshots prune --keep N` keeps
-the N newest.
+A snapshot never changes after it is created: it keeps the hash,
+`hex_edge_m`, boundary, stations and turnout it was created with, and exports
+exactly as created after any later ingest or config edit. Export and serve
+warn when a city in the published snapshot was frozen under other settings
+than the current ones (see
+[troubleshooting](troubleshooting.md#snapshot-was-created-under-other-settings)),
+and export refuses, before writing anything, when a city has no snapshot (see
+[troubleshooting](troubleshooting.md#city-has-no-snapshot)). `pvmt status` and
+`pvmt snapshots show <name>` show each city's hash in a snapshot. How
+snapshots are stored is in
+[architecture](architecture.md#runs-and-snapshots).
 
 ## Grid and display
 
@@ -278,17 +273,12 @@ largest unit, so a month is `"720h"`), at least `"1m"`; a bare number fails to
 load. The default is a week. Overpass and
 Nominatim send no `ETag` or `Last-Modified`, so a stale entry is downloaded in
 full again; the long default keeps a retry of a failed city on the same data as
-the rest of the run. Shorten it to pick up OpenStreetMap edits sooner, or pass
-`--force` to an ingest command (`pvmt all ingest --force` included) to bypass
-the cache for one run. `--rebuild-boundary` on the same commands re-resolves a
-stored city boundary and its water strip through the cache, without bypassing
-it, so a fix to the strip can be replayed: the boundary and water responses
-come from the cache while they are fresh. The roads fetched with the boundary
-are queried over the unstripped boundary's bbox, so for a city whose earlier
-strip shrank the bbox (water stripped off an edge), the first rebuild fetches
-its roads from upstream. Only the loaded file's `[cache]` applies; an
+the rest of the run. Shorten it to pick up OpenStreetMap edits sooner. An
+ingest command's `--force` bypasses the cache for one run, and
+`--rebuild-boundary` replays a city's boundary through it (see
+`pvmt all ingest --help`). Only the loaded file's `[cache]` applies; an
 `[[include]]`d file's is ignored. It changes no stored result, so it is not part
-of the config hash. Disk use is separate: see `pvmt cache prune`.
+of the config hash. Disk use is separate: see `pvmt cache prune --help`.
 
 ```toml
 [cache]

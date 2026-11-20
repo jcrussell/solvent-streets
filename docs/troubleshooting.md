@@ -124,10 +124,10 @@ hint: Export publishes each city's newest snapshot. Create one for each first:
   Reno, NV: pvmt --city reno-nv all compute && pvmt snapshots create <name>
 ```
 
-Computes only update a city's latest compute; `pvmt snapshots create <name>`
-freezes every city's as the snapshot export publishes. Run the listed
-commands: the computes first, then one `snapshots create`, which covers every
-configured city. `all compute` comes first for a city with nothing computed
+Computes only update a city's latest compute, and export publishes snapshots
+(see [Snapshots and the config hash](configuration.md#snapshots-and-the-config-hash)).
+Run the listed commands: the computes first, then one `snapshots create`,
+which covers every configured city. `all compute` comes first for a city with nothing computed
 under the current settings: never computed, or computed only under settings
 that have changed since. A multi-city export skips a city with no boundary
 stored rather than refusing it, but when no city has one (a fresh database)
@@ -202,13 +202,9 @@ oakland-ca: refused: roads re-ingested 2026-11-14 10:02 UTC after the combined, 
 refused 2026-11: 1 of 2 cities refused; nothing was created
 ```
 
-A snapshot must be coherent, so create refuses a city when a part was
-computed from a feature set or boundary that has been ingested again (or
-first ingested, or removed) since, when it has no pavement compute, when its
-pavement has no combined pass, or when a pavement resource was ingested but
-never computed. Each reason names the input and when it changed. Identical
-data re-ingested does not count: the check compares content digests, not
-times. `pvmt status` shows the same verdict before you create, as each part's
+A snapshot must be coherent; `pvmt snapshots create --help` lists what refuses
+a city. Each reason names the input and when it changed. Identical data
+re-ingested does not count: the check compares content digests, not times. `pvmt status` shows the same verdict before you create, as each part's
 *State* (`stale: roads re-ingested …`). Run the hinted command, then create
 again with the same name. The hint is one of the following.
 
@@ -252,9 +248,9 @@ wrong:
 - **Warning `water strip skipped: …`** (`bbox:`, `interior points:` or
   `subtract:`). The geometry step failed, so the boundary was saved with its
   water still in, and area figures are inflated. Re-run the ingest with
-  `--rebuild-boundary`, which re-resolves the stored boundary through the
-  HTTP cache (asking upstream only for what it does not hold), or `--force` to fetch it fresh from upstream. If it recurs, the
-  boundary itself is probably wrong (last item).
+  `--rebuild-boundary`, or with `--force` to fetch the boundary fresh from
+  upstream (see `pvmt all ingest --help`). If it recurs, the boundary itself
+  is probably wrong (last item).
 - **Error `water strip for <city>: water fetch failed`.** Overpass did not
   answer. Nothing was saved, so the next ingest retries. Wait a few minutes
   and re-run.
@@ -316,22 +312,14 @@ This produces no error. Every Overpass, ArcGIS, Nominatim and TIGERweb response
 is written to the HTTP cache. Nothing in the request path ever removes an
 entry, and an edited bbox or config writes new entries beside the old ones. A
 long-lived install can reach several GiB, even though bodies are stored
-gzip-compressed. `pvmt cache prune` reclaims it:
-
-```
-pvmt cache prune --dry-run    # what would go, and how much it frees
-pvmt cache prune              # older than 30 days, then oldest-first down to 500 MiB
-pvmt cache prune --max-age=168h --max-size=100mb --yes   # unattended
-```
-
-`pvmt cache prune` asks before deleting, and without a terminal it refuses
-unless you pass `--yes`. It reads no config and opens no database, so it works
-when either is broken, and it also sweeps entries half-written by a crash.
-Pruning touches no ingested data. Every pruned response is downloaded again
-when next needed, which costs community-funded endpoints, so prefer a size cap
-to a wipe. The cache can't be turned off. `--force` on an ingest (including `pvmt all
-ingest`) bypasses it for that run, and still stores the fresh response. To see
-OpenStreetMap edits sooner without `--force`, shorten `[cache] ttl` (see
+gzip-compressed. `pvmt cache prune` reclaims it: start with
+`pvmt cache prune --dry-run`, which says what would go and how much it frees,
+and see `pvmt cache prune --help` for the caps and unattended use. It works
+even when the config or the database is broken, and touches no ingested data.
+Every pruned response is downloaded again when next needed, which costs
+community-funded endpoints, so prefer a size cap to a wipe. The cache can't be
+turned off; to see OpenStreetMap edits sooner, shorten `[cache] ttl` or pass
+`--force` to one ingest (see
 [configuration](configuration.md#http-cache-cache)).
 
 ## Hexes overhang the city outline at high zoom

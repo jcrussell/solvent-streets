@@ -166,8 +166,19 @@ Every command follows the same rules, so the CLI reads as one tool:
 
 ## Writing documentation
 
-Every fact has exactly one home. Other pages link to that home rather than
-restate it, so a change is made once and nothing drifts. The homes:
+Each fact has one home. Other pages link to that home rather than restate
+it, so a change is made once and nothing drifts:
+
+- A command's or flag's behaviour lives in its cobra `Short`, `Long` and
+  `Example` and in the flag's usage string. Other pages name the command
+  and point at its `--help` (or `docs/reference/`).
+- Concepts and workflows live in `docs/`. Help text gives one sentence and
+  links there.
+- An error's hint owns its remediation. `troubleshooting.md` explains the
+  error and quotes only enough of the hint to be searchable.
+- Docs describe the code as it is now.
+
+The pages and what each owns:
 
 | Page | Owns |
 |---|---|
@@ -184,7 +195,7 @@ restate it, so a change is made once and nothing drifts. The homes:
 | `--help` (`make gendocs`) | each command's flags and usage |
 
 Open each page with the big picture, and let the detail follow or live behind
-a link. Describe the code as it is now. History belongs in commit messages,
+a link. History belongs in commit messages,
 release notes and `upgrading.md`, so write no "now", "no longer" or
 "previously" notes, and keep no tables of superseded results. Don't list what
 `ls`, `--help` or `make help` already shows. A list or table earns its place
@@ -217,15 +228,13 @@ Its notes link to that release's section of
 locally, but not the changelog filters.
 
 The showcase at <https://joncrussell.com/solvent-streets/> is one `pvmt export`
-of [`examples/all/`](examples/all/pvmt.toml). That config `[[include]]`s every
-other example and tags each city at the include site. Ingest and compute can't
-run in CI: the database is about 1 GB, and the upstream pulls are slow and
-rate-limited. So the site is built from a developer machine. `examples/all`
-stores no data of its own: each city keeps the `config_id` of the example that
-declared it, so an ingest or compute run from `examples/all` writes the rows
-that example's own run would, and fetches a city shared by several examples
-once (see [Config identity](docs/configuration.md#config-identity-config_id)).
-To publish:
+of [`examples/all/`](examples/all/pvmt.toml), which `[[include]]`s every other
+example and stores no data of its own: an ingest or compute run from it fills
+each example's data (see
+[Config identity](docs/configuration.md#config-identity-config_id)). Ingest and
+compute can't run in CI: the database is about 1 GB, and the upstream pulls are
+slow and rate-limited. So the site is built from a developer machine. To
+publish:
 
 ```
 cd examples/all && pvmt all ingest && pvmt all compute   # every city; hours (one city: --city <slug>)

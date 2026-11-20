@@ -725,10 +725,9 @@ ship the forecast (see
 
 **Outbound HTTP cache.** Upstream responses are disk-cached in the cache
 directory, one `<key>.json.gz` (the gzip-compressed body) and `<key>.meta` per
-request, and served for `[cache] ttl`, a week by default (`cache.DefaultTTL`).
-The default is long because Overpass and Nominatim send no validators, so a
-stale entry is a full re-download: a week keeps a retry or a replay of the same
-city on the corpus it first fetched. That includes Overpass POSTs, because the key folds in
+request, and served for `[cache] ttl` (`cache.DefaultTTL` when unset; why
+the default is long is in [configuration](configuration.md#http-cache-cache)).
+Overpass POSTs are cached too, because the key folds in
 the method, the full URL and the body. A configured Overpass endpoint therefore
 gets entries of its own, and the default endpoint's URL is a pinned constant so
 its entries keep matching. A `200` whose body is over the 100 MiB response cap (New
