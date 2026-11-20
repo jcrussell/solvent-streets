@@ -472,8 +472,8 @@ func Open(ctx context.Context, path string) (retStore *RootStore, retErr error) 
 	incompatible := func(err error) error {
 		return hint.Withf(fmt.Errorf("open %s: %w", path, err),
 			"move %s (and any -wal/-shm files beside it) aside, and pvmt creates a fresh database on "+
-				"the next run (it never deletes the old one for you); then re-ingest with 'pvmt all ingest' "+
-				"and 'pvmt all compute'; see docs/troubleshooting.md#incompatible-database", path)
+				"the next run (it never deletes the old one for you); then re-ingest with 'pvmt all ingest', "+
+				"'pvmt all compute' and 'pvmt snapshots create <name>'; see docs/troubleshooting.md#incompatible-database", path)
 	}
 	// Refuse an incompatible file before a read-write connection touches it
 	// (probeGeneration): closing one would checkpoint its WAL.
