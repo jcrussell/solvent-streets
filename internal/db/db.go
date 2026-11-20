@@ -294,10 +294,11 @@ type Store interface {
 	// latest compute nor pinned runs, the newest covering the city. (nil,
 	// nil) when the view reads no snapshot.
 	ViewSnapshot(ctx context.Context) (*SnapshotCity, error)
-	// WithSnapshot returns a view pinned to this city in one snapshot: its
-	// runs and its frozen boundary. Every snapshot-scoped read of the view
-	// returns ErrSnapshotGone once that snapshot no longer exists.
-	WithSnapshot(snapshotID int64) Store
+	// WithSnapshot returns a view pinned to this city in one snapshot, the
+	// one with id snapshotID and name name: its runs and its frozen boundary.
+	// Every snapshot-scoped read of the view returns ErrSnapshotGone, naming
+	// the snapshot, once that snapshot no longer exists.
+	WithSnapshot(snapshotID int64, name string) Store
 	// WithLatestCompute returns a view of the latest compute under
 	// configHash, resolved on every read.
 	WithLatestCompute(configHash string) Store
@@ -341,10 +342,13 @@ type Store interface {
 type sqliteStore struct {
 	db         *sql.DB
 	cityID     int64
-	snapshotID int64   // 0 = unpinned; >0 = read exactly this snapshot (wins over the rest)
-	runs       []int64 // with runsPinned: read exactly these runs (WithRuns)
-	runsPinned bool
-	configHash string // "" = newest snapshot; non-empty = the latest compute under this hash
+	snapshotID int64 // 0 = unpinned; >0 = read exactly this snapshot (wins over the rest)
+	// snapshotName is the pinned snapshot's name, for the error once it is
+	// gone ("" when the pin did not say).
+	snapshotName string
+	runs         []int64 // with runsPinned: read exactly these runs (WithRuns)
+	runsPinned   bool
+	configHash   string // "" = newest snapshot; non-empty = the latest compute under this hash
 }
 
 var _ Store = (*sqliteStore)(nil)

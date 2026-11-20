@@ -511,6 +511,7 @@ func TestDataFile_SnapshotParam(t *testing.T) {
 
 	// Track what snapshotID the pinned store was created with.
 	var pinnedSnapshot int64
+	var pinnedNames []string
 	pinnedStore := &dbtest.MockStore{
 		GetBoundaryFunc: func(_ context.Context) (string, error) { return testBoundary, nil },
 		// WithSnapshot pins snapshot-aware reads but leaves ListSnapshots
@@ -545,7 +546,8 @@ func TestDataFile_SnapshotParam(t *testing.T) {
 			}
 			return 0, db.ErrSnapshotNotFound
 		},
-		WithSnapshotFunc: func(id int64) db.Store {
+		WithSnapshotFunc: func(id int64, name string) db.Store {
+			pinnedNames = append(pinnedNames, name)
 			cp := *pinnedStore
 			cp.CityMetrics = results.TotalRows(srvRtRoads, results.Totals{Area: float64(id * 1000), Features: int(id * 10)})
 			return &cp
@@ -582,11 +584,14 @@ func TestDataFile_SnapshotParam(t *testing.T) {
 		t.Errorf("absent ?snapshot=: expected latest area 999000, got %+v", latest)
 	}
 
-	// snapshot=v1 → root.WithSnapshot(1) is invoked; pinned response, and
-	// meta.json names it.
+	// snapshot=v1 → root.WithSnapshot(1, "v1") is invoked; pinned response,
+	// and meta.json names it.
 	_, s1 := hit(t, "/data/meta.json?snapshot=v1")
 	if s1 == nil || s1.Stats[0].Area != 1000 || s1.Snapshot != "v1" || s1.SnapshotDate != "2026-03-01" {
 		t.Errorf("snapshot=v1: expected area 1000 from snapshot v1 of 2026-03-01, got %+v", s1)
+	}
+	if len(pinnedNames) == 0 || pinnedNames[len(pinnedNames)-1] != "v1" {
+		t.Errorf("pinned names = %q, want the store pinned with the name v1", pinnedNames)
 	}
 
 	// snapshot=v2 → different cached body. Also confirms cache key isolates.

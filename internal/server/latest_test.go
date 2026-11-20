@@ -103,5 +103,5 @@ func pinNewestSnapshot(ctx context.Context, entry export.CityEntry) (export.City
 	if err != nil || snap == nil {
 		return entry, err
 	}
-	return entry.WithSnapshot(snap.ID), nil
+	return entry.WithSnapshot(snap.ID, snap.Name), nil
 }

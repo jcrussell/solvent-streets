@@ -38,7 +38,7 @@ func TestRunFacilities_ReadFromTheResolvedSnapshot(t *testing.T) {
 		}
 		return fs
 	}
-	if got := list(store.WithSnapshot(s1), "service:fire"); !slices.Equal(got, old) {
+	if got := list(store.WithSnapshot(s1, ""), "service:fire"); !slices.Equal(got, old) {
 		t.Errorf("pinned = %+v, want %+v", got, old)
 	}
 	want := []RunFacility{moved[1], moved[0]} // ordered by id
@@ -52,7 +52,7 @@ func TestRunFacilities_ReadFromTheResolvedSnapshot(t *testing.T) {
 	if _, err := deleteSnapshotID(store, s1); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.WithSnapshot(s1).ListRunFacilities(ctx, "service:fire"); !errors.Is(err, ErrSnapshotGone) {
+	if _, err := store.WithSnapshot(s1, "").ListRunFacilities(ctx, "service:fire"); !errors.Is(err, ErrSnapshotGone) {
 		t.Errorf("deleted pin: err = %v, want ErrSnapshotGone", err)
 	}
 }

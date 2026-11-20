@@ -101,7 +101,7 @@ func TestSnapshot_RendersOnItsOwnEdgeAndBoundary(t *testing.T) {
 	newIDs := expectedGrid(t, exportBoundaryB, 100, cfg.ResolvedMinHexArea(&cfg.Cities[0]))
 	c.commitGrid(cfg, cfg.Cities[0], coverageFor(newIDs))
 
-	pinned := c.entry().WithSnapshot(old)
+	pinned := c.entry().WithSnapshot(old, "")
 	if edge, err := pinned.HexEdge(ctx); err != nil || edge != 150 {
 		t.Fatalf("HexEdge = (%v, %v), want the snapshot's 150", edge, err)
 	}
@@ -168,5 +168,5 @@ func pinNewestSnapshot(ctx context.Context, entry CityEntry) (CityEntry, error) 
 	if err != nil || snap == nil {
 		return entry, err
 	}
-	return entry.WithSnapshot(snap.ID), nil
+	return entry.WithSnapshot(snap.ID, snap.Name), nil
 }

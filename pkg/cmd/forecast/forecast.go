@@ -333,7 +333,7 @@ func runForecast(ctx context.Context, opts *Options) error {
 		if err != nil {
 			return fmt.Errorf("resolve snapshot %q for %s: %w", opts.Snapshot, city.Name, err)
 		}
-		return forecastStore(ctx, opts, store.WithSnapshot(id), city, &fc, sys)
+		return forecastStore(ctx, opts, store.WithSnapshot(id, opts.Snapshot), city, &fc, sys)
 	}
 
 	// Computed, but not under the current settings: the latest compute it

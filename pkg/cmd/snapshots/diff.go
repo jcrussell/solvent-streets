@@ -313,7 +313,7 @@ func diffCity(ctx context.Context, root db.RootStorer, cfg *config.Config, ca, c
 		}
 	}
 	entry := func(snap db.SnapshotCity) export.CityEntry {
-		return export.CityEntry{Config: cfg, City: city, Slug: snap.CitySlug, Store: root.ForCity(snap.CityID).WithSnapshot(snap.ID)}
+		return export.CityEntry{Config: cfg, City: city, Slug: snap.CitySlug, Store: root.ForCity(snap.CityID).WithSnapshot(snap.ID, snap.Name)}
 	}
 	ma, err := loadMeasures(ctx, entry(ca))
 	if err != nil {

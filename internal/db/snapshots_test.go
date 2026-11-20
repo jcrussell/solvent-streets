@@ -240,7 +240,7 @@ func TestSnapshot_PinnedReadIsTheWholeCity(t *testing.T) {
 	_, s2 := commitRun(t, store, "h", "parking", parkingRun(t, store, 7))
 	commitRun(t, store, "h", "roads", roadsRun(t, store, 200))
 
-	pinned := store.WithSnapshot(s2)
+	pinned := store.WithSnapshot(s2, "")
 	if got := roadsArea(t, pinned); got != 100 {
 		t.Errorf("pinned roads = %v, want 100 (the roads run in snapshot %d, not the later recompute)", got, s2)
 	}
@@ -264,7 +264,7 @@ func TestSnapshot_EmptyRunHidesMetric(t *testing.T) {
 	if got := fireHexes(t, store); len(got) != 0 {
 		t.Errorf("fire after an empty rerun = %v, want none", got)
 	}
-	if got := fireHexes(t, store.WithSnapshot(s1)); !slices.Equal(got, []string{"f1"}) {
+	if got := fireHexes(t, store.WithSnapshot(s1, "")); !slices.Equal(got, []string{"f1"}) {
 		t.Errorf("the earlier snapshot = %v, want its own [f1]", got)
 	}
 }
@@ -847,7 +847,7 @@ func TestHasHexMetric(t *testing.T) {
 	if ok, _ := store.WithLatestCompute("other").HasHexMetric(ctx, "paved_area", both); ok {
 		t.Error("a different config hash must not see the rows")
 	}
-	if ok, _ := store.WithSnapshot(snap+100).HasHexMetric(ctx, "paved_area", both); ok {
+	if ok, _ := store.WithSnapshot(snap+100, "").HasHexMetric(ctx, "paved_area", both); ok {
 		t.Error("a pin to a snapshot that does not exist must see nothing")
 	}
 }

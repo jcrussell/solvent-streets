@@ -284,6 +284,7 @@ func TestRunForecast_Snapshot(t *testing.T) {
 	cfg := &config.Config{}
 	city := &config.CityConfig{Name: "Test City"}
 	var pinned int64
+	var pinnedName string
 	view := &dbtest.MockStore{}
 	store := &dbtest.MockStore{
 		ResolveSnapshotFunc: func(_ context.Context, name string) (int64, error) {
@@ -292,7 +293,7 @@ func TestRunForecast_Snapshot(t *testing.T) {
 			}
 			return 0, db.ErrSnapshotNotFound
 		},
-		WithSnapshotFunc: func(id int64) db.Store { pinned = id; return view },
+		WithSnapshotFunc: func(id int64, name string) db.Store { pinned, pinnedName = id, name; return view },
 		LatestComputeFunc: func(context.Context, string) ([]db.LatestPart, error) {
 			t.Error("--snapshot read the latest compute")
 			return nil, nil
@@ -309,8 +310,8 @@ func TestRunForecast_Snapshot(t *testing.T) {
 			Snapshot:    name,
 		})
 	}
-	if err := run("2026-11"); !errors.Is(err, cmdutil.ErrNoResults) || pinned != 7 {
-		t.Errorf("err = %v, pinned %d; want the empty snapshot view (ErrNoResults) of snapshot 7", err, pinned)
+	if err := run("2026-11"); !errors.Is(err, cmdutil.ErrNoResults) || pinned != 7 || pinnedName != "2026-11" {
+		t.Errorf("err = %v, pinned %d %q; want the empty snapshot view (ErrNoResults) of snapshot 7, 2026-11", err, pinned, pinnedName)
 	}
 	if err := run("2025-01"); err == nil || !strings.Contains(err.Error(), `snapshot "2025-01" does not cover Test City`) {
 		t.Errorf("err = %v, want a not-covered error", err)

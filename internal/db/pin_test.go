@@ -23,7 +23,7 @@ func TestWithSnapshot_GoneFailsEveryRead(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	pinned := store.WithSnapshot(s1)
+	pinned := store.WithSnapshot(s1, "v1")
 	if got := roadsArea(t, pinned); got != 100 {
 		t.Fatalf("pinned roads before delete = %v, want 100", got)
 	}
@@ -33,8 +33,8 @@ func TestWithSnapshot_GoneFailsEveryRead(t *testing.T) {
 
 	views := map[string]Store{
 		"deleted":      pinned,
-		"never":        store.WithSnapshot(9999),
-		"another city": root.ForCity(otherID).WithSnapshot(s1 + 1),
+		"never":        store.WithSnapshot(9999, ""),
+		"another city": root.ForCity(otherID).WithSnapshot(s1+1, ""),
 	}
 	for name, v := range views {
 		reads := map[string]func() error{
@@ -48,6 +48,15 @@ func TestWithSnapshot_GoneFailsEveryRead(t *testing.T) {
 				t.Errorf("%s view: %s error = %v, want ErrSnapshotGone", name, read, err)
 			}
 		}
+	}
+
+	// The error names the snapshot the view was pinned to, never its id.
+	if _, err := pinned.GetBoundary(ctx); err == nil || err.Error() != `snapshot "v1" no longer exists (deleted or pruned)` {
+		t.Errorf("deleted view error = %v, want it to name snapshot \"v1\"", err)
+	}
+	// A pin without a name falls back to the id.
+	if _, err := views["never"].GetBoundary(ctx); err == nil || err.Error() != "snapshot 9999 no longer exists (deleted or pruned)" {
+		t.Errorf("unnamed view error = %v, want it to give the id 9999", err)
 	}
 
 	// The unpinned view and the surviving snapshot are unaffected.
@@ -76,8 +85,8 @@ func TestWithSnapshot_GetBoundaryIsFrozen(t *testing.T) {
 		view Store
 		want string
 	}{
-		{"pinned to s1", store.WithSnapshot(s1), geomA},
-		{"pinned to s0 (froze none)", store.WithSnapshot(s0), geomB},
+		{"pinned to s1", store.WithSnapshot(s1, ""), geomA},
+		{"pinned to s0 (froze none)", store.WithSnapshot(s0, ""), geomB},
 		{"unpinned", store, geomB},
 		{"latest-compute view", store.WithLatestCompute("h"), geomB},
 		{"pinned runs", store.WithRuns([]int64{1}), geomB},
@@ -109,8 +118,8 @@ func TestViewSnapshot(t *testing.T) {
 		want      int64
 		hasDigest bool
 	}{
-		{store.WithSnapshot(s0), s0, false},
-		{store.WithSnapshot(s1), s1, true},
+		{store.WithSnapshot(s0, ""), s0, false},
+		{store.WithSnapshot(s1, ""), s1, true},
 		{store, s1, true},
 	} {
 		snap, err := c.view.ViewSnapshot(ctx)
@@ -127,7 +136,7 @@ func TestViewSnapshot(t *testing.T) {
 	if _, err := deleteSnapshotID(store, s0); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.WithSnapshot(s0).ViewSnapshot(ctx); !errors.Is(err, ErrSnapshotGone) {
+	if _, err := store.WithSnapshot(s0, "").ViewSnapshot(ctx); !errors.Is(err, ErrSnapshotGone) {
 		t.Errorf("deleted pin: err = %v, want ErrSnapshotGone", err)
 	}
 }

@@ -232,7 +232,7 @@ func pinEntry(ctx context.Context, entry exportpkg.CityEntry, errOut io.Writer) 
 			warn.Fprintf(errOut, "%s has nothing computed under the current settings, so its "+
 				"Latest compute view is empty; run 'pvmt --city %s all compute' to fill it", entry.City.Name, entry.Slug)
 		}
-		return entry.WithSnapshot(snap.ID), nil, nil
+		return entry.WithSnapshot(snap.ID, snap.Name), nil, nil
 	}
 	if len(latest) > 0 {
 		warn.Fprintf(errOut, "%s has no snapshot; serving its latest compute (not snapshotted); "+

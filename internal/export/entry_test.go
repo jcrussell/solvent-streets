@@ -86,7 +86,7 @@ func TestPinNewest_RefusesCitiesWithNoSnapshot(t *testing.T) {
 			ListSnapshotsFunc: func(context.Context) ([]db.SnapshotCity, error) { return snaps, nil },
 			LatestComputeFunc: func(context.Context, string) ([]db.LatestPart, error) { return latest, nil },
 			GetBoundaryFunc:   func(context.Context) (string, error) { return boundary, nil },
-			WithSnapshotFunc:  func(int64) db.Store { pins++; return &dbtest.MockStore{} },
+			WithSnapshotFunc:  func(int64, string) db.Store { pins++; return &dbtest.MockStore{} },
 		}}
 	}
 	entries := []CityEntry{

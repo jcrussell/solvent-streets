@@ -759,7 +759,7 @@ func dataStamp(ctx context.Context, entry CityEntry, snapshotID int64) (stamp, e
 				return stamp{date: snap.CreatedAt.Format(time.DateOnly), snapshot: snap.Name}, nil
 			}
 		}
-		return stamp{}, fmt.Errorf("snapshot %d not found", snapshotID)
+		return stamp{}, fmt.Errorf("%s: the snapshot it is pinned to is not listed", entry.City.Name)
 	}
 	if entry.ReadsLatest() {
 		var newest time.Time

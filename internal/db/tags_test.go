@@ -98,7 +98,7 @@ func TestCreateSnapshot_Tag(t *testing.T) {
 		}
 	}
 	for _, id := range []int64{a, b} {
-		if got := roadsArea(t, root.ForCity(id).WithSnapshot(snap.ID)); got != float64(100*id) {
+		if got := roadsArea(t, root.ForCity(id).WithSnapshot(snap.ID, "")); got != float64(100*id) {
 			t.Errorf("city %d pinned roads = %v, want %v", id, got, 100*id)
 		}
 		got, err := root.ForCity(id).ResolveSnapshot(ctx, "v0.5.0")

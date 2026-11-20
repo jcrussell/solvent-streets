@@ -188,9 +188,9 @@ func (s *sqliteStore) frozenBoundary(ctx context.Context) (gj string, frozen boo
 	err = s.db.QueryRowContext(ctx, sqlFrozenBoundary, s.snapshotID, s.cityID).Scan(&geometry)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
-		return "", false, fmt.Errorf("snapshot %d: %w", s.snapshotID, ErrSnapshotGone)
+		return "", false, s.snapshotGone()
 	case err != nil:
-		return "", false, fmt.Errorf("get snapshot %d boundary: %w", s.snapshotID, err)
+		return "", false, fmt.Errorf("get snapshot %s boundary: %w", s.snapshotLabel(), err)
 	}
 	return geometry.String, geometry.Valid, nil
 }

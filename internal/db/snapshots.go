@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -35,15 +36,42 @@ var commitBusyBudget = 2 * time.Minute
 // created. A pinned view never reads a missing snapshot as an empty city.
 var ErrSnapshotGone = errors.New("snapshot no longer exists (deleted or pruned)")
 
+// snapshotGoneError is ErrSnapshotGone naming the snapshot (snapshotLabel).
+type snapshotGoneError struct{ label string }
+
+func (e snapshotGoneError) Error() string {
+	return "snapshot " + e.label + " no longer exists (deleted or pruned)"
+}
+
+func (e snapshotGoneError) Is(target error) bool { return target == ErrSnapshotGone }
+
+// snapshotLabel is how errors name the view's pinned snapshot: its quoted
+// name, or its id when the pin gave no name.
+func (s *sqliteStore) snapshotLabel() string {
+	if s.snapshotName == "" {
+		return strconv.FormatInt(s.snapshotID, 10)
+	}
+	return strconv.Quote(s.snapshotName)
+}
+
+// snapshotGone is ErrSnapshotGone for the view's pinned snapshot.
+func (s *sqliteStore) snapshotGone() error {
+	return snapshotGoneError{s.snapshotLabel()}
+}
+
 // WithSnapshot returns a view that reads exactly the given snapshot, including
-// the boundary it froze (GetBoundary). A snapshotID of 0 returns an unpinned
-// view. A pin wins over WithLatestCompute and WithRuns (it is the more
+// the boundary it froze (GetBoundary). name is the snapshot's name, which
+// the ErrSnapshotGone of a later read quotes. A snapshotID of 0 returns an
+// unpinned view. A pin wins over WithLatestCompute and WithRuns (it is the more
 // specific request, matching the server's ?snapshot=N). Once the snapshot is
 // gone every snapshot-scoped read returns ErrSnapshotGone. The underlying DB
 // connection is shared.
-func (s *sqliteStore) WithSnapshot(snapshotID int64) Store {
+func (s *sqliteStore) WithSnapshot(snapshotID int64, name string) Store {
 	cp := *s
-	cp.snapshotID = snapshotID
+	cp.snapshotID, cp.snapshotName = snapshotID, name
+	if snapshotID <= 0 {
+		cp.snapshotName = ""
+	}
 	return &cp
 }
 
@@ -80,9 +108,9 @@ func (s *sqliteStore) checkPin(ctx context.Context, q queryer) error {
 	var one int
 	switch err := q.QueryRowContext(ctx, sqlCityInSnapshot, s.snapshotID, s.cityID).Scan(&one); {
 	case errors.Is(err, sql.ErrNoRows):
-		return fmt.Errorf("snapshot %d: %w", s.snapshotID, ErrSnapshotGone)
+		return s.snapshotGone()
 	case err != nil:
-		return fmt.Errorf("check snapshot %d: %w", s.snapshotID, err)
+		return fmt.Errorf("check snapshot %s: %w", s.snapshotLabel(), err)
 	}
 	return nil
 }
@@ -548,7 +576,10 @@ func (s *sqliteStore) ViewSnapshot(ctx context.Context) (*SnapshotCity, error) {
 		return nil, err
 	}
 	if len(snaps) == 0 { // deleted between the two reads
-		return nil, fmt.Errorf("snapshot %d: %w", id, ErrSnapshotGone)
+		if s.snapshotID <= 0 { // the newest, resolved above: no name to give
+			return nil, snapshotGoneError{strconv.FormatInt(id, 10)}
+		}
+		return nil, s.snapshotGone()
 	}
 	return &snaps[0], nil
 }

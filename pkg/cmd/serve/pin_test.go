@@ -33,7 +33,7 @@ func TestPinEntries(t *testing.T) {
 			WithRunsFunc:      func(runs []int64) db.Store { pins[name] = pin{runs: runs}; return &dbtest.MockStore{} },
 			GetBoundaryFunc:   func(context.Context) (string, error) { return `{"type":"Polygon"}`, nil },
 		}
-		store.WithSnapshotFunc = func(id int64) db.Store {
+		store.WithSnapshotFunc = func(id int64, _ string) db.Store {
 			if id == 0 { // unpinned: LatestComputeEntry clearing any snapshot pin
 				return store
 			}
@@ -108,7 +108,7 @@ func TestPinEntries_StaleLatestWarns(t *testing.T) {
 		WithRunsFunc:    func([]int64) db.Store { return &dbtest.MockStore{} },
 		GetBoundaryFunc: func(context.Context) (string, error) { return `{"type":"Polygon"}`, nil },
 	}
-	store.WithSnapshotFunc = func(int64) db.Store { return store }
+	store.WithSnapshotFunc = func(int64, string) db.Store { return store }
 	entries := []exportpkg.CityEntry{{Config: cfg, City: city, Slug: city.Slug(), Store: store}}
 	var out strings.Builder
 	if err := pinEntries(context.Background(), entries, &out); err != nil {
@@ -129,7 +129,7 @@ func TestPinEntries_RefusesWithNothingToServe(t *testing.T) {
 		store := &dbtest.MockStore{
 			GetBoundaryFunc: func(context.Context) (string, error) { return boundary, nil },
 		}
-		store.WithSnapshotFunc = func(int64) db.Store { return store }
+		store.WithSnapshotFunc = func(int64, string) db.Store { return store }
 		return exportpkg.CityEntry{Config: cfg, City: city, Slug: city.Slug(), Store: store}
 	}
 	for _, tc := range []struct {
@@ -182,7 +182,7 @@ func TestPinNamed(t *testing.T) {
 				return 0, db.ErrSnapshotNotFound
 			},
 		}
-		store.WithSnapshotFunc = func(id int64) db.Store {
+		store.WithSnapshotFunc = func(id int64, _ string) db.Store {
 			pins[name] = id
 			for _, s := range has {
 				if s.ID == id {

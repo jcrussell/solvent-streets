@@ -431,7 +431,7 @@ func (s *Server) serveDataFile(w http.ResponseWriter, r *http.Request, file stri
 	case snapshotID == latestSnapshot:
 		entry = export.LatestComputeEntry(entry, entry.Latest)
 	case snapshotID > 0:
-		entry = entry.WithSnapshot(snapshotID)
+		entry = entry.WithSnapshot(snapshotID, r.URL.Query().Get("snapshot"))
 	}
 	serve, ok := s.dataFiles()[file]
 	if !ok {

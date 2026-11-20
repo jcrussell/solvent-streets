@@ -55,9 +55,9 @@ func (entry CityEntry) ReadsLatest() bool { return entry.readsLatest }
 // cohorts, forecasts, and the boundary, which reads the one the snapshot
 // froze) on the returned store filter to that snapshot, and fail with
 // db.ErrSnapshotGone once it is deleted; unaware reads (features, snapshot
-// list) are unchanged.
-func (entry CityEntry) WithSnapshot(snapshotID int64) CityEntry {
-	entry.Store = entry.Store.WithSnapshot(snapshotID)
+// list) are unchanged. name is the snapshot's name, which that error quotes.
+func (entry CityEntry) WithSnapshot(snapshotID int64, name string) CityEntry {
+	entry.Store = entry.Store.WithSnapshot(snapshotID, name)
 	return entry
 }
 
@@ -152,7 +152,7 @@ func PinNewest(ctx context.Context, entries []CityEntry, skipNoBoundary bool, wa
 		if err := entry.warnPublished(ctx, snaps[i], warn); err != nil {
 			return err
 		}
-		entries[i] = entry.WithSnapshot(snaps[i].ID)
+		entries[i] = entry.WithSnapshot(snaps[i].ID, snaps[i].Name)
 	}
 	return nil
 }
@@ -203,7 +203,7 @@ func PinSnapshot(ctx context.Context, entries []CityEntry, name string, skipNoBo
 		if w := entry.SnapshotSettingsWarning(snaps[i]); w != "" {
 			warnpkg.Fprintf(warn, "%s; exporting it as created", w)
 		}
-		entries[i] = entry.WithSnapshot(snaps[i].ID)
+		entries[i] = entry.WithSnapshot(snaps[i].ID, snaps[i].Name)
 	}
 	return nil
 }
@@ -245,7 +245,7 @@ func (entry CityEntry) namedSnapshot(ctx context.Context, name string) (*db.Snap
 	if err != nil {
 		return nil, fmt.Errorf("resolve snapshot %q for %s: %w", name, entry.City.Name, err)
 	}
-	snap, err := entry.Store.WithSnapshot(id).ViewSnapshot(ctx)
+	snap, err := entry.Store.WithSnapshot(id, name).ViewSnapshot(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("snapshot %q for %s: %w", name, entry.City.Name, err)
 	}
@@ -482,7 +482,7 @@ func LatestComputeEntry(entry CityEntry, latest []db.LatestPart) CityEntry {
 	for i, p := range latest {
 		runs[i] = p.RunID
 	}
-	entry.Store = entry.Store.WithSnapshot(0).WithRuns(runs)
+	entry.Store = entry.Store.WithSnapshot(0, "").WithRuns(runs)
 	entry.Latest, entry.readsLatest = latest, true
 	return entry
 }

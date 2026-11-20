@@ -42,7 +42,7 @@ type MockStore struct {
 	ListSnapshotsFunc     func(context.Context) ([]db.SnapshotCity, error)
 	ResolveSnapshotFunc   func(context.Context, string) (int64, error)
 	ViewSnapshotFunc      func(context.Context) (*db.SnapshotCity, error)
-	WithSnapshotFunc      func(int64) db.Store
+	WithSnapshotFunc      func(id int64, name string) db.Store
 	WithLatestComputeFunc func(string) db.Store
 	WithRunsFunc          func([]int64) db.Store
 	GCScanFunc            func(context.Context, []string) (*db.GCReport, error)
@@ -316,11 +316,12 @@ func (m *MockStore) ViewSnapshot(ctx context.Context) (*db.SnapshotCity, error) 
 }
 
 // WithSnapshot returns the mock unchanged by default — tests that need to
-// observe pinning should set WithSnapshotFunc, typically to return a child
-// MockStore whose ListX funcs know the pinned id.
-func (m *MockStore) WithSnapshot(snapshotID int64) db.Store {
+// observe pinning should set WithSnapshotFunc, which is handed the pinned
+// id and name, typically to return a child MockStore whose ListX funcs know
+// the pinned id.
+func (m *MockStore) WithSnapshot(snapshotID int64, name string) db.Store {
 	if m.WithSnapshotFunc != nil {
-		return m.WithSnapshotFunc(snapshotID)
+		return m.WithSnapshotFunc(snapshotID, name)
 	}
 	return m
 }
