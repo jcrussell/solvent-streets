@@ -2323,12 +2323,34 @@
             const dflt = DEFAULT_TIER_LABELS.indexOf(label);
             return dflt >= 0 ? tierRampColor(dflt, DEFAULT_TIER_LABELS.length) : TIER_COLOR_UNKNOWN;
         }
-        // Chart.js legend items for a tier-colored bar chart (Financials +
-        // Materials share this exact legend): the city's tiers, best first.
+        // Chart.js legend items for the Financials tier-coloured bar charts:
+        // the city's cost tiers, best first.
         function tierLegendLabels() {
             return rankedCostTiers().map(t => {
                 const name = String(t.label || '');
                 const color = tierColor(t.label);
+                return { text: name.charAt(0).toUpperCase() + name.slice(1), fillStyle: color, strokeStyle: color };
+            });
+        }
+        // Material tiers are banded on their own, not by the city's cost
+        // tiers (forecast.MaterialTier), so the Materials tab colours and
+        // lists them by their own rank, best condition first.
+        // rankedMaterialTiers is seed.material_tiers in that order.
+        /** @param {any} seed @returns {{label: string, min_pci: number}[]} */
+        function rankedMaterialTiers(seed) {
+            const tiers = (seed && seed.material_tiers) || [];
+            return tiers.slice().sort((/** @type {any} */ a, /** @type {any} */ b) => b.min_pci - a.min_pci);
+        }
+        /** @param {string} label @param {{label: string}[]} ranked */
+        function materialTierColor(label, ranked) {
+            const rank = ranked.findIndex(t => t.label === label);
+            return rank >= 0 ? tierRampColor(rank, ranked.length) : TIER_COLOR_UNKNOWN;
+        }
+        /** @param {{label: string}[]} ranked */
+        function materialTierLegendLabels(ranked) {
+            return ranked.map(t => {
+                const name = String(t.label || '');
+                const color = materialTierColor(t.label, ranked);
                 return { text: name.charAt(0).toUpperCase() + name.slice(1), fillStyle: color, strokeStyle: color };
             });
         }
@@ -3107,6 +3129,7 @@
             var section = document.getElementById('materials-tier-section');
             var tbody = document.querySelector('#materials-tier-table tbody');
             if (!tiers || tiers.length === 0) { section.style.display = 'none'; return; }
+            var ranked = rankedMaterialTiers({ material_tiers: tiers });
             // Headers and cells follow the unit system.
             var metric = UNIT_SYSTEM === 'metric';
             document.getElementById('materials-mix-th').textContent = 'Mix (' + intensityUnit() + ')';
@@ -3117,7 +3140,7 @@
                 var binderKgSqM = t.per_1000_sqm.binder_tonnes;
                 var oilPer1000 = t.per_1000_sqm.oil_barrels;
                 var dot = '<span style="display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;background:' +
-                    tierColor(t.label) + '"></span>';
+                    materialTierColor(t.label, ranked) + '"></span>';
                 // Material tiers are chosen by condition,
                 // so the row names its PCI band; the top band's exclusive 101 reads 100.
                 var band = (typeof t.min_pci === 'number' && typeof t.max_pci === 'number')
@@ -3306,6 +3329,7 @@
                 var baseline = findBaseline(scenarios);
                 if (!baseline) return;
                 var series = materialSeries(baseline);
+                var ranked = rankedMaterialTiers(seed);
                 var card = makeChartCard('Annual Mix by Condition Tier (Do-Nothing)');
                 chartsDiv.appendChild(card);
                 var ctx = card.querySelector('canvas').getContext('2d');
@@ -3316,7 +3340,7 @@
                         datasets: [{
                             label: 'Asphalt Mix',
                             data: series.map(function(r) { return massToDisplay(r.mixTonnes); }),
-                            backgroundColor: series.map(function(r) { return tierColor(r.tier); })
+                            backgroundColor: series.map(function(r) { return materialTierColor(r.tier, ranked); })
                         }]
                     },
                     options: {
@@ -3324,7 +3348,7 @@
                         scales: { y: massAxis() },
                         plugins: {
                             verticalCrosshair: false,
-                            legend: { display: true, position: 'bottom', labels: { generateLabels: tierLegendLabels } },
+                            legend: { display: true, position: 'bottom', labels: { generateLabels: function() { return materialTierLegendLabels(ranked); } } },
                             tooltip: { callbacks: { label: function(ctx) { return fmtDisplayMass(ctx.parsed.y); } } }
                         }
                     }

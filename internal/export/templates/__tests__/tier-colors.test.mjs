@@ -122,3 +122,26 @@ test('a material tier keeps its default colour under a custom cost schedule', as
   assert.equal(win.tierColor('rehab'), AMBER, 'material tiers use the default labels');
   assert.equal(win.tierColor('no-such-tier'), GREY);
 });
+
+// The Materials mix chart's bars are the material tiers the tonnes were
+// priced at, which a custom cost schedule does not rename or re-band, so its
+// legend lists the seed's material tiers, in the bars' colours.
+test('the Materials mix legend lists the material tiers under a custom cost schedule', async () => {
+  const custom = [tier(0, 25, 'rebuild'), tier(25, 50, 'mill'), tier(50, 75, 'overlay'), tier(75, 101, 'seal')];
+  const { win, flush } = await page(custom);
+  // The page-config seed is the city's too, as on a single-city export.
+  win.eval('FORECAST_SEED = { cost_tiers: ' + JSON.stringify(custom) + ' }');
+  win.__charts.length = 0;
+  win.selectTab('materials-tab');
+  await flush(12);
+
+  const chart = win.__charts.find((c) => c.config.type === 'bar' && c.options?.plugins?.legend?.labels?.generateLabels);
+  assert.ok(chart, 'no Materials mix chart rendered');
+  const legend = chart.options.plugins.legend.labels.generateLabels();
+  assert.deepEqual(legend.map((l) => [l.text, l.fillStyle]),
+    [['Preventive', GREEN], ['Rehab', AMBER], ['Reconstruction', RED]]);
+  const byLabel = new Map(legend.map((l) => [l.text.toLowerCase(), l.fillStyle]));
+  const bars = Array.from(chart.data.datasets[0].backgroundColor);
+  assert.ok(bars.length > 0 && bars.every((b) => [...byLabel.values()].includes(b)),
+    'a bar is drawn in a colour the legend does not list: ' + bars);
+});
