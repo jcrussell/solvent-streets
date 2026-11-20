@@ -98,6 +98,14 @@ type ForecastExport struct {
 	// a page can flag figures built on the default PCI.
 	// Roads only, like the figures.
 	InitialPCISource config.SourceKind `json:"initial_pci_source,omitempty"`
+
+	// totalArea is the resource's stored all-scope total area, and
+	// cityTotalArea its city-scope one (hasCityTotal false when it has none):
+	// the totals the forecast was built from, which BuildHexCostSummary
+	// spreads the year-1 need over. Not emitted.
+	totalArea     float64
+	cityTotalArea float64
+	hasCityTotal  bool
 }
 
 // errSkipResource sentinel: a resource has no compute run yet (or returned
@@ -185,6 +193,10 @@ func buildResourceForecast(rt resource.Source, fc *config.ForecastConfig, costTi
 		ResourceType: tName,
 		Baseline:     baseline,
 		Scenarios:    scenarios,
+		totalArea:    result.Area,
+	}
+	if cityResult, ok := latestByType[t.With(resource.ScopeCity)]; ok {
+		fe.cityTotalArea, fe.hasCityTotal = cityResult.Area, true
 	}
 	if hasCityScope {
 		allBaseline := forecast.CollapseBands(forecast.SimulateBaseline(allCohorts, years, rtParams))
@@ -532,8 +544,9 @@ func RoundScenariosForEmission(data map[string]any) map[string]any {
 // from forecast results. The outer key is the scope ("city" or "all"), the
 // inner key is the resource type. The "city" sub-map is omitted entirely
 // when no ":city" compute rows exist — matching the toggle-visibility gate
-// used by the client.
-func BuildHexCostSummary(ctx context.Context, entry CityEntry, forecasts []ForecastExport) map[string]map[string]map[string]float64 {
+// used by the client. It reads nothing: the totals come with each forecast,
+// from the same read BuildForecastsForCity built it from.
+func BuildHexCostSummary(forecasts []ForecastExport) map[string]map[string]map[string]float64 {
 	out := map[string]map[string]map[string]float64{
 		"all": {},
 	}
@@ -543,9 +556,9 @@ func BuildHexCostSummary(ctx context.Context, entry CityEntry, forecasts []Forec
 		if resource.ByType(t) == nil {
 			continue
 		}
-		addScopeRow(ctx, entry, out, "all", t, allYear1)
-		if hasCity {
-			addScopeRow(ctx, entry, out, "city", t.With(resource.ScopeCity), cityYear1)
+		addScopeRow(out, "all", t, allYear1, fe.totalArea)
+		if hasCity && fe.hasCityTotal {
+			addScopeRow(out, "city", t, cityYear1, fe.cityTotalArea)
 		}
 	}
 	if len(out["all"]) == 0 {
@@ -575,20 +588,15 @@ func scopeYear1Needs(fe ForecastExport) (city, all float64, hasCity bool) {
 	return 0, all, false
 }
 
-// addScopeRow looks up the compute row for rt and writes the
-// {year1_need, total_area} pair under out[scope][rt.Bare()]. Missing
-// compute rows are skipped silently.
-func addScopeRow(ctx context.Context, entry CityEntry, out map[string]map[string]map[string]float64, scope string, rt resource.Type, year1Need float64) {
-	r, ok, err := results.LoadTotal(ctx, entry.Store, rt)
-	if err != nil || !ok {
-		return
-	}
+// addScopeRow writes the {year1_need, total_area} pair under
+// out[scope][t.Bare()].
+func addScopeRow(out map[string]map[string]map[string]float64, scope string, t resource.Type, year1Need, totalArea float64) {
 	if out[scope] == nil {
 		out[scope] = make(map[string]map[string]float64)
 	}
-	out[scope][string(rt.Bare())] = map[string]float64{
+	out[scope][string(t.Bare())] = map[string]float64{
 		"year1_need": year1Need,
-		"total_area": r.Area,
+		"total_area": totalArea,
 	}
 }
 

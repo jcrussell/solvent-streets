@@ -733,7 +733,7 @@ func (s *Server) serveHexCostSummary(w http.ResponseWriter, _ *http.Request, ent
 		if err != nil {
 			return nil, err
 		}
-		return export.BuildHexCostSummary(context.Background(), entry, forecasts), nil
+		return export.BuildHexCostSummary(forecasts), nil
 	})
 }
 

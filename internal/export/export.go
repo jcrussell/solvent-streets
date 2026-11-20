@@ -412,7 +412,7 @@ func exportScenariosForCity(ctx context.Context, entry CityEntry, dataDir string
 			return fmt.Errorf("write forecast.json: %w", err)
 		}
 
-		hexCostSummary := BuildHexCostSummary(ctx, entry, forecasts)
+		hexCostSummary := BuildHexCostSummary(forecasts)
 		if err := writeJSON(filepath.Join(dataDir, HexCostSummaryFileName), hexCostSummary); err != nil {
 			return fmt.Errorf("write hex-cost-summary.json: %w", err)
 		}

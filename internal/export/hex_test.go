@@ -487,22 +487,19 @@ func TestBuildHexGeoJSON_NoCityRowsOmitsCity(t *testing.T) {
 // AllBaseline is set on the forecast export (the marker that compute produced
 // both scopes).
 func TestBuildHexCostSummary_NestedByScope(t *testing.T) {
-	totals := map[resource.Type]results.Totals{
-		rtRoads:     {Area: 2000},
-		rtRoadsCity: {Area: 1000},
-	}
-	entry := hexEntry(t, nil, totals)
-
 	allBaseline := forecast.ScenarioResult{
 		Years: []forecast.ScenarioYear{{AnnualNeed: 50000}},
 	}
 	forecasts := []ForecastExport{{
-		ResourceType: "roads",
-		Baseline:     forecast.ScenarioResult{Years: []forecast.ScenarioYear{{AnnualNeed: 25000}}},
-		AllBaseline:  &allBaseline,
+		ResourceType:  "roads",
+		Baseline:      forecast.ScenarioResult{Years: []forecast.ScenarioYear{{AnnualNeed: 25000}}},
+		AllBaseline:   &allBaseline,
+		totalArea:     2000,
+		cityTotalArea: 1000,
+		hasCityTotal:  true,
 	}}
 
-	out := BuildHexCostSummary(t.Context(), entry, forecasts)
+	out := BuildHexCostSummary(forecasts)
 
 	city, ok := out["city"]
 	if !ok {
@@ -530,24 +527,60 @@ func TestBuildHexCostSummary_NestedByScope(t *testing.T) {
 // (single-scope compute), the output has only the "all" key and
 // Baseline carries the all-scope numbers.
 func TestBuildHexCostSummary_AllOnlyWhenNoCity(t *testing.T) {
-	totals := map[resource.Type]results.Totals{
-		rtRoads: {Area: 2000},
-	}
-	entry := hexEntry(t, nil, totals)
-
 	forecasts := []ForecastExport{{
 		ResourceType: "roads",
 		Baseline:     forecast.ScenarioResult{Years: []forecast.ScenarioYear{{AnnualNeed: 50000}}},
 		// AllBaseline left nil → no city scope.
+		totalArea: 2000,
 	}}
 
-	out := BuildHexCostSummary(t.Context(), entry, forecasts)
+	out := BuildHexCostSummary(forecasts)
 
 	if _, ok := out["city"]; ok {
 		t.Errorf("'city' key must be absent when AllBaseline is nil; got %v", out)
 	}
 	if out["all"]["roads"]["year1_need"] != 50000 {
 		t.Errorf("all roads year1_need = %v; want 50000", out["all"]["roads"]["year1_need"])
+	}
+}
+
+// TestBuildHexCostSummary_TotalsFromForecastRead: the summary's areas are the
+// totals the forecasts were built from, and it makes no read of its own, so a
+// store that fails after the forecasts cannot leave a partial summary. A
+// resource without a city-scope total stays out of the "city" sub-map.
+func TestBuildHexCostSummary_TotalsFromForecastRead(t *testing.T) {
+	entry := hexEntry(t, nil, map[resource.Type]results.Totals{
+		rtRoads:      {Area: 2000, Features: 10},
+		rtRoadsCity:  {Area: 1000, Features: 5},
+		rtParkingAll: {Area: 300, Features: 3},
+	})
+	store := entry.Store.(*dbtest.MockStore)
+	// A city-scope cohort split is what gives the city its city-maintained view.
+	store.CityMetrics = append(store.CityMetrics,
+		results.CohortRows(rtRoadsCity, []results.Cohort{{Class: "residential", Area: 1000, Features: 5}})...)
+	fc := config.ForecastConfig{Years: 5, InitialPCI: 70}
+	forecasts, err := BuildForecastsForCity(t.Context(), entry, &fc, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.ListCityMetricsFunc = func(context.Context, []string) ([]db.CityMetric, error) {
+		t.Error("BuildHexCostSummary read the store")
+		return nil, errors.New("read after forecasts")
+	}
+
+	out := BuildHexCostSummary(forecasts)
+
+	if got := out["all"]["roads"]["total_area"]; got != 2000 {
+		t.Errorf("all roads total_area = %v, want 2000", got)
+	}
+	if got := out["all"]["parking"]["total_area"]; got != 300 {
+		t.Errorf("all parking total_area = %v, want 300", got)
+	}
+	if got := out["city"]["roads"]["total_area"]; got != 1000 {
+		t.Errorf("city roads total_area = %v, want 1000", got)
+	}
+	if _, ok := out["city"]["parking"]; ok {
+		t.Errorf("city parking present without a city-scope total: %v", out["city"])
 	}
 }
 
