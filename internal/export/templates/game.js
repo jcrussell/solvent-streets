@@ -503,7 +503,10 @@
                 const dtYears = (tickAccumMs / 1000) * SIM_YEARS_PER_SEC * simSpeed;
                 tickAccumMs = 0;
                 const state = callWasm('gameTick', dtYears);
-                if (state) applyState(state);
+                // A failed tick has been reported once (callWasm's banner
+                // line); pause rather than report it again every tick.
+                if (!state) { rafId = null; setRate(0); return; }
+                applyState(state);
                 if (gameStatus !== 'running') return; // applyState already stopped the loop
             }
             rafId = requestAnimationFrame(frame);

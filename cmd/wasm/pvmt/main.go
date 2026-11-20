@@ -6,7 +6,9 @@
 // Build: GOOS=js GOARCH=wasm go build -o pvmt.wasm ./cmd/wasm/pvmt
 //
 // All translation/simulation logic lives in the build-tag-free packages
-// internal/forecast/bridge and internal/game, which are host-tested. This file
+// internal/forecast/bridge and internal/game, and the exports' calling
+// convention (the error envelope, panic recovery) in internal/wasmcall; all
+// three are host-tested. This file
 // is only the syscall/js shim; keep it that way so the logic stays covered.
 package main
 
@@ -17,29 +19,27 @@ import (
 
 	"github.com/jcrussell/solvent-streets/internal/forecast/bridge"
 	"github.com/jcrussell/solvent-streets/internal/game"
+	"github.com/jcrussell/solvent-streets/internal/wasmcall"
 )
 
 // currentGame is the single active game instance. The prototype runs one game
 // at a time; gameInit replaces it.
 var currentGame *game.Game
 
-// errJSON marshals an error message into the {"error": ...} envelope every
-// export in this file returns, so any bad JS input surfaces as JSON instead of a panic.
-func errJSON(msg string) any {
-	out, _ := json.Marshal(map[string]string{"error": msg})
-	return js.ValueOf(string(out))
-}
+// errJSON is the {"error": ...} envelope every export in this file returns,
+// so any bad JS input surfaces as JSON instead of a panic.
+func errJSON(msg string) string { return wasmcall.ErrorJSON(msg) }
 
 // stateJSON marshals the current game state (or the error envelope on failure).
-func stateJSON() any {
+func stateJSON() string {
 	out, err := currentGame.StateJSON()
 	if err != nil {
 		return errJSON(err.Error())
 	}
-	return js.ValueOf(string(out))
+	return string(out)
 }
 
-func simulateForecast(_ js.Value, args []js.Value) any {
+func simulateForecast(args []js.Value) string {
 	if len(args) < 1 {
 		return errJSON("missing input argument")
 	}
@@ -48,13 +48,13 @@ func simulateForecast(_ js.Value, args []js.Value) any {
 	if err != nil {
 		return errJSON(err.Error())
 	}
-	return js.ValueOf(string(out))
+	return string(out)
 }
 
 // gameInit decodes the config JSON, builds a new game, and returns the initial
 // StateJSON (every hex, for the first paint). On bad input it returns the error
 // envelope and leaves any prior game untouched.
-func gameInit(_ js.Value, args []js.Value) any {
+func gameInit(args []js.Value) string {
 	if len(args) < 1 || args[0].Type() != js.TypeString {
 		return errJSON("gameInit: missing config JSON argument")
 	}
@@ -87,7 +87,7 @@ func finiteNumberArg(args []js.Value) (float64, bool) {
 }
 
 // gameTick advances the sim by dt sim-years and returns the new StateJSON delta.
-func gameTick(_ js.Value, args []js.Value) any {
+func gameTick(args []js.Value) string {
 	if currentGame == nil {
 		return errJSON("game not initialized")
 	}
@@ -103,7 +103,7 @@ func gameTick(_ js.Value, args []js.Value) any {
 // the paint brush sends every hex under the cursor each drag-move. args are
 // (idsJSON, tier): idsJSON is a JSON string array of hex ids. One StateJSON delta
 // is returned for the whole batch (TreatBatch recomputes status once).
-func gameTreatBatch(_ js.Value, args []js.Value) any {
+func gameTreatBatch(args []js.Value) string {
 	if currentGame == nil {
 		return errJSON("game not initialized")
 	}
@@ -123,7 +123,7 @@ func gameTreatBatch(_ js.Value, args []js.Value) any {
 // takes a config JSON (only cohorts/tiers/horizon/budget matter; hexes may be
 // omitted) and returns {"insolvency_year": N}, or {} when the network stays
 // solvent through the horizon.
-func gameProjectInsolvency(_ js.Value, args []js.Value) any {
+func gameProjectInsolvency(args []js.Value) string {
 	if len(args) < 1 || args[0].Type() != js.TypeString {
 		return errJSON("gameProjectInsolvency: missing config JSON argument")
 	}
@@ -137,15 +137,30 @@ func gameProjectInsolvency(_ js.Value, args []js.Value) any {
 		out["insolvency_year"] = year
 	}
 	b, _ := json.Marshal(out)
-	return js.ValueOf(string(b))
+	return string(b)
 }
 
+// export registers f as the JS global name. A panic inside f returns the
+// error envelope (wasmcall.Guard) rather than exiting the Go runtime, which
+// would leave every export dead until the page reloads. onPanic, when
+// non-nil, runs first.
+func export(name string, f func(args []js.Value) string, onPanic func()) {
+	js.Global().Set(name, js.FuncOf(func(_ js.Value, args []js.Value) any {
+		return js.ValueOf(wasmcall.Guard(name, func() string { return f(args) }, onPanic))
+	}))
+}
+
+// dropGame discards the game after a panic in one of its exports: its state
+// may be half-updated, so later calls answer "game not initialized" until
+// gameInit starts a fresh one.
+func dropGame() { currentGame = nil }
+
 func main() {
-	js.Global().Set("simulateForecast", js.FuncOf(simulateForecast))
-	js.Global().Set("gameInit", js.FuncOf(gameInit))
-	js.Global().Set("gameTick", js.FuncOf(gameTick))
-	js.Global().Set("gameTreatBatch", js.FuncOf(gameTreatBatch))
-	js.Global().Set("gameProjectInsolvency", js.FuncOf(gameProjectInsolvency))
+	export("simulateForecast", simulateForecast, nil)
+	export("gameInit", gameInit, dropGame)
+	export("gameTick", gameTick, dropGame)
+	export("gameTreatBatch", gameTreatBatch, dropGame)
+	export("gameProjectInsolvency", gameProjectInsolvency, nil)
 	// Keep the Go runtime alive.
 	select {}
 }

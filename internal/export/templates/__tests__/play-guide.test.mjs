@@ -198,3 +198,19 @@ test('play: the HUD and the end banner show PCI as a whole number', async () => 
   // Below the floor, the banner floors: 29.6 must not read as a floor of 30.
   assert.equal(finalPCI({ loss_reason: 'pci_floor', treasury: 0, annual_budget: 1, network_pci: 29.6 }), '29');
 });
+
+// A tick the engine refuses is reported once and pauses the clock, rather
+// than adding a banner line every tick.
+test('play: a failed tick stops the clock and reports one error', async () => {
+  const { $, $$, win } = await startBoard();
+  const frames = [];
+  win.requestAnimationFrame = (cb) => { frames.push(cb); return frames.length; };
+  win.gameTick = () => JSON.stringify({ error: 'boom' });
+  win.setRate(1);
+  for (let i = 0, ts = 0; i < 20 && frames.length > 0; i++, ts += 200) frames.shift()(ts);
+
+  assert.equal(frames.length, 0, 'the loop is still scheduled after a failed tick');
+  const lines = $$('#error-banner-list li').map((li) => li.textContent).filter((t) => /boom/.test(t));
+  assert.equal(lines.length, 1, 'want one banner line, got: ' + lines.join(' | '));
+  assert.ok($('#pause-btn').classList.contains('active'), 'the speed control does not show the pause');
+});
