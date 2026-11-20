@@ -101,10 +101,10 @@ func TestCityHash_DeterministicInMemory(t *testing.T) {
 	}
 }
 
-// TestCityHash_FormattingEditsDoNotMove is the bug this hash exists to fix:
-// a comment, whitespace or key-order edit used to
-// change the raw-bytes hash, so the next single-resource compute committed a
-// partial snapshot under a new hash and export published the city without
+// TestCityHash_FormattingEditsDoNotMove: the hash is of the resolved settings,
+// not the file's bytes, so a comment, whitespace or key-order edit keeps it.
+// A hash that moved would make the next single-resource compute commit a
+// partial snapshot under a new hash, and export would publish the city without
 // coverage, census or the combined total.
 func TestCityHash_FormattingEditsDoNotMove(t *testing.T) {
 	edited := `# A comment that was not there before.

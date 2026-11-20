@@ -145,8 +145,8 @@ path = "growth/pvmt.toml"
 
 // TestGrowthRate_UnsetStillBackfillsFromLaterInclude is the other direction:
 // presence, not value, is what blocks a backfill. A city that never stated
-// growth_rate must still pick one up from a later include, exactly as before —
-// otherwise the fix would turn every absent field into a permanent hole.
+// growth_rate still picks one up from a later include; otherwise the presence
+// bit would turn every absent field into a permanent hole.
 func TestGrowthRate_UnsetStillBackfillsFromLaterInclude(t *testing.T) {
 	dir := t.TempDir()
 	writeTOML(t, dir, "bare/pvmt.toml", `

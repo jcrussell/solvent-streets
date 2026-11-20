@@ -972,20 +972,20 @@ func offsetIgnoringServer(t *testing.T, rows, maxRecordCount int) (endpoint stri
 	return srv.URL + "/FeatureServer/0/query", &calls
 }
 
-// TestFetch_OffsetIgnoringServerStopsCleanly pins the q48z.5 fix, and covers
+// TestFetch_OffsetIgnoringServerStopsCleanly covers
 // the case TestFetch_PaginationFlagOmittedShortPages cannot: that server HONORS
 // resultOffset, so it always reaches an empty page.
 //
 // A server that IGNORES resultOffset and omits exceededTransferLimit — pre-10.3
 // layers, or supportsPagination:false — re-serves page 1 forever. rawCount is
-// never 0 and the flag is never present, so the two original termination rules
-// could not fire and the loop ran to the page cap, which returned an error and
-// discarded every fetched feature after 200 requests against the operator's
-// endpoint — for a layer that answered completely in ONE request before v0.3.0.
+// never 0 and the flag is never present, so stopping on an empty page or on
+// the flag never fires, and the loop would run to the page cap, return an
+// error and discard every fetched feature after 200 requests against the
+// operator's endpoint, for a layer that answers completely in ONE request.
 //
-// Restoring the old short-page break is NOT the fix: trusting a short page is
-// exactly the truncation that dropped 2000 of 5780 Livermore centerlines.
-// Instead we stop when a page parses rows but adds no
+// Stopping on any short page is not the answer either: trusting a short page
+// is the truncation that would drop 2000 of 5780 Livermore centerlines.
+// Instead the fetch stops when a page parses rows but adds no
 // new ids AND the layer's own maxRecordCount proves the page was not clamped.
 // Here 10 rows sit well under the advertised 100, so the layer really did
 // answer completely.

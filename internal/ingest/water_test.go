@@ -1826,7 +1826,7 @@ func TestAssembleWater_LakeLargerThanBBoxAcceptedWithRoadProbes(t *testing.T) {
 
 // TestAssembleWater_LakeLargerThanBBoxRejectedWithInteriorProbes: with the
 // sparse interior-point probes (a city with no roads) the cap still
-// applies, as before road probes existed.
+// applies.
 func TestAssembleWater_LakeLargerThanBBoxRejectedWithInteriorProbes(t *testing.T) {
 	var buf bytes.Buffer
 	ctx := logs.WithLogger(context.Background(), slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))

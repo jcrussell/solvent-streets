@@ -18,7 +18,7 @@ import (
 // follows OSM's US tagging: interstates and their ramps are motorway(_link)
 // (Federal), other freeways and expressways trunk (State), and the arterial,
 // collector and local classes primary / secondary / tertiary / residential.
-// A value outside the vocabulary leaves the row untagged, as before.
+// A value outside the vocabulary leaves the row untagged.
 
 // arcgisClassFields are the functional-class fields consulted, in order,
 // compared case-insensitively.

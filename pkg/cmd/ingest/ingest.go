@@ -880,8 +880,8 @@ func fetchBoundary(
 
 	bbox, err := geo.BBoxFromGeoJSON(unstripped)
 	if err != nil {
-		// Nothing can be fetched over it: save it unstripped, as before
-		// roads were fetched here, and let the roads step fail on it.
+		// Nothing can be fetched over it: save it unstripped and let the
+		// roads step fail on it.
 		fmt.Fprintf(opts.IO.ErrOut, "  water strip skipped: bbox: %v\n", err)
 		if err := store.SaveBoundary(ctx, unstripped, unstrippedSource); err != nil {
 			return "", nil, fmt.Errorf("save boundary: %w", err)

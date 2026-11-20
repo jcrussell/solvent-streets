@@ -304,8 +304,7 @@
 
         // parseModel reads the model settings from a URL state, dropping any
         // malformed value (it falls back to the seed). A kebab-case strategy
-        // (?strategy=preventive-first) reads as its snake_case name, so older
-        // links still apply.
+        // (?strategy=preventive-first) reads as its snake_case name.
         /** @param {{strategy?: string | null, pci?: string | null, cost?: string | null, tiers?: string | null}} s @returns {ModelSettings} */
         function parseModel(s) {
             const pci = paramNum(s.pci), cost = paramNum(s.cost);
@@ -4021,8 +4020,8 @@
         // the Financials charts draw for `scope`. scenarios.json covers every
         // resource, so when the reader maintains only part of the network the
         // set is re-simulated over those cohorts, at the seeded settings the
-        // export used — the reference lines stay fixed while the sliders move,
-        // as before; only "Your budget" follows them. Without the simulator or
+        // export used. The reference lines stay fixed while the sliders move;
+        // only "Your budget" follows them. Without the simulator or
         // this city's seed, the exported set stands in.
         /** @param {string} scope */
         function financialScenarios(scope) {

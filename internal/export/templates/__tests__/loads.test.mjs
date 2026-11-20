@@ -1,9 +1,8 @@
 // Overlapping data loads: switching cities while the previous city's files are
 // still in flight must leave the NEWER city on screen. loadCityData and
 // loadFinancials each bump a generation counter and bail after every await if
-// a newer load has started. These specs used to be
-// Go greps of app.js for the counter tokens; they now make the race happen —
-// the outgoing city's response is held until after the incoming city's lands.
+// a newer load has started. These specs make the race happen: the outgoing
+// city's response is held until after the incoming city's lands.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { load } from './harness.mjs';

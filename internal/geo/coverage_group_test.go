@@ -7,8 +7,8 @@ import (
 	"github.com/peterstace/simplefeatures/geom"
 )
 
-// computeByGroupPerClass reproduces the OLD per-class cohort approach
-// (resource.ComputeRoadCohortAreas before the single-pass rewrite): build a
+// computeByGroupPerClass is a per-class reference for the single-pass cohort
+// areas (resource.ComputeRoadCohortAreas): build a
 // classGeoms map keyed by every distinct label, and for each such label build
 // an index over only that label's geoms, run ComputeHexStats over the full
 // grid, and set areas[label] = sum. Crucially it assigns areas[label] for

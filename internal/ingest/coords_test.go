@@ -53,9 +53,8 @@ func TestGeoJSONWriters_ShareOneCoordinateFormat(t *testing.T) {
 	}
 }
 
-// The hand-built writers the typed encoder replaced, kept verbatim as the
-// reference: a stored boundary's digest hashes this text, so the encoder
-// must reproduce it byte for byte.
+// Hand-built reference writers: a stored boundary's digest hashes this text,
+// so the typed encoder must reproduce it byte for byte.
 func legacyCoordJSON(c [2]float64) string {
 	return "[" + strconv.FormatFloat(c[0], 'f', coordDecimals, 64) + "," +
 		strconv.FormatFloat(c[1], 'f', coordDecimals, 64) + "]"

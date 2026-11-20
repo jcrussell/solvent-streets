@@ -309,7 +309,7 @@ var validatePublicHTTPURL = ingest.ValidatePublicHTTPURL
 // (ingest.ValidatePublicHTTPURL) here, after config load and before the
 // first Overpass fetch, and the run says on stderr which instance it uses
 // (`overpass endpoint: <host>`), once. The default endpoint is fixed, so it
-// skips both, and a run that configures nothing behaves exactly as before.
+// skips both, and a run that configures nothing prints no endpoint line.
 func overpassURLFactory(f *cmdutil.Factory) func() (string, error) {
 	return sync.OnceValues(func() (string, error) {
 		u, err := resolveOverpassURL(f)

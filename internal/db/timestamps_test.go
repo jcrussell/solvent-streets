@@ -65,7 +65,7 @@ func TestTimestamps_EveryWriterStoresInteger(t *testing.T) {
 
 // TestStats_LastIngestAt: FeatureCount counts the stored rows, and
 // LastIngestAt is the newest fetched_at of the stored
-// rows, as before city_inputs kept it. A partial replace keeps the other
+// rows. A partial replace keeps the other
 // source's rows (and so its time when that is newer), an identical re-ingest
 // moves it, and a type whose rows are all gone has none.
 func TestStats_LastIngestAt(t *testing.T) {

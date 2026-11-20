@@ -554,7 +554,7 @@ func ClipHexesToBoundary(ctx context.Context, hexes []Hex, boundary geom.Geometr
 		}
 
 		// Boundary edges straddle the hex envelope: clip against the
-		// overlapping boundary polygon part(s) exactly as before.
+		// overlapping boundary polygon part(s).
 		candidates := polyIdx.Search(hexEnv)
 		if len(candidates) == 0 {
 			return nil

@@ -81,7 +81,7 @@ const jsFixtureBoundary = `{"type":"Polygon","coordinates":[[[-122.3,37.7],[-122
 // a 20-year horizon (not the 30-year default, so a label that hardcodes the
 // default instead of reading horizon_years fails) and the canonical worst-tier label
 // "reconstruction", which the tier-colour specs pin to the default palette.
-// Materials no longer depend on it: material tiers follow PCI, not labels.
+// Materials do not depend on it: material tiers follow PCI, not labels.
 //
 // The tier PRICES are deliberately not restated here: relabelling a clone keeps
 // this config following the fixture's, where copying the literal would let the

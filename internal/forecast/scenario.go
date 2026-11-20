@@ -64,8 +64,8 @@ func (s *Strategy) UnmarshalText(b []byte) error {
 	return nil
 }
 
-// UnmarshalJSON reads a strategy name, or the integer a file written before
-// strategies were named holds (0 do-nothing, 1 worst-first, 2 preventive-first).
+// UnmarshalJSON reads a strategy name, or its integer form (0 do-nothing,
+// 1 worst-first, 2 preventive-first).
 // Any other value is an unknown strategy.
 func (s *Strategy) UnmarshalJSON(b []byte) error {
 	var name string

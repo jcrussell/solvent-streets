@@ -92,7 +92,7 @@ overpass = true
 
 // TestCostMultiplier_SurvivesIncludeFlatten: a per-city block whose ONLY field is
 // cost_multiplier must not be judged "all zero" and erased by forecastIsZero at
-// merge time — the same trap that dropped growth_rate = 0.
+// merge time, the trap growth_rate = 0 also needs guarding against.
 func TestCostMultiplier_SurvivesIncludeFlatten(t *testing.T) {
 	dir := t.TempDir()
 	writeTOML(t, dir, "metro/pvmt.toml", `

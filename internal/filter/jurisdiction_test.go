@@ -121,10 +121,8 @@ func TestClassifyJurisdiction(t *testing.T) {
 		{"texas business state", map[string]string{"ref": "BS 6"}, JurisdictionState},
 		{"minnesota trunk highway", map[string]string{"ref": "TH 5"}, JurisdictionState},
 
-		// The three cases below were previously pinned to
-		// State as the status quo, pending "a federal-ref rule" that
-		// federalRefRe now carries. Refs are the real ones from the ingested
-		// corpus: NF 61 is Angeles NF (Los Angeles / Glendale / La Cañada
+		// Federal-ref cases (federalRefRe). Refs are the real ones from the
+		// ingested corpus: NF 61 is Angeles NF (Los Angeles / Glendale / La Cañada
 		// Flintridge), FR 2N72 is San Bernardino NF, FS 370 is Colorado
 		// Springs. Note FR's numbering is not plain digits -- "2N72", "3S04" --
 		// so the regex must only require a leading digit.
@@ -133,11 +131,10 @@ func TestClassifyJurisdiction(t *testing.T) {
 		{"forest road hyphenated", map[string]string{"ref": "FR-333"}, JurisdictionFederal},
 		{"forest service road is federal", map[string]string{"ref": "FS 370"}, JurisdictionFederal},
 
-		// County-highway refs. CH is the bead's case (Lakewood CO,
-		// Minneapolis MN -- not the IL/WI the bead predicted); CC 215 is the
-		// Clark County beltway in Las Vegas, found by measuring rather than
-		// from the bead. TR (township road) has zero occurrences in the
-		// corpus and rides on domain knowledge alone.
+		// County-highway refs. CH occurs in Lakewood CO and Minneapolis MN;
+		// CC 215 is the Clark County beltway in Las Vegas. TR (township road)
+		// has zero occurrences in the corpus and rides on domain knowledge
+		// alone.
 		{"county highway ref", map[string]string{"ref": "CH 93", "highway": "primary"}, JurisdictionCounty},
 		{"county highway hyphenated", map[string]string{"ref": "CH-30"}, JurisdictionCounty},
 		{"clark county beltway", map[string]string{"ref": "CC 215", "highway": "primary"}, JurisdictionCounty},
@@ -148,16 +145,14 @@ func TestClassifyJurisdiction(t *testing.T) {
 		{"clark county beltway as motorway stays federal", map[string]string{"ref": "CC 215", "highway": "motorway"}, JurisdictionFederal},
 		{"township road", map[string]string{"ref": "TR 40"}, JurisdictionCounty},
 
-		// Every rule in this file used to be anchored on
-		// a DIGIT right after the separator, so route designators that put a
-		// LETTER there, or spell the route type as a word, matched nothing and
-		// fell all the way through to City. 12851 road-like features across 55
-		// cities, 15427 of the 17214 ref-bearing City features being
-		// highway=primary -- arterial area, the expensive kind.
+		// Route designators that put a LETTER right after the separator, or
+		// spell the route type as a word. A rule anchored on a digit there
+		// would miss them and they would fall through to City: 12851 road-like
+		// features across 55 cities, most of them highway=primary -- arterial
+		// area, the expensive kind.
 		//
 		// Each case below is the lettered or spelled twin of a bare-digit case
-		// already pinned above, and must reach the same bucket: that
-		// equivalence is the whole claim of the fix.
+		// already pinned above, and must reach the same bucket.
 		//
 		// California county-route designators, 9025 features. San Diego
 		// County's S-series and Los Angeles County's N-series are the bulk.
@@ -281,15 +276,14 @@ func TestClassifyJurisdiction(t *testing.T) {
 		{"texas private road stays state", map[string]string{"ref": "PR 1836"}, JurisdictionState},
 		{"unidentified OS prefix stays state", map[string]string{"ref": "OS 15"}, JurisdictionState},
 
-		// statePostalRefRe required TWO letters, so the
-		// route conventions that number with a SINGLE one matched nothing and
-		// fell all the way through to City -- 1648 features billing state
-		// highway to the city. Every ref below is a real corpus ref, at the
+		// Route conventions that number with a SINGLE letter. A rule that
+		// required two letters would miss them and they would fall through to
+		// City -- 1648 features billing state highway to the city. Every ref below is a real corpus ref, at the
 		// highway class it actually carries there.
 		//
 		// The bucket is per-prefix and measured, not pattern-derived: C is
 		// Columbus OH's Franklin COUNTY roads, which is why a bare
-		// ^[A-Z][ -]\d would have been wrong even before it swallowed the
+		// ^[A-Z][ -]\d would be wrong even if it did not also swallow the
 		// 65385 Interstate features.
 		{"michigan state route", map[string]string{"ref": "M 1", "highway": "primary"}, JurisdictionState},
 		{"nebraska state route", map[string]string{"ref": "N-64", "highway": "primary"}, JurisdictionState},
@@ -663,9 +657,8 @@ func TestRefPrefixesNeverFallToCity(t *testing.T) {
 		// comment warns against.
 		"FM 1960", "RM 620", "SL 8", "SS 6", "BU 59", "BS 6", "TH 5",
 		// Single-letter and lettered-designator conventions.
-		// These are the 1729 features that used to
-		// fall through to City; C-138 is County and the rest State, but the
-		// invariant this test pins is only that none of them is City.
+		// These cover 1729 features; C-138 is County and the rest State, but
+		// the invariant this test pins is only that none of them is City.
 		"M 1", "N-64", "K-32", "L-28K", "S-29-64", "C-138", "MO W",
 		// The fully spelled-out forms. Every one of
 		// these measured ZERO in the 8.7M-feature corpus except "State Hwy

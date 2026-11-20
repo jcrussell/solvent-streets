@@ -575,16 +575,12 @@ func TestSimulate_FullFunding_SpendsExactlyNeed(t *testing.T) {
 	}
 }
 
-// TestSimulate_FullFunding_InvariantUnderCostScale is the regression lock:
-// Scaling every cost tier by a constant is a pure
-// rescaling in dollar-space: it multiplies need_j and totalSpend by the same
-// factor and leaves need_j/totalNeed untouched, so it cannot move a PCI in the
-// model. It did anyway — the rescale perturbed the low bits of
-// totalSpend * (need_j/totalNeed), flipping cohorts across what was then a
-// discontinuous `spend >= need` branch, where under-funded cohorts recovered
-// only spendRatio*0.8 of the year's decay. The measured swing was ~0.46 PCI
-// with no modelled cause. The response is continuous now,
-// and exact allocation still keeps it bit-identical.
+// TestSimulate_FullFunding_InvariantUnderCostScale: scaling every cost tier
+// by a constant is a pure rescaling in dollar-space. It multiplies need_j and
+// totalSpend by the same factor and leaves need_j/totalNeed untouched, so it
+// cannot move a PCI in the model. The response to spend is continuous, so
+// low-bit noise in totalSpend * (need_j/totalNeed) cannot flip a cohort across
+// a branch, and exact allocation keeps the result bit-identical.
 func TestSimulate_FullFunding_InvariantUnderCostScale(t *testing.T) {
 	scenario := Scenario{Name: "full", Label: "Full", FullFunding: true, Strategy: StrategyWorstFirst}
 

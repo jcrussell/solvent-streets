@@ -98,23 +98,22 @@ func replayStrip(t *testing.T, name string) (float64, replayFixture, string) {
 	return area / 1e6, f, buf.String()
 }
 
-// TestReplay_WaterStripMatchesCensusLand pins the batch-1 replay cities whose
-// strip went wrong to their
-// land area, on trimmed real data:
+// TestReplay_WaterStripMatchesCensusLand pins the water strip of cities whose
+// geometry defeats simpler rules to their land area, on trimmed real data:
 //   - Alameda (an island city): its bay face holds 4 wharf roads against the
-//     island's 424; judged chain by chain both closures were over the
-//     allowance of 3 and the bay stayed in (1.92x land).
+//     island's 424; judged chain by chain both closures would be over the
+//     allowance of 3 and the bay would stay in (1.92x land).
 //   - Juneau (cropped to Douglas Island, the mainland shore and the
 //     borough's part of Admiralty Island): judged chain by chain the
-//     channels stayed in (1.18x), or, taking the low side, Admiralty went
-//     with them (0.96x); as faces Admiralty is land and the sea is water.
+//     channels would stay in (1.18x), or, taking the low side, Admiralty would
+//     go with them (0.96x); as faces Admiralty is land and the sea is water.
 //   - New York (cropped to Lower Manhattan, Brooklyn and the harbor): its
-//     chains cut through several boroughs, so both closures of each held
-//     land and the harbor stayed in (1.52x); as faces each borough is land.
+//     chains cut through several boroughs, so both closures of each hold
+//     land and the harbor would stay in (1.52x); as faces each borough is land.
 //   - Burlington and Detroit: their lake and river relations' islands far
-//     outside the bbox were kept as unclipped holes, whose area made the
-//     clipped polygon read as waterless, so Lake Champlain and the Detroit
-//     River were dropped (1.45x and 1.03x land).
+//     outside the bbox, kept as unclipped holes, would make the clipped
+//     polygon read as waterless and drop Lake Champlain and the Detroit River
+//     (1.45x and 1.03x land).
 //
 // The two crops are pinned to the full-data strip's area inside the crop.
 func TestReplay_WaterStripMatchesCensusLand(t *testing.T) {

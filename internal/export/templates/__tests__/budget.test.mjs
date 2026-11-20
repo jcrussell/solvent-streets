@@ -136,8 +136,9 @@ test('a snapshot_date that is not a date dates insolvency from the viewer\'s yea
 
 const params = (win) => new URLSearchParams(win.location.search);
 
-// The range was re-sized off the budget on every input,
-// so a drag past the midpoint doubled max under the pointer and ran away.
+// The range is not re-sized on drag (only a linked budget widens it):
+// re-sizing it off the budget would double max under the pointer on a drag
+// past the midpoint.
 test('dragging to the top of the range does not grow it', async () => {
   const { win, $ } = await ready();
   const max = $('#budget-slider').max;
@@ -155,10 +156,10 @@ test('a ?budget= beyond the range widens it to fit', async () => {
   assert.equal(parseFloat($('#budget-slider').max) % 250, 0, 'the range grows in whole notches');
 });
 
-// A linked budget was taken as given, and the slider
-// grew one notch per 25% of hold steady to fit it, so ?budget=1e15 built
-// millions of DOM nodes and froze or crashed the tab. It is clamped to ten
-// times the larger anchor (hold steady, $30M here), and the address bar says so.
+// A linked budget is clamped to ten times the larger anchor (hold steady, $30M
+// here), and the address bar says so. The slider grows one notch per 25% of
+// hold steady to fit a budget, so an unclamped ?budget=1e15 would build
+// millions of DOM nodes and freeze the tab.
 test('a huge ?budget= is clamped and the slider keeps a bounded number of notches', async () => {
   for (const linked of ['1e15', '1e300', '900000000']) {
     const { win, $$ } = await ready({ url: 'https://example.test/index.html?tab=financials-tab&budget=' + linked });

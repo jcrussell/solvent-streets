@@ -166,11 +166,11 @@ func TestCostMultiplier_SeedShipsUnscaledTiers(t *testing.T) {
 // TestCostMultiplier_MultiCitySeedMatchesSingleCity pins the two seed builders to one
 // contract.
 //
-// BuildMultiCityForecastSeed had simply omitted CostMultiplier from its literal.
-// The field has no omitempty, so the regional site/index.html shipped
-// "cost_multiplier":0 inline while every cities/<slug>/data/forecast_seed.json
-// carried the real multiplier — the seed is the documented contract for what
-// the browser prices with, and half of it disagreed with the other half.
+// The seed is the documented contract for what the browser prices with. A
+// builder that left CostMultiplier out of its literal would ship
+// "cost_multiplier":0 inline in the regional site/index.html (the field has no
+// omitempty) while every cities/<slug>/data/forecast_seed.json carried the
+// real multiplier.
 //
 // The key-set comparison is the part that earns its keep: it catches the NEXT
 // field added to ForecastSeedJSON and wired into only one of the two builders,
