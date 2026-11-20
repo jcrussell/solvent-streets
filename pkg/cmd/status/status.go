@@ -34,6 +34,7 @@ type Options struct {
 	UnitSystem   func() units.System
 	ResourceType resource.Source // nil for global status
 	Exporter     cmdutil.Exporter
+	rows         *[]statusRow // multi-city accumulator; nil for single-pass JSON
 
 	// All reports every configured city (or the one --city names) as one
 	// board, a row per layer. Incomplete and Stale
@@ -45,6 +46,8 @@ type Options struct {
 }
 
 type statusRow struct {
+	// City is the city's slug; empty (and omitted) without a config.
+	City          string  `json:"city,omitempty"`
 	ResourceType  string  `json:"resource_type"`
 	FeatureCount  int     `json:"feature_count"`
 	LastIngestAt  string  `json:"last_ingest_at,omitempty"`
@@ -77,6 +80,8 @@ func (r statusRow) ExportData(fields []string) map[string]any {
 // apply to the row (omitted rather than emitted as "" or a 0 sentinel).
 func (r statusRow) field(f string) (any, bool) {
 	switch f {
+	case "city":
+		return r.City, r.City != ""
 	case "resource_type":
 		return r.ResourceType, true
 	case "feature_count":
@@ -119,8 +124,8 @@ func Long(noun string, rt resource.Source) string {
 	if paved(rt) {
 		area = ", and paved area in the active unit system"
 	}
-	return cmdutil.Reflow(fmt.Sprintf(`Report ingest and compute progress for %s in the current city:
-ingested feature count
+	return cmdutil.Reflow(fmt.Sprintf(`Report ingest and compute progress for %s in every configured city,
+or the one --city names, one row per city: ingested feature count
 (everything the bounding-box fetch returned, before the boundary clip),
 last-ingest and last-compute timestamps%s, from the city's latest compute,
 and the state of its part: current, stale (an input it read was ingested
@@ -132,18 +137,29 @@ again since) or not computed.`, noun, area), cmdutil.HelpWidth)
 // derivable from the resource type (census blocks are stored as
 // "layer-census-blocks" but their command is `pvmt census`).
 func Example(group string, rt resource.Source) string {
-	fields := "resource_type,feature_count,state"
+	fields := "city,resource_type,feature_count,state"
 	if paved(rt) {
-		fields = "resource_type,feature_count,area"
+		fields = "city,resource_type,feature_count,area"
 	}
-	return fmt.Sprintf(`  # Show feature and result counts
+	return fmt.Sprintf(`  # Show feature and result counts for every configured city
   pvmt %s status
 
-  # Emit the row as JSON
+  # Emit the rows as JSON
   pvmt %s status --json %s`, group, group, fields)
 }
 
-var statusFields = []string{"resource_type", "feature_count", "last_ingest_at", "last_compute_at", "area", "estimated_spaces", "state", "stale_inputs"}
+var statusFields = []string{"city", "resource_type", "feature_count", "last_ingest_at", "last_compute_at", "area", "estimated_spaces", "state", "stale_inputs"}
+
+// fieldsFor is the --json fields of a status over rt (nil: every
+// resource); only pavement has an area and estimated spaces.
+func fieldsFor(rt resource.Source) []string {
+	if rt == nil || paved(rt) {
+		return statusFields
+	}
+	return slices.DeleteFunc(slices.Clone(statusFields), func(f string) bool {
+		return f == "area" || f == "estimated_spaces"
+	})
+}
 
 func NewCmdStatus(f *cmdutil.Factory, rt resource.Source, runF func(context.Context, *Options) error) *cobra.Command {
 	opts := &Options{
@@ -157,36 +173,45 @@ func NewCmdStatus(f *cmdutil.Factory, rt resource.Source, runF func(context.Cont
 
 	use := "status"
 	short := "Show overall status"
-	long := `Report ingest and compute progress for the current city across every
-resource type, from the city's latest compute: ingested feature counts
-(everything the bounding-box fetch returned, before the boundary clip),
-last-ingest and last-compute timestamps, paved area totals in the active unit
-system, and each part's state: current, stale (an input it read was ingested
-again since) or not computed. The combined pass, service coverage and census
-population follow in their own section, then how many parts of the latest
-compute are not yet snapshotted. On a TTY the output ends with a city-area
-summary (paved-vs-total %, footnoted when the combined total is stale or
-missing) and the five most recent snapshots with their config hash, marking
-the published (newest) one and those created under the current settings.
-When nothing is computed under the current settings, a note says why and how
-to recompute. Use --json with a comma-separated field list (resource_type,
-feature_count, last_ingest_at, last_compute_at, area, estimated_spaces,
-state, stale_inputs) to emit one row per resource.`
-	example := `  # Show feature + result counts across every resource
+	long := `Report ingest and compute progress across every resource type for
+every configured city, or the one --city names, from each city's latest
+compute: ingested feature counts (everything the bounding-box fetch
+returned, before the boundary clip), last-ingest and last-compute
+timestamps, paved area totals in the active unit system, and each part's
+state: current, stale (an input it read was ingested again since) or not
+computed. Each city's table is followed by the combined pass, service
+coverage and census population, then how many parts of the latest compute
+are not yet snapshotted. On a TTY each city ends with a city-area summary
+(paved-vs-total %, footnoted when the combined total is stale or missing)
+and its five most recent snapshots with their config hash, marking the
+published (newest) one and those created under the current settings. When
+nothing is computed under the current settings, a hint says why and how to
+recompute. --json emits one row per city and resource.`
+	example := `  # Show feature and result counts across every resource and city
   pvmt status
 
-  # Emit one row per resource as JSON
-  pvmt status --json resource_type,feature_count,area`
+  # One city
+  pvmt --city oakland-ca status
+
+  # Emit one row per city and resource as JSON
+  pvmt status --json city,resource_type,feature_count,area`
 	if rt != nil {
 		short, long = Short(string(rt.Type())), Long(string(rt.Type()), rt)
 		example = Example(string(rt.Type()), rt)
 	}
 
-	fields := statusFields
+	fields := fieldsFor(rt)
 	if rt == nil {
 		long += boardHelp
 		example += boardExample
-		fields = append(slices.Clone(statusFields), boardFields...)
+		// The board shares some field names with the rows (city,
+		// feature_count, state); list each once.
+		fields = slices.Clone(statusFields)
+		for _, bf := range boardFields {
+			if !slices.Contains(fields, bf) {
+				fields = append(fields, bf)
+			}
+		}
 		opts.BoardCities = func(ctx context.Context) ([]boardCity, error) { return boardCities(ctx, f) }
 	}
 
@@ -206,7 +231,7 @@ state, stale_inputs) to emit one row per resource.`
 			if opts.All {
 				return runBoard(cmd.Context(), opts)
 			}
-			return runStatus(cmd.Context(), opts)
+			return runStatusAllCities(cmd.Context(), f, opts)
 		},
 	}
 
@@ -239,6 +264,24 @@ func resolveCityFirst(opts *Options) error {
 	return nil
 }
 
+// runStatusAllCities reports every configured city, or the one --city
+// names, with --json rows for all of them written as one document. Without
+// a config, or with no cities in it, it reports through the current city,
+// which says what is missing.
+func runStatusAllCities(ctx context.Context, f *cmdutil.Factory, opts *Options) error {
+	if f.Config == nil {
+		return runStatus(ctx, opts)
+	}
+	if cfg, err := f.Config(); err != nil || cfg == nil || len(cfg.Cities) == 0 {
+		return runStatus(ctx, opts)
+	}
+	return cmdutil.ForEachCityRows(ctx, f, opts.IO, opts.Exporter, func(cf *cmdutil.Factory, rows *[]statusRow) error {
+		cityOpts := *opts
+		cityOpts.CurrentCity, cityOpts.CityDB, cityOpts.rows = cf.CurrentCity, cf.CityDB, rows
+		return runStatus(ctx, &cityOpts)
+	})
+}
+
 func runStatus(ctx context.Context, opts *Options) error {
 	ios := opts.IO
 
@@ -265,6 +308,10 @@ func runStatus(ctx context.Context, opts *Options) error {
 		return err
 	}
 	// JSON output
+	if opts.rows != nil {
+		*opts.rows = append(*opts.rows, rows...)
+		return nil
+	}
 	if opts.Exporter != nil {
 		return cmdutil.WriteRows(ios, opts.Exporter, rows)
 	}
@@ -314,6 +361,7 @@ func buildRows(ctx context.Context, ios *iostreams.IOStreams, store db.Store, so
 			continue
 		}
 		row := statusRow{
+			City:         view.slug(),
 			ResourceType: string(rt.Type()),
 			FeatureCount: info.FeatureCount,
 		}
@@ -348,7 +396,7 @@ func partOf(t resource.Type) string {
 // printTable renders rows, with a State column when withState.
 func printTable(ios *iostreams.IOStreams, rows []statusRow, sys units.System, withState bool) error {
 	tp := iostreams.NewTablePrinter(ios)
-	header := []string{"Resource", "Features", "Last Ingest", "Last Compute", units.AreaLabel(sys), units.AreaLargeLabel(sys), "Est. Spaces"}
+	header := []string{"City", "Resource", "Features", "Last Ingest", "Last Compute", units.AreaLabel(sys), units.AreaLargeLabel(sys), "Est. Spaces"}
 	if withState {
 		header = append(header, "State")
 	}
@@ -359,6 +407,7 @@ func printTable(ios *iostreams.IOStreams, rows []statusRow, sys units.System, wi
 			spacesStr = strconv.Itoa(r.EstimatedSpaces)
 		}
 		cells := []string{
+			r.City,
 			r.ResourceType,
 			strconv.Itoa(r.FeatureCount),
 			iostreams.FormatTimestamp(r.LastIngestAt, ios.IsTTY()),
@@ -412,6 +461,14 @@ func (opts *Options) loadLatest(ctx context.Context, store db.Store) latestView 
 	return v
 }
 
+// slug is the city's slug, "" without a config.
+func (v latestView) slug() string {
+	if v.city == nil {
+		return ""
+	}
+	return v.city.Slug()
+}
+
 // state is part's state in the latest compute; ok is false without a view.
 func (v latestView) state(part string) (coherence.PartState, bool) {
 	if !v.ok {
@@ -452,9 +509,9 @@ func (v latestView) printOtherParts(ios *iostreams.IOStreams) {
 	if !v.ok {
 		return
 	}
-	fmt.Fprintf(ios.ErrOut, "\n=== Other parts ===\n")
+	fmt.Fprintf(ios.Out, "\n=== Other parts ===\n")
 	for _, st := range coherence.PartStates(v.otherParts(), v.latest, v.inputs) {
-		fmt.Fprintf(ios.ErrOut, "  %-14s %s\n", st.Part, st)
+		fmt.Fprintf(ios.Out, "  %-14s %s\n", st.Part, st)
 	}
 }
 
@@ -476,7 +533,7 @@ func (v latestView) printUnsnapshotted(ios *iostreams.IOStreams) {
 	if len(parts) > 1 {
 		noun = "parts"
 	}
-	fmt.Fprintf(ios.ErrOut, "\n%d %s not yet snapshotted (%s); run 'pvmt snapshots create <name>' to publish\n",
+	fmt.Fprintf(ios.Out, "\n%d %s not yet snapshotted (%s); run 'pvmt snapshots create <name>' to publish\n",
 		len(parts), noun, strings.Join(parts, ", "))
 }
 
@@ -486,7 +543,7 @@ func (v latestView) printUnsnapshotted(ios *iostreams.IOStreams) {
 // city shows it blank; say why rather than leave it looking never-computed.
 func (v latestView) noteStale(ios *iostreams.IOStreams) {
 	if v.ok && v.snapsErr == nil && export.StaleSettings(v.cfg, v.city, v.snaps, v.latest) {
-		fmt.Fprintf(ios.ErrOut, "\nNote: %s\n", v.cfg.StaleHint(v.city))
+		fmt.Fprintf(ios.ErrOut, "hint: %s\n", v.cfg.StaleHint(v.city))
 	}
 }
 
@@ -523,8 +580,8 @@ func printCitySummary(ctx context.Context, ios *iostreams.IOStreams, store db.St
 	if st, ok := view.state(string(resource.CombinedAll)); allResources && accurate && ok && st.State == coherence.StateStale {
 		staleCombined, accurate = strings.Join(st.Stale, ", "), false
 	}
-	fmt.Fprintf(ios.ErrOut, "\n=== City Summary ===\n")
-	fmt.Fprintf(ios.ErrOut, "  City Area:    %s (%s)\n", units.FormatAreaLarge(cityArea, sys), units.FormatAreaVeryLarge(cityArea, sys))
+	fmt.Fprintf(ios.Out, "\n=== City Summary ===\n")
+	fmt.Fprintf(ios.Out, "  City Area:    %s (%s)\n", units.FormatAreaLarge(cityArea, sys), units.FormatAreaVeryLarge(cityArea, sys))
 	pavedLabel := "  Paved Area:   "
 	if !accurate {
 		// All-resources view with no combined (de-duplicated) compute row —
@@ -533,19 +590,19 @@ func printCitySummary(ctx context.Context, ios *iostreams.IOStreams, store db.St
 		// the true union.
 		pavedLabel = "  Paved Area*:  "
 	}
-	fmt.Fprintf(ios.ErrOut, "%s%s (%s)\n", pavedLabel, units.FormatAreaLarge(totalPaved, sys), units.FormatAreaVeryLarge(totalPaved, sys))
+	fmt.Fprintf(ios.Out, "%s%s (%s)\n", pavedLabel, units.FormatAreaLarge(totalPaved, sys), units.FormatAreaVeryLarge(totalPaved, sys))
 	if totalPaved > 0 {
 		if accurate {
-			fmt.Fprintf(ios.ErrOut, "  %% Paved:      %.1f%%\n", totalPaved/cityArea*100)
+			fmt.Fprintf(ios.Out, "  %% Paved:      %.1f%%\n", totalPaved/cityArea*100)
 		} else {
-			fmt.Fprintf(ios.ErrOut, "  %% Paved*:     %.1f%%\n", totalPaved/cityArea*100)
+			fmt.Fprintf(ios.Out, "  %% Paved*:     %.1f%%\n", totalPaved/cityArea*100)
 		}
 	}
 	switch {
 	case staleCombined != "":
-		fmt.Fprintf(ios.ErrOut, "  * the combined total is stale (%s since it was computed); run 'pvmt all compute' to recompute it.\n", staleCombined)
+		fmt.Fprintf(ios.Out, "  * the combined total is stale (%s since it was computed); run 'pvmt all compute' to recompute it.\n", staleCombined)
 	case !accurate:
-		fmt.Fprintf(ios.ErrOut, "  * sum of per-resource areas (double-counts overlap); run 'pvmt all compute' for the de-duplicated total.\n")
+		fmt.Fprintf(ios.Out, "  * sum of per-resource areas (double-counts overlap); run 'pvmt all compute' for the de-duplicated total.\n")
 	}
 }
 
@@ -583,7 +640,7 @@ func printSnapshotHistory(ios *iostreams.IOStreams, snapshots []db.SnapshotCity,
 	if len(snapshots) == 0 {
 		return
 	}
-	fmt.Fprintf(ios.ErrOut, "\n=== Snapshots ===\n")
+	fmt.Fprintf(ios.Out, "\n=== Snapshots ===\n")
 	limit := min(len(snapshots), 5)
 	for i, s := range snapshots[:limit] {
 		var marks []string
@@ -597,10 +654,10 @@ func printSnapshotHistory(ios *iostreams.IOStreams, snapshots []db.SnapshotCity,
 		if len(marks) > 0 {
 			mark = "  (" + strings.Join(marks, ", ") + ")"
 		}
-		fmt.Fprintf(ios.ErrOut, "  %s  %s  (%s)  %d parts  %s%s\n", s.Name, s.CreatedAt.Format(time.RFC3339),
+		fmt.Fprintf(ios.Out, "  %s  %s  (%s)  %d parts  %s%s\n", s.Name, s.CreatedAt.Format(time.RFC3339),
 			iostreams.RelativeTime(s.CreatedAt), len(s.Parts), s.ConfigHash, mark)
 	}
 	if len(snapshots) > 5 {
-		fmt.Fprintf(ios.ErrOut, "  ... and %d more\n", len(snapshots)-5)
+		fmt.Fprintf(ios.Out, "  ... and %d more\n", len(snapshots)-5)
 	}
 }

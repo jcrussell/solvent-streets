@@ -292,19 +292,18 @@ func truncateCell(s string, n int) string {
 // boardHelp is the --all part of `pvmt status --help`.
 const boardHelp = `
 
-With --all, every configured city (or the one --city names) is reported as
-one board instead: a row per city and layer (its boundary, roads, parking,
+With --all, the cities are reported as one board instead: a row per city
+and layer (its boundary, roads, parking,
 sidewalks, each service's stations and routing roads, and census blocks),
 with the rows stored, the last successful fetch, the configured sources whose
 last ingest failed and hold none of its rows, the state of the part computed
 from it, and the command to run next. A layer is incomplete when a source is
 failing, or when it has no rows at all, unless every source answered with
 none ("none upstream": a small town with no sidewalks mapped; stations and
-routing roads may also legitimately have none). --incomplete keeps only the incomplete rows, --stale
-adds those whose part is stale or not computed, and --exit-status exits 1 when
-any such row exists. --json takes the board's fields (city, layer,
-feature_count, last_success_at, failing_sources, error, state, incomplete,
-retry).`
+routing roads may also legitimately have none). --incomplete keeps only the
+incomplete rows, --stale adds those whose part is stale or not computed, and
+--exit-status exits 1 when any such row exists. --json then takes the
+board's fields.`
 
 const boardExample = `
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -140,7 +141,7 @@ func TestRunStatus_CitySummary(t *testing.T) {
 			return boundaryGJSON, nil
 		},
 	}
-	ios, _, _, stderr := iostreams.Test()
+	ios, _, stdout, _ := iostreams.Test()
 	ios.SetTTY(true)
 	f := &cmdutil.Factory{
 		IOStreams:  ios,
@@ -155,20 +156,20 @@ func TestRunStatus_CitySummary(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	output := stderr.String()
+	output := stdout.String()
 	if !strings.Contains(output, "City Summary") {
-		t.Errorf("expected City Summary in stderr, got: %s", output)
+		t.Errorf("expected City Summary on stdout, got: %s", output)
 	}
 	if !strings.Contains(output, "City Area:") {
-		t.Errorf("expected City Area in stderr, got: %s", output)
+		t.Errorf("expected City Area on stdout, got: %s", output)
 	}
 	// No combined compute row is stubbed here, so the paved figure is the
 	// per-resource sum and carries the double-count asterisk (yvlv.37).
 	if !strings.Contains(output, "Paved Area*:") {
-		t.Errorf("expected Paved Area (fallback, asterisked) in stderr, got: %s", output)
+		t.Errorf("expected Paved Area (fallback, asterisked) on stdout, got: %s", output)
 	}
 	if !strings.Contains(output, "% Paved*:") {
-		t.Errorf("expected %% Paved (fallback, asterisked) in stderr, got: %s", output)
+		t.Errorf("expected %% Paved (fallback, asterisked) on stdout, got: %s", output)
 	}
 }
 
@@ -205,7 +206,7 @@ func TestRunStatus_CitySummary_PrefersCombined(t *testing.T) {
 		// Per-resource areas sum to 90000; the combined row says 60000.
 		CityMetrics: append(eachResourceTotals(), results.TotalRows(resource.CombinedAll, results.Totals{Area: 60000})...),
 	}
-	ios, _, _, stderr := iostreams.Test()
+	ios, _, stdout, _ := iostreams.Test()
 	ios.SetTTY(true)
 	f := &cmdutil.Factory{
 		IOStreams:  ios,
@@ -217,7 +218,7 @@ func TestRunStatus_CitySummary_PrefersCombined(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	out := stderr.String()
+	out := stdout.String()
 	// The combined figure (60000 m2 = 0.06 km2 = 6 ha) is used, and no
 	// double-count asterisk footnote appears.
 	if strings.Contains(out, "*") {
@@ -238,7 +239,7 @@ func TestRunStatus_CitySummary_FallsBackToSum(t *testing.T) {
 		// No combined rows in the mock → fallback.
 		CityMetrics: eachResourceTotals(),
 	}
-	ios, _, _, stderr := iostreams.Test()
+	ios, _, stdout, _ := iostreams.Test()
 	ios.SetTTY(true)
 	f := &cmdutil.Factory{
 		IOStreams:  ios,
@@ -250,7 +251,7 @@ func TestRunStatus_CitySummary_FallsBackToSum(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	out := stderr.String()
+	out := stdout.String()
 	if !strings.Contains(out, "*") {
 		t.Errorf("no combined row: expected double-count footnote asterisk, got: %s", out)
 	}
@@ -268,7 +269,7 @@ func TestRunStatus_CitySummary_SingleResourceIgnoresCombined(t *testing.T) {
 		// A combined row exists but must be ignored in single-resource mode.
 		CityMetrics: append(eachResourceTotals(), results.TotalRows(resource.CombinedAll, results.Totals{Area: 999999})...),
 	}
-	ios, _, _, stderr := iostreams.Test()
+	ios, _, stdout, _ := iostreams.Test()
 	ios.SetTTY(true)
 	f := &cmdutil.Factory{
 		IOStreams:  ios,
@@ -281,7 +282,7 @@ func TestRunStatus_CitySummary_SingleResourceIgnoresCombined(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	out := stderr.String()
+	out := stdout.String()
 	if strings.Contains(out, "*") {
 		t.Errorf("single-resource: should not emit double-count footnote, got: %s", out)
 	}
@@ -297,6 +298,7 @@ func TestRunStatus_CitySummary_SingleResourceIgnoresCombined(t *testing.T) {
 // full statusFields list round-trips for a fully populated row.
 func TestStatusRow_ExportData_AllFieldsPopulated(t *testing.T) {
 	r := statusRow{
+		City:            "oakland-ca",
 		ResourceType:    "parking",
 		FeatureCount:    42,
 		LastIngestAt:    "2026-04-18T00:00:00Z",
@@ -411,7 +413,7 @@ func TestRunStatus_StaleSnapshotsSayWhy(t *testing.T) {
 			return []db.SnapshotCity{{ID: 7, ConfigHash: "0ld0ld0ld0ld0ld0", CreatedAt: time.Now()}}, nil
 		},
 	}
-	ios, _, _, stderr := iostreams.Test()
+	ios, _, stdout, stderr := iostreams.Test()
 	ios.SetTTY(true)
 	f := &cmdutil.Factory{
 		IOStreams:   ios,
@@ -426,10 +428,10 @@ func TestRunStatus_StaleSnapshotsSayWhy(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := stderr.String()
-	if want := cfg.StaleHint(city); !strings.Contains(out, want) {
+	if want := "hint: " + cfg.StaleHint(city); !strings.Contains(out, want) {
 		t.Errorf("stderr lacks the shared stale-snapshot hint %q:\n%s", want, out)
 	}
-	if !strings.Contains(out, "0ld0ld0ld0ld0ld0") || strings.Contains(out, "(current settings)") {
+	if out := stdout.String(); !strings.Contains(out, "0ld0ld0ld0ld0ld0") || strings.Contains(out, "(current settings)") {
 		t.Errorf("snapshot history should list the old hash, unmarked:\n%s", out)
 	}
 
@@ -445,16 +447,16 @@ func TestRunStatus_StaleSnapshotsSayWhy(t *testing.T) {
 		}, nil
 	}
 	stderr.Reset()
+	stdout.Reset()
 	cmd = NewCmdStatus(f, nil, nil)
 	cmd.SetArgs([]string{})
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	out = stderr.String()
-	if strings.Contains(out, "not under the current settings") {
+	if out := stderr.String(); strings.Contains(out, "not under the current settings") {
 		t.Errorf("hint printed although the city is computed under the current settings:\n%s", out)
 	}
-	if !strings.Contains(out, cur+"  (published, current settings)") {
+	if out := stdout.String(); !strings.Contains(out, cur+"  (published, current settings)") {
 		t.Errorf("newest snapshot not marked published and current:\n%s", out)
 	}
 }
@@ -517,9 +519,9 @@ func TestRunStatus_PartStates(t *testing.T) {
 			}}}, nil
 		},
 	}
-	run := func(args ...string) (string, string) {
+	run := func(args ...string) string {
 		t.Helper()
-		ios, _, stdout, stderr := iostreams.Test()
+		ios, _, stdout, _ := iostreams.Test()
 		ios.SetTTY(true)
 		f := &cmdutil.Factory{
 			IOStreams:   ios,
@@ -533,10 +535,10 @@ func TestRunStatus_PartStates(t *testing.T) {
 		if err := cmd.Execute(); err != nil {
 			t.Fatal(err)
 		}
-		return stdout.String(), stderr.String()
+		return stdout.String()
 	}
 
-	table, notes := run()
+	table := run()
 	for _, want := range []string{"State", "current", "not computed"} {
 		if !strings.Contains(table, want) {
 			t.Errorf("table lacks %q:\n%s", want, table)
@@ -552,12 +554,12 @@ func TestRunStatus_PartStates(t *testing.T) {
 		"  v4  ",
 		"(published, current settings)",
 	} {
-		if !strings.Contains(notes, want) {
-			t.Errorf("stderr lacks %q:\n%s", want, notes)
+		if !strings.Contains(table, want) {
+			t.Errorf("stdout lacks %q:\n%s", want, table)
 		}
 	}
 
-	out, _ := run("--json", "resource_type,state,stale_inputs")
+	out := run("--json", "resource_type,state,stale_inputs")
 	var rows []map[string]any
 	if err := json.Unmarshal([]byte(out), &rows); err != nil {
 		t.Fatal(err)
@@ -625,5 +627,55 @@ func TestPartOf(t *testing.T) {
 		if got := partOf(in); got != want {
 			t.Errorf("partOf(%s) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// TestStatus_EveryConfiguredCity: without --city, status reports every
+// configured city, each row naming its city, and --json writes them all as
+// one document.
+func TestStatus_EveryConfiguredCity(t *testing.T) {
+	root, err := db.Open(filepath.Join(t.TempDir(), db.FileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+	cfg := &config.Config{ConfigID: "test", Cities: []config.CityConfig{{Name: "Alpha, CA"}, {Name: "Beta, CA"}}}
+	run := func(args ...string) (string, string) {
+		t.Helper()
+		ios, _, stdout, stderr := iostreams.Test()
+		f := &cmdutil.Factory{
+			IOStreams:   ios,
+			RootDB:      func() (*db.RootStore, error) { return root, nil },
+			UnitSystem:  func() units.System { return units.Metric },
+			Config:      func() (*config.Config, error) { return cfg, nil },
+			CurrentCity: func() (*config.CityConfig, error) { return &cfg.Cities[0], nil },
+			CityFlagSet: func() bool { return false },
+		}
+		cmd := NewCmdStatus(f, &resource.Pavement{}, nil)
+		cmd.SetArgs(args)
+		cmd.SilenceUsage = true
+		if err := cmd.Execute(); err != nil {
+			t.Fatal(err)
+		}
+		return stdout.String(), stderr.String()
+	}
+
+	table, chatter := run()
+	for _, slug := range []string{"alpha-ca", "beta-ca"} {
+		if !strings.Contains(table, slug+"\troads") {
+			t.Errorf("table lacks a roads row for %s:\n%s", slug, table)
+		}
+	}
+	if !strings.Contains(chatter, "=== Beta, CA ===") {
+		t.Errorf("stderr lacks the per-city header:\n%s", chatter)
+	}
+
+	out, _ := run("--json", "city,resource_type")
+	var rows []map[string]any
+	if err := json.Unmarshal([]byte(out), &rows); err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	if len(rows) != 2 || rows[0]["city"] != "alpha-ca" || rows[1]["city"] != "beta-ca" {
+		t.Errorf("rows = %v, want one per city in config order", rows)
 	}
 }
