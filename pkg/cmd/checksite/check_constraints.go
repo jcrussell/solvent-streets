@@ -42,23 +42,23 @@ func (r *runner) checkConstraints(s *site) {
 		return nil
 	})
 	if err != nil {
-		r.failf("constraints: size walk failed: %v", err)
+		r.failf(chkConstraints, "size walk failed: %v", err)
 		return
 	}
 
 	for _, f := range oversized {
-		r.failf("constraints: %s exceeds the 100 MB per-file limit", f)
+		r.failf(chkConstraints, "%s exceeds the 100 MB per-file limit", f)
 	}
 	if len(oversized) == 0 {
-		r.passf("constraints: no file exceeds the 100 MB per-file limit")
+		r.passf(chkConstraints, "no file exceeds the 100 MB per-file limit")
 	}
 
 	r.checkNojekyll(s)
 
 	if total > warnTreeSize {
-		r.warnf("constraints: total tree size is %s (over 1 GB)", cmdutil.HumanSize(total))
+		r.warnf(chkConstraints, "total tree size is %s (over 1 GB)", cmdutil.HumanSize(total))
 	} else {
-		r.passf("constraints: total tree size is %s", cmdutil.HumanSize(total))
+		r.passf(chkConstraints, "total tree size is %s", cmdutil.HumanSize(total))
 	}
 }
 
@@ -69,12 +69,12 @@ func (r *runner) checkNojekyll(s *site) {
 	info, err := os.Stat(filepath.Join(s.dir, export.NojekyllFileName))
 	switch {
 	case err != nil:
-		r.failf("constraints: .nojekyll is missing")
+		r.failf(chkConstraints, ".nojekyll is missing")
 	case info.IsDir():
-		r.failf("constraints: .nojekyll is a directory, expected a zero-byte file")
+		r.failf(chkConstraints, ".nojekyll is a directory, expected a zero-byte file")
 	case info.Size() != 0:
-		r.failf("constraints: .nojekyll is %d bytes, expected zero-byte", info.Size())
+		r.failf(chkConstraints, ".nojekyll is %d bytes, expected zero-byte", info.Size())
 	default:
-		r.passf("constraints: .nojekyll present and zero-byte")
+		r.passf(chkConstraints, ".nojekyll present and zero-byte")
 	}
 }

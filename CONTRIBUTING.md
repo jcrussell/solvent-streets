@@ -145,7 +145,10 @@ Every command follows the same rules, so the CLI reads as one tool:
   tables it prints, a `--dry-run` plan, the report of what a delete
   removed. Prose about the run goes to stderr: progress, warnings (through
   `cmdutil.Warnf`, which adds `warning: `) and hints. A command that prints
-  a result offers `--json` for it.
+  a result offers `--json` for it: rows (`cmdutil.AddJSONFlags`) or one
+  document (`cmdutil.AddDocumentJSONFlags`). `all compute` is the
+  exception: its stdout is each step's report, and a script reads the
+  steps' own `--json` (`pvmt <resource> compute --json`).
 - **Deleting commands.** A command that deletes stored data or cached
   responses offers `--dry-run` and `-y/--yes`, goes through
   `cmdutil.ConfirmDestructive` (prompt on a TTY, refuse without `--yes`

@@ -458,3 +458,93 @@ func TestRunGC_PromptCancelDoesNotSweep(t *testing.T) {
 		t.Errorf("expected 'Canceled.' on stderr, got: %s", stderr.String())
 	}
 }
+
+// rowRecorder is an Exporter that keeps the rows it is given.
+type rowRecorder struct {
+	fields []string
+	rows   []map[string]any
+	writes int
+}
+
+func (r *rowRecorder) Fields() []string { return r.fields }
+func (r *rowRecorder) Write(_ *iostreams.IOStreams, rows []map[string]any) error {
+	r.rows, r.writes = rows, r.writes+1
+	return nil
+}
+
+// TestRunGC_JSON: --json writes one row per city, from the scan on a dry run
+// and from the sweep otherwise, and no text report.
+func TestRunGC_JSON(t *testing.T) {
+	cities := []config.CityConfig{{Name: "Alpha", Overpass: true}, {Name: "Beta", ArcGISURL: "https://example.test/arcgis"}}
+	root := &dbtest.MockRootStore{
+		EnsureCityFunc: func(context.Context, string, string, string) (int64, error) { return 1, nil },
+		ForCityFunc: func(int64) db.Store {
+			return &dbtest.MockStore{
+				GCScanFunc:  func(context.Context, []string) (*db.GCReport, error) { return reportWithCounts(), nil },
+				GCSweepFunc: func(context.Context, []string) (*db.GCReport, error) { return reportWithCounts(), nil },
+			}
+		},
+	}
+	for _, dryRun := range []bool{true, false} {
+		ios, _, stdout, _ := iostreams.Test()
+		rec := &rowRecorder{fields: gcFields}
+		opts := &Options{
+			IO:            ios,
+			RootDB:        rootDBFunc(root),
+			ResolveCities: resolveCitiesFunc(cities),
+			DryRun:        dryRun,
+			Yes:           true,
+			Exporter:      rec,
+		}
+		if err := runGC(context.Background(), opts); err != nil {
+			t.Fatal(err)
+		}
+		if stdout.Len() != 0 {
+			t.Errorf("dry run %v: text report beside --json: %q", dryRun, stdout.String())
+		}
+		if rec.writes != 1 || len(rec.rows) != 2 {
+			t.Fatalf("dry run %v: %d writes of %v, want one write of two rows", dryRun, rec.writes, rec.rows)
+		}
+		r := rec.rows[1]
+		if r["city"] != "beta" || r["stale_feature_count"] != 3 || r["orphan_city_metric_count"] != 6 || r["deleted"] != !dryRun {
+			t.Errorf("dry run %v: row = %v", dryRun, r)
+		}
+		if _, ok := r["kept_feature_count"]; ok == !dryRun {
+			t.Errorf("dry run %v: kept_feature_count present = %v, want only on a scan", dryRun, ok)
+		}
+		if _, ok := rec.rows[0]["kept_feature_count"]; ok {
+			t.Errorf("dry run %v: kept_feature_count on a city with overpass on, which holds nothing back", dryRun)
+		}
+	}
+}
+
+// TestRunGC_JSONSweepFailsPartway: a sweep that fails on a later city still
+// writes the --json rows of the cities it already swept, then fails.
+func TestRunGC_JSONSweepFailsPartway(t *testing.T) {
+	cities := []config.CityConfig{{Name: "Alpha", Overpass: true}, {Name: "Beta", Overpass: true}}
+	ids := map[string]int64{"alpha": 1, "beta": 2}
+	boom := errors.New("disk full")
+	root := &dbtest.MockRootStore{
+		EnsureCityFunc: func(_ context.Context, slug, _, _ string) (int64, error) { return ids[slug], nil },
+		ForCityFunc: func(id int64) db.Store {
+			return &dbtest.MockStore{
+				GCScanFunc: func(context.Context, []string) (*db.GCReport, error) { return reportWithCounts(), nil },
+				GCSweepFunc: func(context.Context, []string) (*db.GCReport, error) {
+					if id == 2 {
+						return nil, boom
+					}
+					return reportWithCounts(), nil
+				},
+			}
+		},
+	}
+	ios, _, _, _ := iostreams.Test()
+	rec := &rowRecorder{fields: gcFields}
+	opts := &Options{IO: ios, RootDB: rootDBFunc(root), ResolveCities: resolveCitiesFunc(cities), Yes: true, Exporter: rec}
+	if err := runGC(context.Background(), opts); !errors.Is(err, boom) {
+		t.Fatalf("err = %v, want the sweep failure", err)
+	}
+	if len(rec.rows) != 1 || rec.rows[0]["city"] != "alpha" || rec.rows[0]["deleted"] != true {
+		t.Errorf("rows = %v, want alpha's sweep", rec.rows)
+	}
+}

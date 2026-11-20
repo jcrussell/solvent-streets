@@ -15,6 +15,8 @@ import (
 	"github.com/jcrussell/solvent-streets/pkg/cmd/prompt"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
+
+	"github.com/spf13/cobra"
 )
 
 // twoCityConfig is the fixture used by every test that exercises the
@@ -453,5 +455,93 @@ func TestNewCmdPrune_RequiresKeepFlag(t *testing.T) {
 				t.Errorf("err = %v, ran = %v; want a refusal", err, ran)
 			}
 		})
+	}
+}
+
+// TestDeleteAndPrune_JSON: --json reports each snapshot that went (or, on a
+// dry run, would go) as a snapshots list row with deleted.
+func TestDeleteAndPrune_JSON(t *testing.T) {
+	run := func(cmd func(*cmdutil.Factory, *[]string) *cobra.Command, args ...string) ([]map[string]any, []string) {
+		t.Helper()
+		var deleted []string
+		ios, _, stdout, _ := iostreams.Test()
+		c := cmd(&cmdutil.Factory{IOStreams: ios}, &deleted)
+		c.SetArgs(args)
+		if err := c.Execute(); err != nil {
+			t.Fatal(err)
+		}
+		var rows []map[string]any
+		if err := json.Unmarshal(stdout.Bytes(), &rows); err != nil {
+			t.Fatalf("%v: %s", err, stdout)
+		}
+		return rows, deleted
+	}
+	del := func(f *cmdutil.Factory, deleted *[]string) *cobra.Command {
+		return NewCmdDelete(f, func(ctx context.Context, opts *DeleteOptions) error {
+			opts.RootDB = rootDBFunc(tagRoot(deleted))
+			return runDelete(ctx, opts)
+		})
+	}
+	prune := func(f *cmdutil.Factory, deleted *[]string) *cobra.Command {
+		return NewCmdPrune(f, func(ctx context.Context, opts *PruneOptions) error {
+			opts.RootDB = rootDBFunc(tagRoot(deleted))
+			return runPrune(ctx, opts)
+		})
+	}
+	for _, tc := range []struct {
+		name    string
+		cmd     func(*cmdutil.Factory, *[]string) *cobra.Command
+		args    []string
+		deleted bool
+	}{
+		{"delete", del, []string{"v1", "--yes"}, true},
+		{"delete --dry-run", del, []string{"v1", "--dry-run"}, false},
+		{"prune", prune, []string{"--keep=1", "--yes"}, true},
+		{"prune --dry-run", prune, []string{"--keep=1", "--dry-run"}, false},
+	} {
+		rows, deleted := run(tc.cmd, append(tc.args, "--json", "name,city_count,deleted")...)
+		if len(rows) != 1 || rows[0]["name"] != "v1" || rows[0]["city_count"] != 1.0 || rows[0]["deleted"] != tc.deleted {
+			t.Errorf("%s: rows = %v", tc.name, rows)
+		}
+		if (len(deleted) == 1) != tc.deleted {
+			t.Errorf("%s: deleted %v", tc.name, deleted)
+		}
+	}
+	if rows, _ := run(prune, "--keep=5", "--yes", "--json", "name"); len(rows) != 0 {
+		t.Errorf("prune with nothing to do: rows = %v, want []", rows)
+	}
+}
+
+// TestPrune_JSONFailsPartway: a prune whose delete fails partway still
+// writes the --json rows of the snapshots it already deleted, then fails.
+func TestPrune_JSONFailsPartway(t *testing.T) {
+	boom := errors.New("disk full")
+	root := &dbtest.MockRootStore{
+		ListSnapshotsFunc: func(context.Context) ([]db.Snapshot, error) {
+			return []db.Snapshot{{Name: "v3"}, {Name: "v2"}, {Name: "v1"}}, nil
+		},
+		DeleteSnapshotFunc: func(_ context.Context, name string) (bool, error) {
+			if name == "v1" {
+				return false, boom
+			}
+			return true, nil
+		},
+	}
+	ios, _, stdout, _ := iostreams.Test()
+	cmd := NewCmdPrune(&cmdutil.Factory{IOStreams: ios}, func(ctx context.Context, opts *PruneOptions) error {
+		opts.RootDB = rootDBFunc(root)
+		return runPrune(ctx, opts)
+	})
+	cmd.SetArgs([]string{"--keep=1", "--yes", "--json", "name,deleted"})
+	cmd.SilenceErrors, cmd.SilenceUsage = true, true
+	if err := cmd.Execute(); !errors.Is(err, boom) {
+		t.Fatalf("err = %v, want the delete failure", err)
+	}
+	var rows []map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &rows); err != nil {
+		t.Fatalf("%v: %s", err, stdout)
+	}
+	if len(rows) != 1 || rows[0]["name"] != "v2" || rows[0]["deleted"] != true {
+		t.Errorf("rows = %v, want v2 deleted", rows)
 	}
 }

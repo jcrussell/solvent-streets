@@ -9,6 +9,7 @@ package checksite
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/jcrussell/solvent-streets/internal/export"
 	"github.com/jcrussell/solvent-streets/pkg/cmdutil"
@@ -27,6 +28,56 @@ type Options struct {
 	// the freshness check compares the tree's copies against.
 	// NewCmdCheckSite sets export.EmbeddedAssets; tests pass fakes.
 	Assets func() (*export.Assets, error)
+	// Exporter is set by --json: one row per check result instead of text.
+	Exporter cmdutil.Exporter
+}
+
+var resultFields = []string{"check", "status", "message"}
+
+// checkName names one of the checks, as --help's sections do (STRUCTURE,
+// WASM FRESHNESS, ...): the --json check value, and in the text output the
+// line's prefix (with a space for the underscore).
+type checkName string
+
+const (
+	chkStructure      checkName = "structure"
+	chkReferences     checkName = "references"
+	chkWasmFreshness  checkName = "wasm_freshness"
+	chkHygiene        checkName = "hygiene"
+	chkConstraints    checkName = "constraints"
+	chkSizes          checkName = "sizes"
+	chkReasonableness checkName = "reasonableness"
+	chkConsistency    checkName = "consistency"
+	chkCoverage       checkName = "coverage"
+	chkDecay          checkName = "decay"
+)
+
+// checkNames lists every check, in the order they run.
+var checkNames = []checkName{chkStructure, chkReferences, chkWasmFreshness, chkHygiene, chkConstraints,
+	chkSizes, chkReasonableness, chkConsistency, chkCoverage, chkDecay}
+
+// result is one check's verdict: the check, pass/warn/fail, and the message.
+type result struct {
+	Check   checkName
+	Status  string
+	Message string
+}
+
+var _ cmdutil.RowExporter = result{}
+
+func (r result) ExportData(fields []string) map[string]any {
+	out := make(map[string]any, len(fields))
+	for _, f := range fields {
+		switch f {
+		case "check":
+			out[f] = string(r.Check)
+		case "status":
+			out[f] = r.Status
+		case "message":
+			out[f] = r.Message
+		}
+	}
+	return out
 }
 
 func NewCmdCheckSite(f *cmdutil.Factory, runF func(context.Context, *Options) error) *cobra.Command {
@@ -104,7 +155,10 @@ Exits non-zero if any check FAILs. With --strict, warnings fail too.`,
   pvmt check-site ./site
 
   # Treat warnings as failures (CI gate)
-  pvmt check-site --strict`,
+  pvmt check-site --strict
+
+  # Only the warnings and failures, as JSON
+  pvmt check-site --json check,status,message --jq '.[] | select(.status != "pass")'`,
 		Args: cobra.MaximumNArgs(1),
 		ValidArgsFunction: func(_ *cobra.Command, args []string, _ string) ([]cobra.Completion, cobra.ShellCompDirective) {
 			if len(args) > 0 {
@@ -125,13 +179,14 @@ Exits non-zero if any check FAILs. With --strict, warnings fail too.`,
 	}
 
 	cmd.Flags().BoolVar(&opts.Strict, "strict", false, "Treat warnings as failures")
+	cmdutil.AddJSONFlags(cmd, &opts.Exporter, resultFields)
 
 	return cmd
 }
 
 func runCheckSite(ctx context.Context, opts *Options) error {
 	r := newRunner(opts.IO, opts.Strict)
-	r.assets = opts.Assets
+	r.assets, r.exporter = opts.Assets, opts.Exporter
 
 	st, err := discoverSite(opts.Dir)
 	if err != nil {
@@ -185,15 +240,19 @@ func runCheckSite(ctx context.Context, opts *Options) error {
 }
 
 // runner accumulates pass/warn/fail results and streams a one-line verdict per
-// check to the user. finish() prints the summary and returns ErrSilent (which
-// the top-level runner maps to exit 1 without reprinting) when anything failed.
+// check to the user, or with --json collects them as rows. finish() prints
+// the summary (on stderr beside --json) and returns ErrSilent (which the
+// top-level runner maps to exit 1 without reprinting) when anything failed.
 type runner struct {
 	io     *iostreams.IOStreams
 	strict bool
 	assets func() (*export.Assets, error) // see Options.Assets
-	pass   int
-	warn   int
-	fail   int
+	// exporter is --json's (nil: stream text); results holds the rows.
+	exporter cmdutil.Exporter
+	results  []result
+	pass     int
+	warn     int
+	fail     int
 	// skipped and total are set only by an interrupted run: skipped is how
 	// many of the total checks never ran. finish() reports them so a partial
 	// tally does not read like a full audit.
@@ -205,19 +264,29 @@ func newRunner(io *iostreams.IOStreams, strict bool) *runner {
 	return &runner{io: io, strict: strict}
 }
 
-func (r *runner) passf(format string, a ...any) {
+func (r *runner) passf(check checkName, format string, a ...any) {
 	r.pass++
-	fmt.Fprintf(r.io.Out, "PASS  %s\n", fmt.Sprintf(format, a...))
+	r.record(check, "pass", fmt.Sprintf(format, a...))
 }
 
-func (r *runner) warnf(format string, a ...any) {
+func (r *runner) warnf(check checkName, format string, a ...any) {
 	r.warn++
-	fmt.Fprintf(r.io.Out, "WARN  %s\n", fmt.Sprintf(format, a...))
+	r.record(check, "warn", fmt.Sprintf(format, a...))
 }
 
-func (r *runner) failf(format string, a ...any) {
+func (r *runner) failf(check checkName, format string, a ...any) {
 	r.fail++
-	fmt.Fprintf(r.io.Out, "FAIL  %s\n", fmt.Sprintf(format, a...))
+	r.record(check, "fail", fmt.Sprintf(format, a...))
+}
+
+// record streams one verdict line ("PASS  structure: ..."), or keeps it as
+// a --json row.
+func (r *runner) record(check checkName, status, msg string) {
+	if r.exporter == nil {
+		fmt.Fprintf(r.io.Out, "%-4s  %s: %s\n", strings.ToUpper(status), strings.ReplaceAll(string(check), "_", " "), msg)
+		return
+	}
+	r.results = append(r.results, result{Check: check, Status: status, Message: msg})
 }
 
 // failing reports whether the results recorded so far already amount to a
@@ -229,15 +298,26 @@ func (r *runner) failing() bool {
 }
 
 func (r *runner) finish() error {
-	fmt.Fprintf(r.io.Out, "\n%d passed, %d warnings, %d failed\n", r.pass, r.warn, r.fail)
+	w := r.io.Out
+	if r.exporter != nil {
+		rows := r.results
+		if rows == nil {
+			rows = []result{}
+		}
+		if err := cmdutil.WriteRows(r.io, r.exporter, rows); err != nil {
+			return err
+		}
+		w = r.io.ErrOut
+	}
+	fmt.Fprintf(w, "\n%d passed, %d warnings, %d failed\n", r.pass, r.warn, r.fail)
 	if r.skipped > 0 {
-		fmt.Fprintf(r.io.Out, "interrupted: %d of %d checks not run\n", r.skipped, r.total)
+		fmt.Fprintf(w, "interrupted: %d of %d checks not run\n", r.skipped, r.total)
 	}
 	if r.fail > 0 {
 		return cmdutil.ErrSilent
 	}
 	if r.strict && r.warn > 0 {
-		fmt.Fprintln(r.io.Out, "--strict: warnings treated as failures")
+		fmt.Fprintln(w, "--strict: warnings treated as failures")
 		return cmdutil.ErrSilent
 	}
 	return nil

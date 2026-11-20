@@ -32,6 +32,38 @@ type PruneOptions struct {
 	MaxSizeBytes int64
 	DryRun       bool
 	Yes          bool
+	// JSON is set by --json: the report is one document instead of text.
+	JSON *cmdutil.DocumentExporter
+}
+
+// pruneDoc is the --json report: what the plan found (deleted false: a
+// dry run or nothing to prune) or what the sweep removed.
+type pruneDoc struct {
+	Dir                    string `json:"dir"`
+	ScannedCount           int    `json:"scanned_count"`
+	SkippedCount           int    `json:"skipped_count"`
+	RemovedCount           int    `json:"removed_count"`
+	AgeRemovedCount        int    `json:"age_removed_count"`
+	SizeRemovedCount       int    `json:"size_removed_count"`
+	IncompleteRemovedCount int    `json:"incomplete_removed_count"`
+	ReclaimedBytes         int64  `json:"reclaimed_bytes"`
+	RemainingBytes         int64  `json:"remaining_bytes"`
+	Deleted                bool   `json:"deleted"`
+}
+
+func newPruneDoc(dir string, r *httpcache.PruneReport, deleted bool) pruneDoc {
+	return pruneDoc{
+		Dir:                    dir,
+		ScannedCount:           r.EntriesScanned,
+		SkippedCount:           r.Skipped,
+		RemovedCount:           r.EntriesRemoved + r.OrphansRemoved,
+		AgeRemovedCount:        r.AgeRemoved,
+		SizeRemovedCount:       r.SizeRemoved,
+		IncompleteRemovedCount: r.OrphansRemoved,
+		ReclaimedBytes:         r.BytesReclaimed,
+		RemainingBytes:         r.BytesRemaining,
+		Deleted:                deleted,
+	}
 }
 
 func NewCmdPrune(f *cmdutil.Factory, runF func(context.Context, *PruneOptions) error) *cobra.Command {
@@ -97,7 +129,10 @@ skips size pruning); incomplete entries are still swept.
   pvmt cache prune --max-age=168h --max-size=100mb --yes
 
   # Size cap only
-  pvmt cache prune --max-age=0 --max-size=1g --yes`,
+  pvmt cache prune --max-age=0 --max-size=1g --yes
+
+  # What would be reclaimed, as JSON
+  pvmt cache prune --dry-run --json --jq .reclaimed_bytes`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if opts.MaxAge < 0 {
 				return cmdutil.FlagErrorf("--max-age must not be negative, got %s", opts.MaxAge)
@@ -120,6 +155,7 @@ skips size pruning); incomplete entries are still swept.
 		"Ceiling on the total size of managed cache entries, e.g. 500mb or 2g; binary units (0 disables)")
 	cmd.Flags().BoolVar(&opts.DryRun, "dry-run", false, "Report what would be removed without removing or prompting")
 	cmd.Flags().BoolVarP(&opts.Yes, "yes", "y", false, "Skip the interactive confirmation")
+	cmdutil.AddDocumentJSONFlags(cmd, &opts.JSON, "Emit the report as JSON instead of text")
 
 	return cmd
 }
@@ -140,12 +176,17 @@ func runPrune(ctx context.Context, opts *PruneOptions) error {
 	sweep := httpcache.PruneOptions{MaxAge: opts.MaxAge, MaxSize: opts.MaxSizeBytes}
 
 	plan, planErr := httpcache.Prune(ctx, dir, withDryRun(sweep, true))
-	printPruneReport(opts, dir, plan)
+	if opts.JSON == nil {
+		printPruneReport(opts, dir, plan)
+	}
 	if planErr != nil {
 		return planErr
 	}
 
 	victims := plan.EntriesRemoved + plan.OrphansRemoved
+	if opts.JSON != nil && (victims == 0 || opts.DryRun) {
+		return opts.JSON.Write(opts.IO, newPruneDoc(dir, plan, false))
+	}
 	if victims == 0 {
 		return nil
 	}
@@ -170,6 +211,12 @@ func runPrune(ctx context.Context, opts *PruneOptions) error {
 	}
 
 	report, pruneErr := httpcache.Prune(ctx, dir, withDryRun(sweep, false))
+	if opts.JSON != nil {
+		if err := opts.JSON.Write(opts.IO, newPruneDoc(dir, report, true)); err != nil {
+			return err
+		}
+		return pruneErr
+	}
 	// Print the outcome even on a partial failure — the caller still
 	// wants to know what was reclaimed before the error. This is a
 	// summary rather than a repeat of the block above; the counts are

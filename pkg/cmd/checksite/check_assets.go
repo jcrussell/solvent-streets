@@ -15,27 +15,27 @@ import (
 // different (older) binary and must be regenerated.
 func (r *runner) checkWasmFreshness(s *site) {
 	if r.assets == nil {
-		r.failf("wasm: no assets to compare the site's copies against")
+		r.failf(chkWasmFreshness, "no assets to compare the site's copies against")
 		return
 	}
 	assets, err := r.assets()
 	if err != nil {
 		// A binary without the WASM cannot vouch for a site's copy; say why
 		// rather than reporting every asset as stale.
-		r.failf("wasm: cannot check the site's assets: %v (build pvmt with `make build`)", err)
+		r.failf(chkWasmFreshness, "cannot check the site's assets: %v (build pvmt with 'make build')", err)
 		return
 	}
 	for _, name := range assets.Names() {
 		path := filepath.Join(s.dir, name)
 		onDisk, err := os.ReadFile(path)
 		if err != nil {
-			r.failf("wasm: cannot read %s: %v", name, err)
+			r.failf(chkWasmFreshness, "cannot read %s: %v", name, err)
 			continue
 		}
 		if sha256.Sum256(onDisk) == sha256.Sum256(assets.Bytes(name)) {
-			r.passf("wasm: %s matches this binary's embedded copy", name)
+			r.passf(chkWasmFreshness, "%s matches this binary's embedded copy", name)
 		} else {
-			r.failf("wasm: %s is stale vs this binary's embedded copy — rebuild with make site", name)
+			r.failf(chkWasmFreshness, "%s is stale vs this binary's embedded copy — rebuild with make site", name)
 		}
 	}
 }
@@ -96,15 +96,15 @@ func (r *runner) checkHygiene(s *site) {
 		return nil
 	})
 	if err != nil {
-		r.failf("hygiene: walk failed: %v", err)
+		r.failf(chkHygiene, "walk failed: %v", err)
 		return
 	}
 	if len(hits) == 0 {
-		r.passf("hygiene: no host paths, emails, or secrets found")
+		r.passf(chkHygiene, "no host paths, emails, or secrets found")
 		return
 	}
 	for _, h := range hits {
-		r.failf("hygiene: %s", h)
+		r.failf(chkHygiene, "%s", h)
 	}
 }
 

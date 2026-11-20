@@ -2,6 +2,7 @@ package gc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/jcrussell/solvent-streets/internal/config"
@@ -22,6 +23,9 @@ type Options struct {
 	Config        func() (*config.Config, error)
 	DryRun        bool
 	Yes           bool
+	// Exporter is set by --json: the report is one row per city instead of
+	// text.
+	Exporter cmdutil.Exporter
 
 	// SweepDisabledSources opts in to deleting feature rows whose source is
 	// still a legal --source value but is switched off for this city (today:
@@ -81,7 +85,10 @@ is cured by a successful full re-ingest, not by gc.
   pvmt gc --yes
 
   # Also delete overpass rows for a city that has overpass switched off
-  pvmt gc --sweep-disabled-sources`,
+  pvmt gc --sweep-disabled-sources
+
+  # Each city's orphan counts as JSON, without deleting
+  pvmt gc --dry-run --json city,stale_feature_count,orphan_run_count`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if runF != nil {
 				return runF(cmd.Context(), opts)
@@ -94,8 +101,57 @@ is cured by a successful full re-ingest, not by gc.
 	cmd.Flags().BoolVarP(&opts.Yes, "yes", "y", false, "Skip the interactive confirmation")
 	cmd.Flags().BoolVar(&opts.SweepDisabledSources, "sweep-disabled-sources", false,
 		"Also delete rows from a source that is switched off for the city (e.g. overpass=false)")
+	cmdutil.AddJSONFlags(cmd, &opts.Exporter, gcFields)
 
 	return cmd
+}
+
+var gcFields = []string{"city", "stale_feature_count", "superseded_part_count", "orphan_run_count",
+	"orphan_city_metric_count", "orphan_hex_metric_count", "kept_feature_count", "deleted"}
+
+// gcRow is one city's --json row: what a scan found or a sweep deleted.
+type gcRow struct {
+	City   string
+	Report db.GCReport
+	// Kept counts the overpass rows held back for a city with overpass
+	// switched off (retainedOverpassRows); a scan of such a city reports it,
+	// a sweep or a city with overpass on not.
+	Kept int
+	// HoldsBack is whether the scan held overpass rows back at all (overpass
+	// off and no --sweep-disabled-sources): kept_feature_count applies.
+	HoldsBack bool
+	// Deleted is true for a sweep's row, false for a scan's (--dry-run,
+	// nothing to collect).
+	Deleted bool
+}
+
+var _ cmdutil.RowExporter = gcRow{}
+
+func (r gcRow) ExportData(fields []string) map[string]any {
+	out := make(map[string]any, len(fields))
+	for _, f := range fields {
+		switch f {
+		case "city":
+			out[f] = r.City
+		case "stale_feature_count":
+			out[f] = r.Report.StaleFeatures
+		case "superseded_part_count":
+			out[f] = r.Report.SupersededParts
+		case "orphan_run_count":
+			out[f] = r.Report.OrphanRuns
+		case "orphan_city_metric_count":
+			out[f] = r.Report.OrphanRunResults.CityMetrics
+		case "orphan_hex_metric_count":
+			out[f] = r.Report.OrphanRunResults.HexMetrics
+		case "kept_feature_count":
+			if r.HoldsBack && !r.Deleted {
+				out[f] = r.Kept
+			}
+		case "deleted":
+			out[f] = r.Deleted
+		}
+	}
+	return out
 }
 
 // keepSourcesFor returns the set of source_api values a city legitimately
@@ -182,20 +238,22 @@ func printRetained(w *iostreams.IOStreams, retained int) {
 }
 
 // scanCities runs the read-only orphan count over every city, prints each
-// city's report, and returns the grand total the confirmation prompt quotes.
-// It performs ZERO writes, which is what lets --dry-run and a declined prompt
-// both stop here with the DB untouched.
+// city's report (unless --json), and returns the per-city rows and the grand
+// total the confirmation prompt quotes. It performs ZERO writes, which is
+// what lets --dry-run and a declined prompt both stop here with the DB
+// untouched.
 func scanCities(ctx context.Context, opts *Options, root db.RootStorer,
-	cities []config.CityConfig, multi bool) (int, error) {
+	cities []config.CityConfig, multi bool) ([]gcRow, int, error) {
 	var total int
+	var rows []gcRow
 	for _, city := range cities {
 		store, err := cmdutil.EnsureCityStore(ctx, root, city, cmdutil.ResolveConfigID(opts.Config, &city))
 		if err != nil {
-			return 0, err
+			return nil, 0, err
 		}
 		report, err := store.GCScan(ctx, keepSourcesFor(city, opts.SweepDisabledSources), config.ComputeEpoch)
 		if err != nil {
-			return 0, fmt.Errorf("scan %s: %w", city.Slug(), err)
+			return nil, 0, fmt.Errorf("scan %s: %w", city.Slug(), err)
 		}
 		// A failure here is NOT fatal to the run. retainedOverpassRows only
 		// feeds the cosmetic "kept (overpass off)" line; propagating its error
@@ -207,14 +265,19 @@ func scanCities(ctx context.Context, opts *Options, root db.RootStorer,
 			cmdutil.Warnf(opts.IO, "%s: could not count retained overpass rows: %v", city.Slug(), err)
 			retained = 0
 		}
+		rows = append(rows, gcRow{City: city.Slug(), Report: *report, Kept: retained,
+			HoldsBack: !city.Overpass && !opts.SweepDisabledSources})
+		total += report.Total()
+		if opts.Exporter != nil {
+			continue
+		}
 		if multi {
 			fmt.Fprintf(opts.IO.Out, "\n=== %s ===\n", city.Name)
 		}
 		printReport(opts.IO, report)
 		printRetained(opts.IO, retained)
-		total += report.Total()
 	}
-	return total, nil
+	return rows, total, nil
 }
 
 func runGC(ctx context.Context, opts *Options) error {
@@ -231,11 +294,14 @@ func runGC(ctx context.Context, opts *Options) error {
 	// Scan pass: count orphans per city without writing anything, so the
 	// confirmation prompt can quote a real total and a declined prompt
 	// leaves the DB untouched.
-	total, err := scanCities(ctx, opts, root, cities, multi)
+	scanned, total, err := scanCities(ctx, opts, root, cities, multi)
 	if err != nil {
 		return err
 	}
 
+	if opts.Exporter != nil && (total == 0 || opts.DryRun) {
+		return cmdutil.WriteRows(opts.IO, opts.Exporter, scanned)
+	}
 	if total == 0 {
 		fmt.Fprintln(opts.IO.Out, "Nothing to collect.")
 		return nil
@@ -256,24 +322,47 @@ func runGC(ctx context.Context, opts *Options) error {
 		return err
 	}
 
-	// Sweep pass: re-ensure each city store and delete.
+	return sweepCities(ctx, opts, root, cities, multi)
+}
+
+// sweepCities is the sweep pass: it re-ensures each city store, deletes its
+// orphans and reports them.
+func sweepCities(ctx context.Context, opts *Options, root db.RootStorer, cities []config.CityConfig, multi bool) error {
 	var deletedTotal int
+	var swept []gcRow
+	// failed ends the sweep with err, first writing the --json rows of the
+	// cities already swept: their rows are gone whether or not the rest are.
+	failed := func(err error) error {
+		if opts.Exporter != nil && len(swept) > 0 {
+			if werr := cmdutil.WriteRows(opts.IO, opts.Exporter, swept); werr != nil {
+				return errors.Join(err, werr)
+			}
+		}
+		return err
+	}
 	for _, city := range cities {
 		store, err := cmdutil.EnsureCityStore(ctx, root, city, cmdutil.ResolveConfigID(opts.Config, &city))
 		if err != nil {
-			return err
+			return failed(err)
 		}
 		keep := keepSourcesFor(city, opts.SweepDisabledSources)
 		report, err := store.GCSweep(ctx, keep, config.ComputeEpoch)
 		if err != nil {
-			return fmt.Errorf("sweep %s: %w", city.Slug(), err)
+			return failed(fmt.Errorf("sweep %s: %w", city.Slug(), err))
+		}
+		deletedTotal += report.Total()
+		if opts.Exporter != nil {
+			swept = append(swept, gcRow{City: city.Slug(), Report: *report, Deleted: true})
+			continue
 		}
 		if multi {
 			fmt.Fprintf(opts.IO.Out, "\n=== %s ===\n", city.Name)
 		}
 		fmt.Fprintf(opts.IO.Out, "Collected %d orphaned row(s) from %s.\n", report.Total(), city.Slug())
 		printReport(opts.IO, report)
-		deletedTotal += report.Total()
+	}
+	if opts.Exporter != nil {
+		return cmdutil.WriteRows(opts.IO, opts.Exporter, swept)
 	}
 	fmt.Fprintf(opts.IO.Out, "\nCollected %d row(s) total.\n", deletedTotal)
 	return nil

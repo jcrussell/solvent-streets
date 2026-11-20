@@ -144,14 +144,18 @@ func collectSnapshotRows(ctx context.Context, opts *ListOptions) ([]snapshotRow,
 		if covers != nil && !covers[s.ID] {
 			continue
 		}
-		rows = append(rows, snapshotRow{
-			Name:         s.Name,
-			CreatedAt:    s.CreatedAt.UTC().Format(time.RFC3339),
-			CityCount:    s.CityCount,
-			ComputeEpoch: s.ComputeEpoch,
-		})
+		rows = append(rows, newSnapshotRow(s))
 	}
 	return rows, nil
+}
+
+func newSnapshotRow(s db.Snapshot) snapshotRow {
+	return snapshotRow{
+		Name:         s.Name,
+		CreatedAt:    s.CreatedAt.UTC().Format(time.RFC3339),
+		CityCount:    s.CityCount,
+		ComputeEpoch: s.ComputeEpoch,
+	}
 }
 
 // coveringSnapshots returns the ids of the snapshots that cover the cities

@@ -3,6 +3,7 @@ package snapshots
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/hint"
@@ -21,6 +22,26 @@ type DeleteOptions struct {
 	Name        string
 	Yes         bool
 	DryRun      bool
+	Exporter    cmdutil.Exporter
+}
+
+// deletedRow is a snapshot `delete` or `prune` reports in --json: a
+// snapshots list row, with whether it was deleted (false on a dry run).
+type deletedRow struct {
+	snapshotRow
+	Deleted bool
+}
+
+var _ cmdutil.RowExporter = deletedRow{}
+
+var deletedFields = append(slices.Clone(snapshotFields), "deleted")
+
+func (r deletedRow) ExportData(fields []string) map[string]any {
+	out := r.snapshotRow.ExportData(fields)
+	if slices.Contains(fields, "deleted") {
+		out["deleted"] = r.Deleted
+	}
+	return out
 }
 
 func NewCmdDelete(f *cmdutil.Factory, runF func(context.Context, *DeleteOptions) error) *cobra.Command {
@@ -54,6 +75,9 @@ snapshot, so deleting that one rolls every city back to the one before.
   # Skip the confirmation prompt
   pvmt snapshots delete 2026-11 --yes
 
+  # Report the deletion as JSON
+  pvmt snapshots delete 2026-11 --yes --json name,city_count,deleted
+
   # Replace it with the current latest compute
   pvmt snapshots delete 2026-11 --yes && pvmt snapshots create 2026-11`,
 		Args:              snapshotNameArgs(1),
@@ -72,6 +96,7 @@ snapshot, so deleting that one rolls every city back to the one before.
 
 	cmd.Flags().BoolVar(&opts.DryRun, "dry-run", false, "Report what would be deleted without deleting or prompting")
 	cmd.Flags().BoolVarP(&opts.Yes, "yes", "y", false, "Skip the interactive confirmation")
+	cmdutil.AddJSONFlags(cmd, &opts.Exporter, deletedFields)
 
 	return cmd
 }
@@ -89,6 +114,9 @@ func runDelete(ctx context.Context, opts *DeleteOptions) error {
 		return err
 	}
 	if opts.DryRun {
+		if opts.Exporter != nil {
+			return cmdutil.WriteRows(opts.IO, opts.Exporter, []deletedRow{{snapshotRow: newSnapshotRow(*snap)}})
+		}
 		fmt.Fprintf(opts.IO.Out, "Would delete snapshot %q (%d %s) and the runs only it uses.\n", snap.Name, snap.CityCount, cityNoun(snap.CityCount))
 		return nil
 	}
@@ -107,6 +135,9 @@ func runDelete(ctx context.Context, opts *DeleteOptions) error {
 		// Lost a race with another deleter between the lookup and the
 		// delete: not found rather than a silent success.
 		return hint.Withf(fmt.Errorf("snapshot %q not found", opts.Name), "check 'pvmt snapshots list' for available names")
+	}
+	if opts.Exporter != nil {
+		return cmdutil.WriteRows(opts.IO, opts.Exporter, []deletedRow{{snapshotRow: newSnapshotRow(*snap), Deleted: true}})
 	}
 	fmt.Fprintf(opts.IO.Out, "Deleted snapshot %q.\n", opts.Name)
 	return nil

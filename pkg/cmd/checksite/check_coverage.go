@@ -102,10 +102,10 @@ func (r *runner) judgeCoverage(rt string, cities []cityCoverage) {
 			continue
 		}
 		low++
-		r.warnf("coverage: %s [%s]: %.2f m² per resident, under %.0f%% of the site median (%.1f) — likely unmapped in OpenStreetMap; its per-resident figures undercount",
+		r.warnf(chkCoverage, "%s [%s]: %.2f m² per resident, under %.0f%% of the site median (%.1f) — likely unmapped in OpenStreetMap; its per-resident figures undercount",
 			c.label, rt, c.perResid, lowCoverageFraction*100, med)
 	}
 	if low == 0 {
-		r.passf("coverage: [%s]: every city is at least %.0f%% of the site median (%.1f m² per resident)", rt, lowCoverageFraction*100, med)
+		r.passf(chkCoverage, "[%s]: every city is at least %.0f%% of the site median (%.1f m² per resident)", rt, lowCoverageFraction*100, med)
 	}
 }

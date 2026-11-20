@@ -53,7 +53,7 @@ type decaySeed struct {
 // mean of k with the seed's area-weighted cohort rate.
 func (r *runner) checkDecay(label, dir string) {
 	var seed decaySeed
-	if !readJSON(r, "decay", label, export.ForecastSeedFileName, filepath.Join(dir, export.ForecastSeedFileName), &seed) {
+	if !readJSON(r, chkDecay, label, export.ForecastSeedFileName, filepath.Join(dir, export.ForecastSeedFileName), &seed) {
 		return
 	}
 	var seedArea, seedRate float64
@@ -69,7 +69,7 @@ func (r *runner) checkDecay(label, dir string) {
 	seedRate /= seedArea
 
 	var grid decayHexGrid
-	if !readJSON(r, "decay", label, export.HexGridFileName, filepath.Join(dir, export.HexGridFileName), &grid) {
+	if !readJSON(r, chkDecay, label, export.HexGridFileName, filepath.Join(dir, export.HexGridFileName), &grid) {
 		return
 	}
 	var num, den float64
@@ -91,9 +91,9 @@ func (r *runner) checkDecay(label, dir string) {
 	}
 	mapRate := num / den
 	if drift := math.Abs(mapRate/seedRate - 1); drift > maxDecayDrift {
-		r.failf("decay: %s: the map's road decay rate (%.4f) is %.0f%% off the forecast's (%.4f) — the roads compute predates a decay-rate change; recompute this city",
+		r.failf(chkDecay, "%s: the map's road decay rate (%.4f) is %.0f%% off the forecast's (%.4f) — the roads compute predates a decay-rate change; recompute this city",
 			label, mapRate, drift*100, seedRate)
 		return
 	}
-	r.passf("decay: %s: map and forecast road decay rates agree", label)
+	r.passf(chkDecay, "%s: map and forecast road decay rates agree", label)
 }

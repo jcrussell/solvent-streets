@@ -702,7 +702,7 @@ conventions.
 A command that prints rows takes `--json <field,...>`
 (`cmdutil.AddJSONFlags`) and prints an array of row objects. A command that
 prints one document takes a bare `--json` (`cmdutil.AddDocumentJSONFlags`):
-export's manifest and validate's report. `--jq` and `--template` need `--json`
+export's manifest, validate's report and cache prune's report. `--jq` and `--template` need `--json`
 and see exactly what it prints. `--jq` runs once over the whole output, and
 `--template` runs once per row, or once over the document.
 

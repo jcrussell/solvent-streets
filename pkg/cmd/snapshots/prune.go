@@ -2,6 +2,7 @@ package snapshots
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/jcrussell/solvent-streets/internal/db"
@@ -20,6 +21,7 @@ type PruneOptions struct {
 	Keep        int
 	Yes         bool
 	DryRun      bool
+	Exporter    cmdutil.Exporter
 }
 
 func NewCmdPrune(f *cmdutil.Factory, runF func(context.Context, *PruneOptions) error) *cobra.Command {
@@ -50,7 +52,10 @@ configured city.
   pvmt snapshots prune --keep=5 --dry-run
 
   # Skip the confirmation prompt
-  pvmt snapshots prune --keep=5 --yes`,
+  pvmt snapshots prune --keep=5 --yes
+
+  # The names that would go, as JSON
+  pvmt snapshots prune --keep=5 --dry-run --json name --jq '.[].name'`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := rejectCity(opts.CityFlagSet, "prune"); err != nil {
 				return err
@@ -69,6 +74,7 @@ configured city.
 	cmd.Flags().BoolVar(&opts.DryRun, "dry-run", false, "Report what would be deleted without deleting or prompting")
 	cmd.Flags().BoolVarP(&opts.Yes, "yes", "y", false, "Skip the interactive confirmation")
 	_ = cmd.MarkFlagRequired("keep")
+	cmdutil.AddJSONFlags(cmd, &opts.Exporter, deletedFields)
 
 	return cmd
 }
@@ -85,10 +91,16 @@ func runPrune(ctx context.Context, opts *PruneOptions) error {
 		return err
 	}
 	if len(snaps) <= opts.Keep {
+		if opts.Exporter != nil {
+			return cmdutil.WriteRows(opts.IO, opts.Exporter, []deletedRow{})
+		}
 		fmt.Fprintln(opts.IO.Out, "Nothing to prune.")
 		return nil
 	}
 	victims := snaps[opts.Keep:]
+	if opts.DryRun && opts.Exporter != nil {
+		return cmdutil.WriteRows(opts.IO, opts.Exporter, victimRows(victims, nil))
+	}
 	if opts.DryRun {
 		fmt.Fprintf(opts.IO.Out, "Would delete %s, keeping the %d newest:\n", snapshotCount(len(victims)), opts.Keep)
 		for _, s := range victims {
@@ -104,18 +116,46 @@ func runPrune(ctx context.Context, opts *PruneOptions) error {
 		return err
 	}
 
+	return deleteVictims(ctx, opts, root, victims)
+}
+
+// deleteVictims deletes each victim and reports what went. A delete that
+// fails partway still reports, with --json, the snapshots already deleted:
+// they are gone whether or not the rest are.
+func deleteVictims(ctx context.Context, opts *PruneOptions, root db.RootStorer, victims []db.Snapshot) error {
 	deleted := 0
-	for _, s := range victims {
+	gone := make([]bool, len(victims))
+	for i, s := range victims {
 		ok, err := root.DeleteSnapshot(ctx, s.Name)
 		if err != nil {
-			return fmt.Errorf("delete snapshot %q: %w", s.Name, err)
+			err = fmt.Errorf("delete snapshot %q: %w", s.Name, err)
+			if opts.Exporter != nil && deleted > 0 {
+				if werr := cmdutil.WriteRows(opts.IO, opts.Exporter, victimRows(victims[:i], gone[:i])); werr != nil {
+					return errors.Join(err, werr)
+				}
+			}
+			return err
 		}
 		if ok {
 			deleted++
+			gone[i] = true
 		}
+	}
+	if opts.Exporter != nil {
+		return cmdutil.WriteRows(opts.IO, opts.Exporter, victimRows(victims, gone))
 	}
 	fmt.Fprintf(opts.IO.Out, "Pruned %s (kept %d).\n", snapshotCount(deleted), opts.Keep)
 	return nil
+}
+
+// victimRows is the --json rows of victims, each deleted when gone says so
+// (nil: none, a dry run).
+func victimRows(victims []db.Snapshot, gone []bool) []deletedRow {
+	rows := make([]deletedRow, len(victims))
+	for i, s := range victims {
+		rows[i] = deletedRow{snapshotRow: newSnapshotRow(s), Deleted: gone != nil && gone[i]}
+	}
+	return rows
 }
 
 // snapshotCount is n with the noun "snapshot", pluralized.

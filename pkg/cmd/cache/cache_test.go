@@ -2,6 +2,7 @@ package cache
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -431,5 +432,40 @@ func TestNewCmdCache_WiresPrune(t *testing.T) {
 	// exit 0 (pinned end-to-end in internal/pvmtcmd).
 	if cmd.Args == nil || cmd.Args(cmd, []string{"pruen"}) == nil {
 		t.Error("the cache group should reject stray arguments")
+	}
+}
+
+// TestRunPrune_JSON: --json prints one document, the plan's on a dry run and
+// the sweep's otherwise, and no text report.
+func TestRunPrune_JSON(t *testing.T) {
+	for _, dryRun := range []bool{true, false} {
+		dir := t.TempDir()
+		writeEntry(t, dir, 1, 90*24*time.Hour)
+		writeEntry(t, dir, 2, time.Hour)
+		ios, _, stdout, _ := iostreams.Test()
+		args := []string{"--json", "--yes"}
+		if dryRun {
+			args = append(args, "--dry-run")
+		}
+		var got *PruneOptions
+		cmd := NewCmdPrune(&cmdutil.Factory{IOStreams: ios}, func(_ context.Context, o *PruneOptions) error {
+			got = o
+			return nil
+		})
+		cmd.SetArgs(args)
+		if err := cmd.Execute(); err != nil {
+			t.Fatal(err)
+		}
+		got.CacheDir = func() (string, error) { return dir, nil }
+		if err := runPrune(context.Background(), got); err != nil {
+			t.Fatal(err)
+		}
+		var doc map[string]any
+		if err := json.Unmarshal(stdout.Bytes(), &doc); err != nil {
+			t.Fatalf("dry run %v: %v: %s", dryRun, err, stdout.String())
+		}
+		if doc["scanned_count"] != 2.0 || doc["age_removed_count"] != 1.0 || doc["deleted"] != !dryRun || doc["dir"] != dir {
+			t.Errorf("dry run %v: doc = %v", dryRun, doc)
+		}
 	}
 }

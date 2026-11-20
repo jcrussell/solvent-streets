@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -125,7 +126,7 @@ func TestCheckSite_BinaryWithoutWasm(t *testing.T) {
 	if err := runCheckSite(context.Background(), opts); !errors.Is(err, cmdutil.ErrSilent) {
 		t.Fatalf("err = %v; want ErrSilent (a FAIL was reported)\n%s", err, out)
 	}
-	if !strings.Contains(out.String(), "FAIL  wasm: cannot check the site's assets") {
+	if !strings.Contains(out.String(), "FAIL  wasm freshness: cannot check the site's assets") {
 		t.Errorf("want the no-WASM reason as the failure:\n%s", out)
 	}
 	if strings.Contains(out.String(), "stale") {
@@ -962,5 +963,55 @@ func TestCheckSite_LowPavedShareRuralWarns(t *testing.T) {
 				t.Fatalf("want a rural WARN and no failure, got %v:\n%s", err, out)
 			}
 		})
+	}
+}
+
+// TestCheckSite_JSON: --json prints one row per check result on stdout, split
+// into the check's name and its message, and the tally on stderr; a failure
+// still exits non-zero.
+func TestCheckSite_JSON(t *testing.T) {
+	dir := buildValidSite(t)
+	os.Remove(filepath.Join(dir, "demo-ca", "data", "scenarios.json"))
+	ios, _, stdout, stderr := iostreams.Test()
+	cmd := NewCmdCheckSite(&cmdutil.Factory{IOStreams: ios}, func(ctx context.Context, o *Options) error {
+		o.Assets = testAssetsLoader(t)
+		return runCheckSite(ctx, o)
+	})
+	cmd.SetArgs([]string{dir, "--json", "check,status,message"})
+	cmd.SilenceUsage, cmd.SilenceErrors = true, true
+	if err := cmd.Execute(); !errors.Is(err, cmdutil.ErrSilent) {
+		t.Fatalf("err = %v, want ErrSilent for a failing site", err)
+	}
+	var rows []map[string]string
+	if err := json.Unmarshal(stdout.Bytes(), &rows); err != nil {
+		t.Fatalf("%v: %s", err, stdout)
+	}
+	var failed bool
+	for _, r := range rows {
+		if !slices.Contains(checkNames, checkName(r["check"])) || strings.HasPrefix(r["message"], r["check"]+":") {
+			t.Errorf("row %v: check is not one of %v, or is repeated in the message", r, checkNames)
+		}
+		if r["status"] == "fail" && r["check"] == "structure" && strings.Contains(r["message"], "scenarios.json") {
+			failed = true
+		}
+	}
+	if !failed {
+		t.Errorf("rows lack the structure failure for scenarios.json: %v", rows)
+	}
+	if !strings.Contains(stderr.String(), "1 failed") {
+		t.Errorf("stderr lacks the tally: %q", stderr.String())
+	}
+}
+
+// TestCheckSite_HelpNamesEveryCheck: each check's name is a --help section
+// heading (STRUCTURE, WASM FRESHNESS, ...).
+func TestCheckSite_HelpNamesEveryCheck(t *testing.T) {
+	ios, _, _, _ := iostreams.Test()
+	long := NewCmdCheckSite(&cmdutil.Factory{IOStreams: ios}, nil).Long
+	for _, c := range checkNames {
+		heading := "  - " + strings.ToUpper(strings.ReplaceAll(string(c), "_", " ")) + ":"
+		if !strings.Contains(long, heading) {
+			t.Errorf("check-site --help has no %q section", heading)
+		}
 	}
 }

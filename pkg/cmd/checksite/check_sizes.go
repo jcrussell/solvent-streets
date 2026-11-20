@@ -101,12 +101,12 @@ type assetSizes struct {
 func (r *runner) checkSizes(s *site) {
 	data, cities := perCityDataSizes(s)
 	if cities == 0 {
-		r.warnf("sizes: no per-city data directories found — reporting shared-asset totals only, budgets not evaluated")
+		r.warnf(chkSizes, "no per-city data directories found — reporting shared-asset totals only, budgets not evaluated")
 	}
 
 	shared, err := sharedAssetSizes(s.dir)
 	if err != nil {
-		r.failf("sizes: size walk failed: %v", err)
+		r.failf(chkSizes, "size walk failed: %v", err)
 		return
 	}
 
@@ -116,7 +116,7 @@ func (r *runner) checkSizes(s *site) {
 			continue
 		}
 		a := shared[bucket]
-		r.passf("sizes: %s is %s total across %d file(s)", bucket, cmdutil.HumanSize(a.total), a.files)
+		r.passf(chkSizes, "%s is %s total across %d file(s)", bucket, cmdutil.HumanSize(a.total), a.files)
 	}
 }
 
@@ -131,13 +131,13 @@ func (r *runner) reportDataFile(bucket string, c *citySizes, cities int) {
 	budget, budgeted := sizeBudgets[bucket]
 	switch {
 	case budgeted && c.max > budget:
-		r.warnf("sizes: %s is %s in %s — over the %s per-city budget (%s)",
+		r.warnf(chkSizes, "%s is %s in %s — over the %s per-city budget (%s)",
 			bucket, cmdutil.HumanSize(c.max), c.maxLabel, cmdutil.HumanSize(budget), context)
 	case budgeted:
-		r.passf("sizes: %s is at most %s (%s), budget %s (%s)",
+		r.passf(chkSizes, "%s is at most %s (%s), budget %s (%s)",
 			bucket, cmdutil.HumanSize(c.max), c.maxLabel, cmdutil.HumanSize(budget), context)
 	default:
-		r.passf("sizes: %s is at most %s (%s) (%s)",
+		r.passf(chkSizes, "%s is at most %s (%s) (%s)",
 			bucket, cmdutil.HumanSize(c.max), c.maxLabel, context)
 	}
 }

@@ -59,19 +59,19 @@ const minPlausiblePavedPerResident = 10.0
 // city.
 func (r *runner) checkMeta(label, path string) {
 	var meta export.MetaJSON
-	if !readJSON(r, "reasonableness", label, export.MetaFileName, path, &meta) {
+	if !readJSON(r, chkReasonableness, label, export.MetaFileName, path, &meta) {
 		return
 	}
 	switch {
 	case meta.PavedShare <= 0:
-		r.warnf("reasonableness: %s: paved_share is absent/zero — cannot validate paved area", label)
+		r.warnf(chkReasonableness, "%s: paved_share is absent/zero — cannot validate paved area", label)
 	case meta.PavedShare < minPlausiblePavedShare && pavedPerResident(meta) >= minPlausiblePavedPerResident:
-		r.warnf("reasonableness: %s: paved %.3f%% < %.0f%%, but %.0f m² per resident is plausible — a rural or largely undeveloped city, not lost geometry",
+		r.warnf(chkReasonableness, "%s: paved %.3f%% < %.0f%%, but %.0f m² per resident is plausible — a rural or largely undeveloped city, not lost geometry",
 			label, meta.PavedShare*100, minPlausiblePavedShare*100, pavedPerResident(meta))
 	case meta.PavedShare < minPlausiblePavedShare:
-		r.failf("reasonableness: %s: paved %.3f%% < %.0f%% — possible near-zero-area geometry bug", label, meta.PavedShare*100, minPlausiblePavedShare*100)
+		r.failf(chkReasonableness, "%s: paved %.3f%% < %.0f%% — possible near-zero-area geometry bug", label, meta.PavedShare*100, minPlausiblePavedShare*100)
 	default:
-		r.passf("reasonableness: %s: paved %.2f%% is plausible", label, meta.PavedShare*100)
+		r.passf(chkReasonableness, "%s: paved %.2f%% is plausible", label, meta.PavedShare*100)
 	}
 	// A layer whose ingest failed or never ran ships as missing, not as a
 	// zero; a WARN here is the list of cities to re-ingest.
@@ -80,13 +80,13 @@ func (r *runner) checkMeta(label, path string) {
 	var reingest []string
 	for _, rt := range meta.MissingResources {
 		if sources, ok := meta.EmptySources[rt]; ok {
-			r.passf("reasonableness: %s: no %s mapped upstream (%s answered empty)", label, rt, strings.Join(sources, ", "))
+			r.passf(chkReasonableness, "%s: no %s mapped upstream (%s answered empty)", label, rt, strings.Join(sources, ", "))
 			continue
 		}
 		reingest = append(reingest, rt)
 	}
 	if len(reingest) > 0 {
-		r.warnf("reasonableness: %s: no data for %s — re-ingest before publishing", label, strings.Join(reingest, ", "))
+		r.warnf(chkReasonableness, "%s: no data for %s — re-ingest before publishing", label, strings.Join(reingest, ", "))
 	}
 	// A layer with data whose other configured source failed is partial: its
 	// totals and rankings would undercount the city.
@@ -94,7 +94,7 @@ func (r *runner) checkMeta(label, path string) {
 		if slices.Contains(meta.MissingResources, rt) {
 			continue
 		}
-		r.warnf("reasonableness: %s: partial %s: no %s data (its last ingest failed) — re-ingest before publishing",
+		r.warnf(chkReasonableness, "%s: partial %s: no %s data (its last ingest failed) — re-ingest before publishing",
 			label, rt, strings.Join(meta.FailingSources[rt], ", "))
 	}
 }
@@ -115,11 +115,11 @@ func pavedPerResident(meta export.MetaJSON) float64 {
 // nothing to compare.
 func (r *runner) checkForecast(label, slug, path string) {
 	var forecasts []export.ForecastExport
-	if !readJSON(r, "reasonableness", label, export.ForecastFileName, path, &forecasts) {
+	if !readJSON(r, chkReasonableness, label, export.ForecastFileName, path, &forecasts) {
 		return
 	}
 	if len(forecasts) == 0 {
-		r.warnf("reasonableness: %s: forecast.json has no resources", label)
+		r.warnf(chkReasonableness, "%s: forecast.json has no resources", label)
 		return
 	}
 	for _, fc := range forecasts {
@@ -140,13 +140,13 @@ func (r *runner) checkForecast(label, slug, path string) {
 			if fc.CityBaseline != nil {
 				what = "resource has zero city-maintained paved area"
 			}
-			r.warnf("reasonableness: %s [%s]: %s — every feature may lie outside the city boundary, or its geometry was dropped (compare the ingested count and area with 'pvmt --city %s %s status')",
+			r.warnf(chkReasonableness, "%s [%s]: %s — every feature may lie outside the city boundary, or its geometry was dropped (compare the ingested count and area with 'pvmt --city %s %s status')",
 				label, fc.ResourceType, what, slug, fc.ResourceType)
 		}
 		if msg := baselineViolation(fc); msg != "" {
-			r.failf("reasonableness: %s [%s]: %s", label, fc.ResourceType, msg)
+			r.failf(chkReasonableness, "%s [%s]: %s", label, fc.ResourceType, msg)
 		} else {
-			r.passf("reasonableness: %s [%s]: baseline PCI non-increasing and backlog non-decreasing", label, fc.ResourceType)
+			r.passf(chkReasonableness, "%s [%s]: baseline PCI non-increasing and backlog non-decreasing", label, fc.ResourceType)
 		}
 	}
 }
@@ -224,7 +224,7 @@ func (r *runner) checkConsistency(s *site) {
 	bySlug := make(map[string][]seen)
 	for _, d := range s.dataDirsWithLabel() {
 		var meta export.MetaJSON
-		if !readJSON(r, "consistency", d.label, export.MetaFileName, filepath.Join(d.dir, export.MetaFileName), &meta) {
+		if !readJSON(r, chkConsistency, d.label, export.MetaFileName, filepath.Join(d.dir, export.MetaFileName), &meta) {
 			continue
 		}
 		bySlug[d.slug] = append(bySlug[d.slug], seen{label: d.label, paved: meta.TotalPaved})
@@ -239,12 +239,12 @@ func (r *runner) checkConsistency(s *site) {
 		for _, g := range group[1:] {
 			if relDiff(base, g.paved) >= 0.0001 {
 				diverged = true
-				r.warnf("consistency: %s: total_paved diverges between %s (%.2f) and %s (%.2f) — check the examples use the same ingest sources",
+				r.warnf(chkConsistency, "%s: total_paved diverges between %s (%.2f) and %s (%.2f) — check the examples use the same ingest sources",
 					slug, group[0].label, base, g.label, g.paved)
 			}
 		}
 		if !diverged {
-			r.passf("consistency: %s: total_paved agrees across %d examples", slug, len(group))
+			r.passf(chkConsistency, "%s: total_paved agrees across %d examples", slug, len(group))
 		}
 	}
 }
@@ -263,14 +263,14 @@ func relDiff(a, b float64) float64 {
 // malformed JSON FAILs under the given check name and returns false; the
 // caller skips that file. (The structure check separately fails on a missing
 // file, but malformed JSON only surfaces here.)
-func readJSON(r *runner, check, label, file, path string, v any) bool {
+func readJSON(r *runner, check checkName, label, file, path string, v any) bool {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		r.failf("%s: %s: cannot read %s: %v", check, label, file, err)
+		r.failf(check, "%s: cannot read %s: %v", label, file, err)
 		return false
 	}
 	if err := json.Unmarshal(data, v); err != nil {
-		r.failf("%s: %s: malformed %s: %v", check, label, file, err)
+		r.failf(check, "%s: malformed %s: %v", label, file, err)
 		return false
 	}
 	return true

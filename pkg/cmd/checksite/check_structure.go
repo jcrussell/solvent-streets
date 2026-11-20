@@ -16,14 +16,14 @@ func (r *runner) checkStructure(s *site) {
 	// Every file the exporter writes at a site root, alongside the city data.
 	for _, name := range export.SiteRootFiles() {
 		if fileExists(filepath.Join(s.dir, name)) {
-			r.passf("structure: site root has %s", name)
+			r.passf(chkStructure, "site root has %s", name)
 		} else {
-			r.failf("structure: site root is missing %s", name)
+			r.failf(chkStructure, "site root is missing %s", name)
 		}
 	}
 
 	if len(s.examples) == 0 {
-		r.failf("structure: no examples found under %s (expected at least one)", s.dir)
+		r.failf(chkStructure, "no examples found under %s (expected at least one)", s.dir)
 		return
 	}
 
@@ -31,7 +31,7 @@ func (r *runner) checkStructure(s *site) {
 	// look like exports — the audit is only covering the root and silently
 	// skipping those children. Flag it rather than passing vacuously.
 	if len(s.shadowed) > 0 {
-		r.warnf("structure: site root is an export but also has example subdirectories that were skipped: %s",
+		r.warnf(chkStructure, "site root is an export but also has example subdirectories that were skipped: %s",
 			strings.Join(s.shadowed, ", "))
 	}
 
@@ -47,19 +47,19 @@ func (r *runner) checkExampleStructure(ex example) {
 	}
 	// Multi-city.
 	if fileExists(ex.cityJSON) {
-		r.passf("structure: %s has cities.json", ex.slug)
+		r.passf(chkStructure, "%s has cities.json", ex.slug)
 	} else {
-		r.failf("structure: %s is missing cities.json", ex.slug)
+		r.failf(chkStructure, "%s is missing cities.json", ex.slug)
 	}
 	// The Compare/Aggregate rollup; without it those tabs fall back to
 	// fetching four files per city.
 	if fileExists(filepath.Join(ex.dir, export.CompareFileName)) {
-		r.passf("structure: %s has %s", ex.slug, export.CompareFileName)
+		r.passf(chkStructure, "%s has %s", ex.slug, export.CompareFileName)
 	} else {
-		r.failf("structure: %s is missing %s", ex.slug, export.CompareFileName)
+		r.failf(chkStructure, "%s is missing %s", ex.slug, export.CompareFileName)
 	}
 	if len(ex.cities) == 0 {
-		r.failf("structure: %s has a cities/ dir with no city subdirectories", ex.slug)
+		r.failf(chkStructure, "%s has a cities/ dir with no city subdirectories", ex.slug)
 	}
 	for _, c := range ex.cities {
 		r.checkDataDir(ex.slug+"/"+c.slug, c.dataDir)
@@ -74,7 +74,7 @@ func (r *runner) checkDataDir(label, dataDir string) {
 	present := make(map[string]bool)
 	entries, err := os.ReadDir(dataDir)
 	if err != nil {
-		r.failf("structure: %s: cannot read data dir %q: %v", label, dataDir, err)
+		r.failf(chkStructure, "%s: cannot read data dir %q: %v", label, dataDir, err)
 		return
 	}
 	for _, e := range entries {
@@ -104,12 +104,12 @@ func (r *runner) checkDataDir(label, dataDir string) {
 	sort.Strings(extra)
 
 	if len(missing) == 0 {
-		r.passf("structure: %s has all %d data files", label, len(export.DataFileNames))
+		r.passf(chkStructure, "%s has all %d data files", label, len(export.DataFileNames))
 	} else {
-		r.failf("structure: %s is missing data file(s): %s", label, strings.Join(missing, ", "))
+		r.failf(chkStructure, "%s is missing data file(s): %s", label, strings.Join(missing, ", "))
 	}
 	if len(extra) > 0 {
-		r.warnf("structure: %s has unexpected data file(s): %s", label, strings.Join(extra, ", "))
+		r.warnf(chkStructure, "%s has unexpected data file(s): %s", label, strings.Join(extra, ", "))
 	}
 }
 
@@ -130,7 +130,7 @@ func (r *runner) checkExampleReferences(ex example) {
 	indexPath := filepath.Join(ex.dir, export.IndexFileName)
 	data, err := os.ReadFile(indexPath)
 	if err != nil {
-		r.failf("references: %s: cannot read index.html: %v", ex.slug, err)
+		r.failf(chkReferences, "%s: cannot read index.html: %v", ex.slug, err)
 		return
 	}
 
@@ -157,10 +157,10 @@ func (r *runner) checkExampleReferences(ex example) {
 	}
 
 	if len(dangling) > 0 {
-		r.failf("references: %s/index.html references missing file(s): %s", ex.slug, strings.Join(dangling, ", "))
+		r.failf(chkReferences, "%s/index.html references missing file(s): %s", ex.slug, strings.Join(dangling, ", "))
 		return
 	}
-	r.passf("references: %s/index.html — %d local asset reference(s) resolve", ex.slug, checked)
+	r.passf(chkReferences, "%s/index.html — %d local asset reference(s) resolve", ex.slug, checked)
 }
 
 // isLocalAssetRef reports whether ref is a local relative path worth resolving:
