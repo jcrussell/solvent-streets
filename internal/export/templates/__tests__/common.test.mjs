@@ -235,3 +235,27 @@ test('the dashboard fetches pvmt.wasm after the map draws or a forecast tab open
     assert.equal(deep.get('wasmReady'), true, 'a ?tab=' + tab + ' deep link did not boot the simulator');
   }
 });
+
+// A toggle group's pressed button is stated for assistive technology too:
+// aria-pressed follows .active (PvmtCommon.markPressed).
+test('toggle groups keep aria-pressed in step with the active button', async () => {
+  const pressed = (doc, sel) => Array.from(doc.querySelectorAll(sel)).map((b) => [b.classList.contains('active'), b.getAttribute('aria-pressed')]);
+  const agree = (rows) => rows.every(([active, aria]) => aria === String(active));
+
+  const idx = load({ data: fullData });
+  await idx.flush();
+  idx.win.selectScope('all', { push: false });
+  await idx.flush();
+  assert.equal(idx.doc.querySelector('#scope-toggle button[data-scope="all"]').getAttribute('aria-pressed'), 'true');
+  idx.doc.querySelector('#strategy-buttons button[data-strategy="preventive_first"]').click();
+  for (const sel of ['#scope-toggle button', '#strategy-buttons button', '#units-toggle button']) {
+    const rows = pressed(idx.doc, sel);
+    assert.ok(rows.some(([a]) => a) && agree(rows), sel + ': ' + JSON.stringify(rows));
+  }
+
+  const play = load({ page: 'play', data: {}, url: 'https://example.test/play.html?city=beta-ca' });
+  play.win.setRate(0);
+  const rows = pressed(play.doc, '#speed-buttons .btn');
+  assert.ok(agree(rows), JSON.stringify(rows));
+  assert.equal(play.doc.getElementById('pause-btn').getAttribute('aria-pressed'), 'true');
+});

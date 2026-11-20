@@ -2,6 +2,7 @@ package export
 
 import (
 	"bytes"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -359,24 +360,78 @@ func TestRegionSelectControl(t *testing.T) {
 	}
 }
 
-// TestDashboardFormLabelAssociations asserts the financials tab range
-// inputs have <label for=...> associations rather than relying on visual
-// proximity alone.
+// TestDashboardFormLabelAssociations asserts both pages' form controls carry
+// a <label for=...> or an aria-label rather than relying on visual proximity
+// alone, and that each toggle group's buttons state which one is pressed.
 func TestDashboardFormLabelAssociations(t *testing.T) {
+	cities := []CityInfo{{Name: "Alpha", Slug: "alpha"}, {Name: "Beta", Slug: "beta"}}
+	data := TemplateData{Cities: cities}
 	tmpl := parseDashboardTemplates(t)
 
 	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, TemplateData{}); err != nil {
+	if err := tmpl.Execute(&buf, data); err != nil {
 		t.Fatalf("execute index: %v", err)
 	}
-	out := buf.String()
+	index := buf.String()
 
-	for _, s := range []string{
-		`<label for="budget-slider">`,
-		`<label for="pci-slider">`,
+	game, err := ParseGameTemplate()
+	if err != nil {
+		t.Fatalf("parse game: %v", err)
+	}
+	buf.Reset()
+	if err := game.Execute(&buf, data); err != nil {
+		t.Fatalf("execute game: %v", err)
+	}
+	play := buf.String()
+
+	for page, want := range map[string][]string{
+		"index": {
+			`<label for="budget-slider">`,
+			`<label for="pci-slider">`,
+			`<select id="city-select" aria-label="City"`,
+		},
+		"play": {
+			`<label for="brush-size">`,
+			`<label for="start-budget-slider"`,
+			`<select id="city-select" aria-label="City"`,
+			`id="horizon-buttons" role="group" aria-labelledby="horizon-label"`,
+		},
 	} {
-		if !strings.Contains(out, s) {
-			t.Errorf("missing form label association: %q", s)
+		out := map[string]string{"index": index, "play": play}[page]
+		for _, s := range want {
+			if !strings.Contains(out, s) {
+				t.Errorf("%s: missing form label association: %q", page, s)
+			}
+		}
+	}
+
+	// Every button of a toggle group states aria-pressed from the start; the
+	// pages' scripts keep it in step with .active (PvmtCommon.markPressed).
+	groupButtons := regexp.MustCompile(`(?s)id="(scope-toggle|units-toggle|strategy-buttons|speed-buttons|horizon-buttons)"[^>]*>(.*?)</div>`)
+	button := regexp.MustCompile(`<button[^>]*>`)
+	for page, out := range map[string]string{"index": index, "play": play} {
+		for _, m := range groupButtons.FindAllStringSubmatch(out, -1) {
+			buttons := button.FindAllString(m[2], -1)
+			if len(buttons) < 2 {
+				t.Errorf("%s #%s: %d buttons found; the group markup moved", page, m[1], len(buttons))
+			}
+			for _, b := range buttons {
+				pressed := strings.Contains(b, `aria-pressed="true"`)
+				if !pressed && !strings.Contains(b, `aria-pressed="false"`) {
+					t.Errorf("%s #%s: button without aria-pressed: %s", page, m[1], b)
+				}
+				if active := strings.Contains(b, `class="active"`) || strings.Contains(b, `btn active`); active != pressed {
+					t.Errorf("%s #%s: .active and aria-pressed disagree: %s", page, m[1], b)
+				}
+			}
+		}
+	}
+	for page, groups := range map[string][]string{"index": {"scope-toggle", "units-toggle", "strategy-buttons"}, "play": {"speed-buttons", "horizon-buttons"}} {
+		out := map[string]string{"index": index, "play": play}[page]
+		for _, g := range groups {
+			if !strings.Contains(out, `id="`+g+`"`) {
+				t.Errorf("%s: no #%s to check", page, g)
+			}
 		}
 	}
 }

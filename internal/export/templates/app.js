@@ -3,7 +3,7 @@
         const PVMT_CONFIG = window.PVMT_CONFIG;
         // Money formatting, the error banner and the JSON fetch wrapper are the
         // shared ones from common.js, which the page loads before this script.
-        const { fmtMoney, shownPCI, showError, loadJSON } = PvmtCommon;
+        const { fmtMoney, shownPCI, markPressed, showError, loadJSON } = PvmtCommon;
 
         // Multi-city data prefix
         var CITIES = PVMT_CONFIG.cities;
@@ -471,8 +471,7 @@
             }
             if (init.scope === 'city' || init.scope === 'all') {
                 currentScope = init.scope;
-                queryAll('#scope-toggle button').forEach(b =>
-                    b.classList.toggle('active', b.dataset.scope === currentScope));
+                syncScopeToggle();
             }
             // The metric list arrives with the city's data; keep the requested
             // key and let loadCityData fall back to coverage if it is absent.
@@ -520,8 +519,7 @@
                 else if (currentScope === 'all' && allEmpty && !cityEmpty) currentScope = 'city';
                 if (scenarioData) currentScope = effectiveScope(scenarioData, currentScope);
             }
-            queryAll('#scope-toggle button').forEach(b =>
-                b.classList.toggle('active', b.dataset.scope === currentScope));
+            syncScopeToggle();
             // Compare renders once per scope; an entry in another scope needs
             // it re-rendered, as selectScope does.
             if (currentScope !== scopeBefore) compareLoaded = false;
@@ -1453,12 +1451,10 @@
             const allEmpty = Object.keys(hexDataByScope.all).length === 0;
             if (currentScope === 'city' && cityEmpty && !allEmpty) {
                 currentScope = 'all';
-                queryAll('#scope-toggle button').forEach(b =>
-                    b.classList.toggle('active', b.dataset.scope === currentScope));
+                syncScopeToggle();
             } else if (currentScope === 'all' && allEmpty && !cityEmpty) {
                 currentScope = 'city';
-                queryAll('#scope-toggle button').forEach(b =>
-                    b.classList.toggle('active', b.dataset.scope === currentScope));
+                syncScopeToggle();
             }
             maybeRevealScopeToggle();
 
@@ -2979,8 +2975,7 @@
             // scenarios (e.g. URL said scope=city but this city only has
             // all-scope data). Mirrors the same repair in loadCityData.
             currentScope = effectiveScope(scenarioData, currentScope);
-            queryAll('#scope-toggle button').forEach(b =>
-                b.classList.toggle('active', b.dataset.scope === currentScope));
+            syncScopeToggle();
             maybeRevealScopeToggle();
             const scenarios = scenariosForScope(scenarioData, currentScope);
 
@@ -3531,12 +3526,15 @@
         // toggle DOM state, the map heatmap, the financials view, and the
         // URL — every other code path (button click, popstate, internal
         // fallback) goes through here so the four views never drift apart.
+        // syncScopeToggle marks the scope toggle's button for currentScope.
+        function syncScopeToggle() {
+            markPressed(queryAll('#scope-toggle button'), b => b.dataset.scope === currentScope);
+        }
         function selectScope(scope, opts) {
             const btn = document.querySelector('#scope-toggle button[data-scope="' + scope + '"]');
             if (!btn) return;
             currentScope = scope;
-            queryAll('#scope-toggle button').forEach(b =>
-                b.classList.toggle('active', b.dataset.scope === scope));
+            syncScopeToggle();
 
             updateHexGrid();
 
@@ -4144,8 +4142,7 @@
         /** @param {string} strategy */
         function setStrategy(strategy) {
             currentStrategy = strategy;
-            queryAll('#strategy-buttons button').forEach(b =>
-                b.classList.toggle('active', b.dataset.strategy === strategy));
+            markPressed(queryAll('#strategy-buttons button'), b => b.dataset.strategy === strategy);
         }
 
         function getControlValues() {
@@ -4680,9 +4677,7 @@
         // cached meta, hex tooltips read UNIT_SYSTEM live on hover, and each
         // data-tab re-renders through its own path.
         function syncUnitsToggle() {
-            queryAll('#units-toggle button').forEach(function (b) {
-                b.classList.toggle('active', b.dataset.units === UNIT_SYSTEM);
-            });
+            markPressed(queryAll('#units-toggle button'), b => b.dataset.units === UNIT_SYSTEM);
         }
         // Re-derive the cost-tier inputs for the live display unit. The inputs show
         // $/<live area unit> and getControlValues reads UNIT_SYSTEM live, so the

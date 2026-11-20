@@ -15,6 +15,6 @@ rebuilds the same markup when a tag filter changes. autocomplete="off" keeps a
 browser from restoring an earlier choice on reload: the URL owns the selection.
 Each page's stylesheet owns the look.
 */}}
-{{define "city_select"}}<select id="city-select" autocomplete="off">{{range .CitySelect}}{{if .Grouped}}<optgroup label="{{.Label}}">{{template "city_options" .Options}}</optgroup>{{else}}{{template "city_options" .Options}}{{end}}{{end}}</select>{{end}}
+{{define "city_select"}}<select id="city-select" aria-label="City" autocomplete="off">{{range .CitySelect}}{{if .Grouped}}<optgroup label="{{.Label}}">{{template "city_options" .Options}}</optgroup>{{else}}{{template "city_options" .Options}}{{end}}{{end}}</select>{{end}}
 {{define "city_options"}}{{range .}}<option value="{{.Slug}}" data-bbox="{{.BBox}}"{{if .Selected}} selected{{end}}>{{.Name}}</option>{{end}}{{end}}
 {{define "tag_filters"}}<div class="tag-filters" id="tag-filters">{{range .TagDimensions}}{{$vals := .Values}}<select class="tag-filter" data-dim="{{.Name}}" aria-label="Filter cities by {{.Label}}" title="Show only cities in this {{.Label}}" autocomplete="off"{{if lt (len $vals) 2}} hidden{{end}}><option value="">Any {{.Label}}</option>{{range $vals}}<option value="{{.Tag}}">{{.Label}}</option>{{end}}</select>{{end}}</div>{{end}}

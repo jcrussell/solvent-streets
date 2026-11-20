@@ -802,9 +802,9 @@
         {{end}}
         <div class="gear-row" id="gear-scope-row" hidden>
             <span class="gear-label" title="Which roads, parking and sidewalks the figures cover: those the city maintains, or every jurisdiction's">Jurisdiction</span>
-            <div class="jurisdiction-toggle" id="scope-toggle">
-                <button class="active" data-scope="city">City Only</button>
-                <button data-scope="all">All</button>
+            <div class="jurisdiction-toggle" id="scope-toggle" role="group" aria-label="Jurisdiction">
+                <button class="active" aria-pressed="true" data-scope="city">City Only</button>
+                <button aria-pressed="false" data-scope="all">All</button>
             </div>
         </div>
         {{if .IsLiveServer}}
@@ -822,8 +822,8 @@
         <div class="gear-row">
             <span class="gear-label">Units</span>
             <div class="jurisdiction-toggle" id="units-toggle" role="group" aria-label="Display units">
-                <button data-units="imperial">Imperial</button>
-                <button data-units="metric">Metric</button>
+                <button aria-pressed="false" data-units="imperial">Imperial</button>
+                <button aria-pressed="false" data-units="metric">Metric</button>
             </div>
         </div>
         <div class="gear-row" id="gear-toggles-row">
@@ -913,9 +913,9 @@
                     </div>
                     <div class="control-group">
                         <label>Strategy</label>
-                        <div class="strategy-buttons" id="strategy-buttons">
-                            <button class="active" data-strategy="worst_first">Worst First</button>
-                            <button data-strategy="preventive_first">Preventive First</button>
+                        <div class="strategy-buttons" id="strategy-buttons" role="group" aria-label="Strategy">
+                            <button class="active" aria-pressed="true" data-strategy="worst_first">Worst First</button>
+                            <button aria-pressed="false" data-strategy="preventive_first">Preventive First</button>
                         </div>
                     </div>
                 </div>

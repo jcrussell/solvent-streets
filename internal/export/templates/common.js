@@ -77,6 +77,20 @@ window.PvmtCommon = (function () {
     }
 
     /**
+     * markPressed shows which button of a toggle group is on: the .active
+     * class the stylesheet draws, and aria-pressed for assistive technology.
+     * @param {Iterable<HTMLElement>} buttons
+     * @param {(b: HTMLElement) => boolean} isOn
+     */
+    function markPressed(buttons, isOn) {
+        for (const b of buttons) {
+            const on = !!isOn(b);
+            b.classList.toggle('active', on);
+            b.setAttribute('aria-pressed', String(on));
+        }
+    }
+
+    /**
      * showError reports a failure where the reader can see it: one line in
      * the page's error banner (the error_banner partial), which it reveals,
      * and console.error for the developer. label names what failed (a URL, a
@@ -219,6 +233,7 @@ window.PvmtCommon = (function () {
     return {
         fmtMoney: fmtMoney,
         shownPCI: shownPCI,
+        markPressed: markPressed,
         showError: showError,
         errorText: errorText,
         loadJSON: loadJSON,

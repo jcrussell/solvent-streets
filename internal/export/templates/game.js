@@ -32,7 +32,7 @@
         }
         // Money formatting, the error banner and the JSON fetch wrapper are the
         // shared ones from common.js, which the page loads before this script.
-        const { fmtMoney, shownPCI, showError, loadJSON } = PvmtCommon;
+        const { fmtMoney, shownPCI, markPressed, showError, loadJSON } = PvmtCommon;
 
         // Typed DOM accessors — same pattern as app.js: one audited type-assertion
         // each so the call sites below read straight (el.value / el.dataset / …)
@@ -530,8 +530,7 @@
                 simSpeed = rate;
                 startLoop(); // no-op if the game is over or already looping
             }
-            queryAll('#speed-buttons .btn')
-                .forEach(b => b.classList.toggle('active', Number(b.dataset.speed) === rate));
+            markPressed(queryAll('#speed-buttons .btn'), b => Number(b.dataset.speed) === rate);
         }
 
         // ---- Paint brush -----------------------------------------------------
@@ -624,11 +623,10 @@
         function wireStartOverlay(defaultBudget, holdSteady) {
             const hwrap = document.getElementById('horizon-buttons');
             offerHorizon(hwrap, gameConfig.horizon_years);
-            const markActive = () => queryAll('.btn', hwrap).forEach(b => {
+            const markActive = () => markPressed(queryAll('.btn', hwrap), b => {
                 const h = b.dataset.horizon;
-                const on = (h === 'endless') ? !!gameConfig.endless
+                return (h === 'endless') ? !!gameConfig.endless
                     : (!gameConfig.endless && Number(h) === gameConfig.horizon_years);
-                b.classList.toggle('active', on);
             });
             queryAll('.btn', hwrap).forEach(b => b.addEventListener('click', () => {
                 const h = b.dataset.horizon;

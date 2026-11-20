@@ -88,6 +88,7 @@ declare const PvmtSelectors: PvmtSelectorsAPI;
 interface PvmtCommonAPI {
   fmtMoney(n: number | null | undefined, opts?: { full?: boolean }): string;
   shownPCI(pci: number): number;
+  markPressed(buttons: Iterable<HTMLElement>, isOn: (b: HTMLElement) => boolean): void;
   showError(label: string, detail?: string): void;
   errorText(err: unknown): string;
   loadJSON(url: string, opts?: { silent404?: boolean }): Promise<any>;
