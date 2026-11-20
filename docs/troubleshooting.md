@@ -232,7 +232,7 @@ was computed. `pvmt services compute` routes from them again.
 Only the population is stale: the census blocks were re-ingested after it was
 computed.
 
-A **warning** such as `no fire coverage: fire facilities are ingested but never
+A **warning** such as `no fire coverage: fire_stations are ingested but never
 computed` does not refuse the city. The snapshot is created without that part,
 and the warning, prefixed with the city, names the command that adds it.
 

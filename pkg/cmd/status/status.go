@@ -369,7 +369,7 @@ func buildRows(ctx context.Context, ios *iostreams.IOStreams, store db.Store, so
 		rtVal := rt.Type()
 		info, err := store.Stats(ctx, rtVal)
 		if err != nil {
-			cmdutil.Warnf(ios, "could not get stats for %s: %v", rt.Type(), err)
+			cmdutil.Warnf(ios, "could not get stats for %s: %v", rt.Type().PublicName(), err)
 			continue
 		}
 		row := statusRow{City: view.slug(), FeatureCount: info.FeatureCount}

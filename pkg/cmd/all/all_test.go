@@ -648,7 +648,13 @@ func TestAllIngest_FailuresFailTheRunWithRetryCommands(t *testing.T) {
 	if err == nil || errors.Is(err, cmdutil.ErrNoResults) {
 		t.Fatalf("all ingest = %v; want a failure", err)
 	}
-	for _, want := range []string{"fire ingest:", "census ingest:"} {
+	// Inputs are named by their public names, never the stored ids.
+	for _, id := range []string{"facility-", "layer-", "routing-roads"} {
+		if strings.Contains(err.Error(), id) {
+			t.Errorf("error names the stored id %q:\n%v", id, err)
+		}
+	}
+	for _, want := range []string{"fire ingest: fire_stations:", "census ingest: census_blocks:"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error missing %q\ngot: %v", want, err)
 		}

@@ -443,7 +443,7 @@ func ingestCompanions(opts *Options, err error, run func(*Options) error) error 
 		o := *opts
 		o.ResourceType = rt
 		if cerr := run(&o); cerr != nil && !errors.Is(cerr, cmdutil.ErrNoResults) {
-			return fmt.Errorf("%s: %w", rt.Type(), cerr)
+			return fmt.Errorf("%s: %w", rt.Type().PublicName(), cerr)
 		}
 	}
 	return err
@@ -562,7 +562,7 @@ func fetchAndSaveResource(ctx context.Context, opts *Options, store db.Store, cl
 	logs.From(ctx).Info("ingest complete", "count", len(allFeatures), "resource", opts.ResourceType.Type())
 	if len(failed) > 0 {
 		return fmt.Errorf("%s: %s failed, saved %d features from %s: %w",
-			opts.ResourceType.Type(), strings.Join(failed, ", "), len(allFeatures),
+			opts.ResourceType.Type().PublicName(), strings.Join(failed, ", "), len(allFeatures),
 			strings.Join(succeeded, ", "), cmdutil.ErrPartialIngest)
 	}
 	return nil
@@ -586,7 +586,7 @@ func emptyFetchErr(rt resource.Type, failed, succeeded []string) error {
 		return cmdutil.ErrNoResults
 	}
 	return fmt.Errorf("%s: %s failed, %s returned no features: %w",
-		rt, strings.Join(failed, ", "), strings.Join(succeeded, ", "), cmdutil.ErrPartialIngest)
+		rt.PublicName(), strings.Join(failed, ", "), strings.Join(succeeded, ", "), cmdutil.ErrPartialIngest)
 }
 
 // failedSources lists the sources that did not answer, in source order.
@@ -608,7 +608,7 @@ func failedSources(sources []ingestpkg.Source, succeeded []string) []string {
 // real ingest with --source <single-source>.
 func printDryRunPlan(ctx context.Context, opts *Options, store db.Store, city *config.CityConfig) error {
 	out := opts.IO.Out
-	fmt.Fprintf(out, "[dry-run] ingest %s for %s\n", opts.ResourceType.Type(), city.Name)
+	fmt.Fprintf(out, "[dry-run] ingest %s for %s\n", opts.ResourceType.Type().PublicName(), city.Name)
 	boundary, err := store.GetBoundary(ctx)
 	if err != nil {
 		return fmt.Errorf("reading cached boundary: %w", err)
@@ -630,7 +630,7 @@ func printDryRunPlan(ctx context.Context, opts *Options, store db.Store, city *c
 		fmt.Fprintf(out, "[dry-run]   would fetch over the boundary bbox padded by %.0f m\n", p.FetchPadM())
 	}
 	if own, ok := opts.ResourceType.(resource.OwnSourced); ok {
-		fmt.Fprintf(out, "[dry-run]   would fetch from source: %s (fixed for %s)\n", own.OwnSource(), opts.ResourceType.Type())
+		fmt.Fprintf(out, "[dry-run]   would fetch from source: %s (fixed for %s)\n", own.OwnSource(), opts.ResourceType.Type().PublicName())
 	} else if opts.Source == cmdutil.SourceAll {
 		fmt.Fprintln(out, "[dry-run]   would resolve sources: "+fmtOverpass(city.Overpass)+
 			fmtArcgis(city.ArcGISURL, opts.ResourceType))
@@ -1312,9 +1312,9 @@ func fetchFromSources(ctx context.Context, sources []ingestpkg.Source, client *h
 			serves = ts.Serves(opts.ResourceType)
 		}
 		if serves {
-			fmt.Fprintf(opts.IO.ErrOut, "Fetching %s from %s for %s...\n", opts.ResourceType.Type(), src.Name(), cityName)
+			fmt.Fprintf(opts.IO.ErrOut, "Fetching %s from %s for %s...\n", opts.ResourceType.Type().PublicName(), src.Name(), cityName)
 		} else {
-			fmt.Fprintf(opts.IO.ErrOut, "Skipping %s for %s: it serves only %s\n", src.Name(), opts.ResourceType.Type(), servedTypes(src))
+			fmt.Fprintf(opts.IO.ErrOut, "Skipping %s for %s: it serves only %s\n", src.Name(), opts.ResourceType.Type().PublicName(), servedTypes(src))
 		}
 		started := time.Now()
 		features, err := src.Fetch(ctx, client, opts.ResourceType)
@@ -1340,7 +1340,7 @@ func fetchFromSources(ctx context.Context, sources []ingestpkg.Source, client *h
 		succeeded = append(succeeded, src.Name())
 	}
 	if len(sources) > 0 && failures == len(sources) {
-		return nil, nil, attempts, fmt.Errorf("%s: %w", opts.ResourceType.Type(), cmdutil.ErrAllSourcesFailed)
+		return nil, nil, attempts, fmt.Errorf("%s: %w", opts.ResourceType.Type().PublicName(), cmdutil.ErrAllSourcesFailed)
 	}
 	return allFeatures, succeeded, attempts, nil
 }

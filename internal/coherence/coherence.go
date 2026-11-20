@@ -202,29 +202,21 @@ func optionalWarnings(city *config.CityConfig, have map[string]db.LatestPart, cu
 		default:
 			continue
 		}
-		out = append(out, fmt.Sprintf("no %s coverage: %s facilities are %s but never computed (%s)",
-			svc, svc, why, prefix+partCommand(part)))
+		out = append(out, fmt.Sprintf("no %s coverage: %s are %s but never computed (%s)",
+			svc, resource.FacilityType(svc).PublicName(), why, prefix+partCommand(part)))
 	}
 	if _, ok := have[db.ProducerCensus]; !ok && city.CensusEnabled() &&
 		current[string(resource.TypeCensusBlocks)].Digest != "" {
-		out = append(out, fmt.Sprintf("no census population: census blocks are ingested but never computed (%s)",
+		out = append(out, fmt.Sprintf("no census population: %s are ingested but never computed (%s)", resource.TypeCensusBlocks.PublicName(),
 			prefix+partCommand(db.ProducerCensus)))
 	}
 	return out
 }
 
-// inputLabel names an input for a person.
+// inputLabel names an input for a person: by its public name
+// (resource.Type.PublicName), as status --json's stale_inputs does.
 func inputLabel(in string) string {
-	t := resource.Type(in)
-	switch {
-	case in == string(resource.TypeCensusBlocks):
-		return "census blocks"
-	case in == string(resource.TypeRoutingRoads):
-		return "routing roads"
-	case t.IsFacility():
-		return t.FacilityService() + " facilities"
-	}
-	return in
+	return resource.Type(in).PublicName()
 }
 
 // partLabel names a part for a person.

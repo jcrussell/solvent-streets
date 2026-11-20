@@ -163,7 +163,7 @@ func featuresDigest(ctx context.Context, q queryer, cityID int64, resourceType s
 	var sum inputSummary
 	rows, err := q.QueryContext(ctx, sqlFeaturesDigest, cityID, resourceType)
 	if err != nil {
-		return sum, fmt.Errorf("query %s features for digest: %w", resourceType, err)
+		return sum, fmt.Errorf("query %s features for digest: %w", resource.Type(resourceType).PublicName(), err)
 	}
 	defer func() { _ = rows.Close() }()
 	w := newDigestWriter()
@@ -172,11 +172,11 @@ func featuresDigest(ctx context.Context, q queryer, cityID int64, resourceType s
 		var stored []byte
 		var fetchedAt int64
 		if err := rows.Scan(&id, &source, &name, &tags, &stored, &fetchedAt); err != nil {
-			return sum, fmt.Errorf("scan %s feature for digest: %w", resourceType, err)
+			return sum, fmt.Errorf("scan %s feature for digest: %w", resource.Type(resourceType).PublicName(), err)
 		}
 		g, err := decodeGeometry(stored)
 		if err != nil {
-			return sum, fmt.Errorf("%s feature %s: %w", resourceType, id, err)
+			return sum, fmt.Errorf("%s feature %s: %w", resource.Type(resourceType).PublicName(), id, err)
 		}
 		for _, f := range []string{id, source, name, tags, string(g.AsBinary())} {
 			w.field(f)
@@ -187,7 +187,7 @@ func featuresDigest(ctx context.Context, q queryer, cityID int64, resourceType s
 		sum.count++
 	}
 	if err := rows.Err(); err != nil {
-		return sum, fmt.Errorf("read %s features for digest: %w", resourceType, err)
+		return sum, fmt.Errorf("read %s features for digest: %w", resource.Type(resourceType).PublicName(), err)
 	}
 	if sum.count > 0 {
 		sum.digest = w.sum()
