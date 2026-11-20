@@ -22,7 +22,7 @@ var (
 // openTestStore opens an in-memory DB and returns a Store scoped to a test city.
 func openTestStore(t *testing.T) Store {
 	t.Helper()
-	root, err := Open(":memory:")
+	root, err := Open(context.Background(), ":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +131,7 @@ func TestUpsertFeatures_ScopedBySourcePreservesOtherSources(t *testing.T) {
 // other city store and the RootStore fully usable.
 func TestCityStoreClose_KeepsPoolOpen(t *testing.T) {
 	ctx := context.Background()
-	root, err := Open(":memory:")
+	root, err := Open(context.Background(), ":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,7 +202,7 @@ func countRows(t *testing.T, root *RootStore, query string, args ...any) int {
 // (otherwise every feature would look stale).
 func TestGC_EmptyKeepSourcesSkipsFeatureSweep(t *testing.T) {
 	ctx := context.Background()
-	root, err := Open(":memory:")
+	root, err := Open(context.Background(), ":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -298,7 +298,7 @@ func TestBoundaryRoundTrip(t *testing.T) {
 
 func TestCityIsolation(t *testing.T) {
 	ctx := context.Background()
-	root, err := Open(":memory:")
+	root, err := Open(context.Background(), ":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -342,7 +342,7 @@ func TestCityIsolation(t *testing.T) {
 
 func TestEnsureCityIdempotent(t *testing.T) {
 	ctx := context.Background()
-	root, err := Open(":memory:")
+	root, err := Open(context.Background(), ":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -367,7 +367,7 @@ func TestEnsureCityIdempotent(t *testing.T) {
 // place rather than keeping the stale one, while preserving the row id.
 func TestEnsureCityRefreshesName(t *testing.T) {
 	ctx := context.Background()
-	root, err := Open(":memory:")
+	root, err := Open(context.Background(), ":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -404,7 +404,7 @@ func TestEnsureCityRefreshesName(t *testing.T) {
 // the other.
 func TestEnsureCityDistinctByConfigID(t *testing.T) {
 	ctx := context.Background()
-	root, err := Open(":memory:")
+	root, err := Open(context.Background(), ":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -439,7 +439,7 @@ func TestEnsureCityDistinctByConfigID(t *testing.T) {
 // row that collides with any other empty-config_id row.
 func TestEnsureCityRejectsEmptyConfigID(t *testing.T) {
 	ctx := context.Background()
-	root, err := Open(":memory:")
+	root, err := Open(context.Background(), ":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -460,7 +460,7 @@ func TestEnsureCityRejectsEmptyConfigID(t *testing.T) {
 // both reach the same cities row.
 func TestEnsureCityCollapsesPathSpellings(t *testing.T) {
 	ctx := context.Background()
-	root, err := Open(":memory:")
+	root, err := Open(context.Background(), ":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -510,7 +510,7 @@ func TestWithTx(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("success commits", func(t *testing.T) {
-		root, err := Open(":memory:")
+		root, err := Open(context.Background(), ":memory:")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -538,7 +538,7 @@ func TestWithTx(t *testing.T) {
 	})
 
 	t.Run("fn error rolls back and returns unwrapped", func(t *testing.T) {
-		root, err := Open(":memory:")
+		root, err := Open(context.Background(), ":memory:")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -569,7 +569,7 @@ func TestWithTx(t *testing.T) {
 	})
 
 	t.Run("begin tx error wrapped", func(t *testing.T) {
-		root, err := Open(":memory:")
+		root, err := Open(context.Background(), ":memory:")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -594,7 +594,7 @@ func TestWithTx(t *testing.T) {
 
 func TestForeignKeyEnforcement(t *testing.T) {
 	ctx := context.Background()
-	root, err := Open(":memory:")
+	root, err := Open(context.Background(), ":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -620,13 +620,13 @@ func TestOpenDSN(t *testing.T) {
 
 	t.Run("rejects path with query separator", func(t *testing.T) {
 		bad := filepath.Join(t.TempDir(), "pvmt.db") + "?_pragma=foreign_keys(off)"
-		if _, err := Open(bad); err == nil || !strings.Contains(err.Error(), "must not contain '?'") {
-			t.Fatalf("Open(%q): want error mentioning \"must not contain '?'\", got %v", bad, err)
+		if _, err := Open(context.Background(), bad); err == nil || !strings.Contains(err.Error(), "must not contain '?'") {
+			t.Fatalf("Open(context.Background(), %q): want error mentioning \"must not contain '?'\", got %v", bad, err)
 		}
 	})
 
 	t.Run("pragmas take effect on a clean file path", func(t *testing.T) {
-		root, err := Open(filepath.Join(t.TempDir(), "pvmt.db"))
+		root, err := Open(context.Background(), filepath.Join(t.TempDir(), "pvmt.db"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -651,7 +651,7 @@ func TestOpenDSN(t *testing.T) {
 
 func TestListCities(t *testing.T) {
 	ctx := context.Background()
-	root, err := Open(":memory:")
+	root, err := Open(context.Background(), ":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -748,7 +748,7 @@ const testEpoch = 1
 // the same id, and a store scoped to it, on every call.
 func TestCityStore_EnsuresOnce(t *testing.T) {
 	ctx := context.Background()
-	root, err := Open(":memory:")
+	root, err := Open(context.Background(), ":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}

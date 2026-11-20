@@ -22,7 +22,7 @@ import (
 func albanyBoard(t *testing.T) []boardCity {
 	t.Helper()
 	ctx := context.Background()
-	root, err := db.Open(":memory:")
+	root, err := db.Open(context.Background(), ":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +185,7 @@ func (e *recordingExporter) Write(_ *iostreams.IOStreams, rows []map[string]any)
 // mapped).
 func TestBoard_EmptyUpstreamIsNotIncomplete(t *testing.T) {
 	ctx := context.Background()
-	root, err := db.Open(":memory:")
+	root, err := db.Open(context.Background(), ":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}

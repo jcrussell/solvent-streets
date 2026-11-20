@@ -40,7 +40,7 @@ func TestRowsFromArcGISPage_DropsGeometryTheStoreRefuses(t *testing.T) {
 		t.Errorf("warning = %q, want the dropped count and an example id", log)
 	}
 
-	root, err := db.Open(":memory:")
+	root, err := db.Open(context.Background(), ":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}

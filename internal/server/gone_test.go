@@ -35,7 +35,7 @@ type cityDB struct {
 func sqliteEntry(t *testing.T, cfg *config.Config, city config.CityConfig) (export.CityEntry, *cityDB, func(area float64) int64) {
 	t.Helper()
 	ctx := context.Background()
-	root, err := db.Open(":memory:")
+	root, err := db.Open(context.Background(), ":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}

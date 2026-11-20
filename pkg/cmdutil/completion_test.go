@@ -1,6 +1,7 @@
 package cmdutil
 
 import (
+	"context"
 	"errors"
 	"path/filepath"
 	"testing"
@@ -26,7 +27,7 @@ func TestSnapshotNameCompletion_NoDatabaseCreatesNone(t *testing.T) {
 
 func TestSnapshotNameCompletion_ListsNames(t *testing.T) {
 	dir := t.TempDir()
-	store, err := db.Open(filepath.Join(dir, db.FileName))
+	store, err := db.Open(context.Background(), filepath.Join(dir, db.FileName))
 	if err != nil {
 		t.Fatal(err)
 	}

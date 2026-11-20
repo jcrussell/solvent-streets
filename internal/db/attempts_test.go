@@ -127,7 +127,7 @@ func TestRecordIngestAttempts_TruncatesError(t *testing.T) {
 // TestIngestHistory_ScopedToCity: one city's attempts are not another's.
 func TestIngestHistory_ScopedToCity(t *testing.T) {
 	ctx := context.Background()
-	root, err := Open(":memory:")
+	root, err := Open(context.Background(), ":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1229,7 +1229,7 @@ func TestRunIngest_SourceArcGISKeepsOverpassRows(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	root, err := db.Open(":memory:")
+	root, err := db.Open(context.Background(), ":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}

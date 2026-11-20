@@ -168,7 +168,7 @@ func newAllFixtureStore(t *testing.T, ctx context.Context) db.Store {
 // allFixtureConfig.
 func newAllFixture(t *testing.T, ctx context.Context) (*db.RootStore, db.Store) {
 	t.Helper()
-	root, err := db.Open(filepath.Join(t.TempDir(), "all.db"))
+	root, err := db.Open(context.Background(), filepath.Join(t.TempDir(), "all.db"))
 	if err != nil {
 		t.Fatalf("db.Open: %v", err)
 	}

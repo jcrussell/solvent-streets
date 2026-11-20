@@ -18,7 +18,7 @@ import (
 // refused with the shared unknown-snapshot usage error (exit 2), before
 // anything is pinned or written.
 func TestRun_UnknownSnapshotIsAUsageError(t *testing.T) {
-	root, err := db.Open(":memory:")
+	root, err := db.Open(context.Background(), ":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}

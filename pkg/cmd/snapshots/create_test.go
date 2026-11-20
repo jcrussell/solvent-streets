@@ -223,7 +223,7 @@ func TestCreate_JSON(t *testing.T) {
 // roads re-ingest refuses the city, and nothing is written for it.
 func TestRunCreate_RealStore(t *testing.T) {
 	ctx := context.Background()
-	root, err := db.Open(":memory:")
+	root, err := db.Open(context.Background(), ":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -3,6 +3,7 @@ package factory
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"net"
@@ -447,7 +448,7 @@ func TestRootDBWithClose_ClosesOnlyIfOpened(t *testing.T) {
 		var opens int
 		base := sync.OnceValues(func() (*db.RootStore, error) {
 			opens++
-			return db.Open(filepath.Join(t.TempDir(), "pvmt.db"))
+			return db.Open(context.Background(), filepath.Join(t.TempDir(), "pvmt.db"))
 		})
 		_, closeFn := rootDBWithClose(base)
 
@@ -463,7 +464,7 @@ func TestRootDBWithClose_ClosesOnlyIfOpened(t *testing.T) {
 		var opens int
 		base := sync.OnceValues(func() (*db.RootStore, error) {
 			opens++
-			return db.Open(filepath.Join(t.TempDir(), "pvmt.db"))
+			return db.Open(context.Background(), filepath.Join(t.TempDir(), "pvmt.db"))
 		})
 		get, closeFn := rootDBWithClose(base)
 
@@ -702,5 +703,48 @@ func TestOverpassHeaderTimeout_NotRetried(t *testing.T) {
 	}
 	if got := attempts.Load(); got != 1 {
 		t.Errorf("attempts = %d, want 1: a header timeout must not be retried", got)
+	}
+}
+
+// TestRootDBFactory_CanceledRequestStopsTheWait: RootDB opens the database
+// under the request context, so a Ctrl-C while another process holds the new
+// file's write lock stops the wait instead of running out its budget.
+func TestRootDBFactory_CanceledRequestStopsTheWait(t *testing.T) {
+	if testing.Short() {
+		t.Skip("holds a write lock for seconds")
+	}
+	path := filepath.Join(t.TempDir(), db.FileName)
+	other, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = other.Close() })
+	conn, err := other.Conn(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.ExecContext(context.Background(), "BEGIN IMMEDIATE"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
+		_ = conn.Close()
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(200*time.Millisecond, cancel)
+	f := &cmdutil.Factory{}
+	f.SetRequestContext(ctx)
+	start := time.Now()
+	store, err := rootDBFactory(f, path)()
+	if err == nil {
+		_ = store.Close()
+		t.Fatal("RootDB opened a database another process holds the write lock on")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("err = %v, want context.Canceled", err)
+	}
+	if waited := time.Since(start); waited > 3*time.Second {
+		t.Errorf("RootDB returned after %v, want soon after the cancel", waited)
 	}
 }

@@ -393,7 +393,7 @@ func rootDBFactory(f *cmdutil.Factory, path string) func() (*db.RootStore, error
 			}
 			resolved = filepath.Join(p.Data, db.FileName)
 		}
-		store, err := db.Open(resolved)
+		store, err := db.Open(f.RequestContext(), resolved)
 		if err != nil && errors.Is(err, fs.ErrPermission) {
 			return nil, hint.Withf(err, "check filesystem permissions on %s", resolved)
 		}

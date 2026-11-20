@@ -173,9 +173,9 @@ func openIsolatedStore(t *testing.T, ctx context.Context, xdgData string) (*db.R
 	if _, err := os.Stat(dbPath); err != nil {
 		t.Fatalf("expected isolated DB at %s, not found: %v", dbPath, err)
 	}
-	rootStore, err := db.Open(dbPath)
+	rootStore, err := db.Open(context.Background(), dbPath)
 	if err != nil {
-		t.Fatalf("db.Open(%s): %v", dbPath, err)
+		t.Fatalf("db.Open(context.Background(), %s): %v", dbPath, err)
 	}
 	city := config.CityConfig{Name: "Livermore, CA"}
 	cityID, err := rootStore.EnsureCity(ctx, city.Slug(), city.Name, "test")

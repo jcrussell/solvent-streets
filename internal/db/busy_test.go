@@ -22,7 +22,7 @@ func TestWrites_WaitOutALongWriteTransaction(t *testing.T) {
 	}
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "pvmt.db")
-	root, err := Open(path)
+	root, err := Open(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +103,7 @@ func TestOpen_WaitsOutAnotherProcessCreatingTheDatabase(t *testing.T) {
 	released := lockNewFile(t, path, hold)
 
 	start := time.Now()
-	root, err := Open(path)
+	root, err := Open(context.Background(), path)
 	if err != nil {
 		t.Fatalf("Open behind a %v write lock: %v", hold, err)
 	}
@@ -131,7 +131,7 @@ func TestOpen_LockedPastTheBudgetNamesTheOtherProcess(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "pvmt.db")
 	released := lockNewFile(t, path, 8*time.Second)
 
-	root, err := Open(path)
+	root, err := Open(context.Background(), path)
 	if err == nil {
 		_ = root.Close()
 		t.Fatal("Open succeeded while another process held the write lock past its budget")
@@ -142,6 +142,34 @@ func TestOpen_LockedPastTheBudgetNamesTheOtherProcess(t *testing.T) {
 	var h *hint.ErrHint
 	if !errors.As(err, &h) || !strings.Contains(h.Hint, "another pvmt process is initializing or writing") || !strings.Contains(h.Hint, path) {
 		t.Errorf("hint = %v, want one naming another pvmt process and %s", h, path)
+	}
+	if err := <-released; err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestOpen_CanceledStopsWaiting: an Open waiting out another process's write
+// lock stops once its context is done (Ctrl-C), long before its budget.
+func TestOpen_CanceledStopsWaiting(t *testing.T) {
+	if testing.Short() {
+		t.Skip("holds a write lock for seconds")
+	}
+	path := filepath.Join(t.TempDir(), "pvmt.db")
+	released := lockNewFile(t, path, 3*time.Second)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(200*time.Millisecond, cancel)
+	start := time.Now()
+	root, err := Open(ctx, path)
+	if err == nil {
+		_ = root.Close()
+		t.Fatal("Open succeeded while another process held the write lock")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("err = %v, want context.Canceled", err)
+	}
+	if waited := time.Since(start); waited > 2*time.Second {
+		t.Errorf("Open returned after %v, want it to stop soon after the cancel", waited)
 	}
 	if err := <-released; err != nil {
 		t.Fatal(err)

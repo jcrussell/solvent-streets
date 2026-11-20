@@ -327,7 +327,7 @@ func TestSnapshot_UncommittedRunsAreInvisible(t *testing.T) {
 // hash. A rejected commit changes nothing.
 func TestCommitLatest_RejectsInconsistentRuns(t *testing.T) {
 	ctx := context.Background()
-	root, err := Open(":memory:")
+	root, err := Open(context.Background(), ":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -365,7 +365,7 @@ func TestCommitLatest_RejectsInconsistentRuns(t *testing.T) {
 // it did.
 func TestDeleteSnapshot_KeepsRunsOtherSnapshotsUse(t *testing.T) {
 	ctx := context.Background()
-	root, err := Open(":memory:")
+	root, err := Open(context.Background(), ":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -446,7 +446,7 @@ func TestDiscardRun(t *testing.T) {
 // compute may still be running), committed runs and features alone.
 func TestGC_OrphanRuns(t *testing.T) {
 	ctx := context.Background()
-	root, err := Open(":memory:")
+	root, err := Open(context.Background(), ":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -505,7 +505,7 @@ func TestGC_OrphanRuns(t *testing.T) {
 // kept, and so is an old-epoch run a snapshot still holds.
 func TestGC_SupersededEpoch(t *testing.T) {
 	ctx := context.Background()
-	root, err := Open(":memory:")
+	root, err := Open(context.Background(), ":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -650,7 +650,7 @@ func TestListSnapshots_TimestampsMarshalLikeTheCLI(t *testing.T) {
 // and an unknown name, do not.
 func TestResolveSnapshot(t *testing.T) {
 	ctx := context.Background()
-	root, err := Open(":memory:")
+	root, err := Open(context.Background(), ":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -897,7 +897,7 @@ func TestCommitLatest_ConcurrentProcesses(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "pvmt.db")
 	var stores [2]Store
 	for i := range stores {
-		root, err := Open(path)
+		root, err := Open(context.Background(), path)
 		if err != nil {
 			t.Fatal(err)
 		}

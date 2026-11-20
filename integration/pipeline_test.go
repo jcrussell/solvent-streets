@@ -48,7 +48,7 @@ func TestPipeline_ComputeForecastExport(t *testing.T) {
 	// Real sqlite RootStore: migrations run, FKs enforce, indexes used —
 	// not the mock layer.
 	dbPath := filepath.Join(t.TempDir(), "pipeline.db")
-	root, err := db.Open(dbPath)
+	root, err := db.Open(context.Background(), dbPath)
 	if err != nil {
 		t.Fatalf("db.Open: %v", err)
 	}

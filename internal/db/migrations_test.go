@@ -33,9 +33,9 @@ import (
 func TestColdMigration_SchemaShape(t *testing.T) {
 	ctx := context.Background()
 
-	root, err := Open(":memory:")
+	root, err := Open(context.Background(), ":memory:")
 	if err != nil {
-		t.Fatalf("Open(:memory:): %v", err)
+		t.Fatalf("Open(context.Background(), :memory:): %v", err)
 	}
 	t.Cleanup(func() { _ = root.Close() })
 
@@ -164,9 +164,9 @@ func TestColdMigration_SchemaShape(t *testing.T) {
 // row, and each manifest row names its city.
 func TestColdMigration_SnapshotTags(t *testing.T) {
 	ctx := context.Background()
-	root, err := Open(":memory:")
+	root, err := Open(context.Background(), ":memory:")
 	if err != nil {
-		t.Fatalf("Open(:memory:): %v", err)
+		t.Fatalf("Open(context.Background(), :memory:): %v", err)
 	}
 	t.Cleanup(func() { _ = root.Close() })
 	want := map[string][]string{
@@ -219,9 +219,9 @@ func TestColdMigration_SnapshotTags(t *testing.T) {
 // prefix (TestQueryPlan_FeaturesStatements).
 func TestColdMigration_FeaturesKey(t *testing.T) {
 	ctx := context.Background()
-	root, err := Open(":memory:")
+	root, err := Open(context.Background(), ":memory:")
 	if err != nil {
-		t.Fatalf("Open(:memory:): %v", err)
+		t.Fatalf("Open(context.Background(), :memory:): %v", err)
 	}
 	t.Cleanup(func() { _ = root.Close() })
 	want := []string{"city_id", "resource_type", "id"}
@@ -253,9 +253,9 @@ func TestColdMigration_FeaturesKey(t *testing.T) {
 // snapshot can reach through a run would be invisible forever.
 func TestColdMigration_ResultRowsRequireARun(t *testing.T) {
 	ctx := context.Background()
-	root, err := Open(":memory:")
+	root, err := Open(context.Background(), ":memory:")
 	if err != nil {
-		t.Fatalf("Open(:memory:): %v", err)
+		t.Fatalf("Open(context.Background(), :memory:): %v", err)
 	}
 	t.Cleanup(func() { _ = root.Close() })
 	// Every result row is tagged with the run that wrote it, NOT NULL: a
@@ -290,9 +290,9 @@ func TestColdMigration_ResultRowsRequireARun(t *testing.T) {
 func TestQueryPlan_UsesCompositeIndexes(t *testing.T) {
 	ctx := context.Background()
 
-	root, err := Open(":memory:")
+	root, err := Open(context.Background(), ":memory:")
 	if err != nil {
-		t.Fatalf("Open(:memory:): %v", err)
+		t.Fatalf("Open(context.Background(), :memory:): %v", err)
 	}
 	t.Cleanup(func() { _ = root.Close() })
 
@@ -333,9 +333,9 @@ func TestQueryPlan_UsesCompositeIndexes(t *testing.T) {
 // BY id must come from key order). A new features statement belongs here.
 func TestQueryPlan_FeaturesStatements(t *testing.T) {
 	ctx := context.Background()
-	root, err := Open(":memory:")
+	root, err := Open(context.Background(), ":memory:")
 	if err != nil {
-		t.Fatalf("Open(:memory:): %v", err)
+		t.Fatalf("Open(context.Background(), :memory:): %v", err)
 	}
 	t.Cleanup(func() { _ = root.Close() })
 	stale, _ := (&sqliteStore{cityID: 1}).staleFeatures([]string{"overpass", "arcgis"})
@@ -379,9 +379,9 @@ func TestQueryPlan_FeaturesStatements(t *testing.T) {
 // new snapshot statement belongs here.
 func TestQueryPlan_SnapshotStatements(t *testing.T) {
 	ctx := context.Background()
-	root, err := Open(":memory:")
+	root, err := Open(context.Background(), ":memory:")
 	if err != nil {
-		t.Fatalf("Open(:memory:): %v", err)
+		t.Fatalf("Open(context.Background(), :memory:): %v", err)
 	}
 	t.Cleanup(func() { _ = root.Close() })
 
@@ -802,7 +802,7 @@ func TestOpen_RefusesOlderGeneration(t *testing.T) {
 				t.Fatalf("read before: %v", err)
 			}
 
-			root, err := Open(path)
+			root, err := Open(context.Background(), path)
 			if err == nil {
 				_ = root.Close()
 				t.Fatal("Open succeeded on an older-generation database; want ErrIncompatibleDatabase")
@@ -853,7 +853,7 @@ func TestOpen_ForeignFileLeftUntouched(t *testing.T) {
 		t.Fatalf("read before: %v", err)
 	}
 
-	root, err := Open(path)
+	root, err := Open(context.Background(), path)
 	if err == nil {
 		_ = root.Close()
 		t.Fatal("Open succeeded on a foreign SQLite file; want ErrIncompatibleDatabase")
@@ -924,7 +924,7 @@ func TestOpen_RefusedHotWALLeftUntouched(t *testing.T) {
 				t.Fatal("seed left an empty -wal; the test needs un-checkpointed frames")
 			}
 
-			root, err := Open(path)
+			root, err := Open(context.Background(), path)
 			if err == nil {
 				_ = root.Close()
 				t.Fatal("Open succeeded on an older-generation database; want ErrIncompatibleDatabase")
@@ -956,7 +956,7 @@ func TestOpen_RefusesNewerGeneration(t *testing.T) {
 	}
 	_ = d.Close()
 
-	if _, err := Open(path); !errors.Is(err, ErrIncompatibleDatabase) {
+	if _, err := Open(context.Background(), path); !errors.Is(err, ErrIncompatibleDatabase) {
 		t.Fatalf("err = %v, want ErrIncompatibleDatabase", err)
 	}
 }
@@ -979,7 +979,7 @@ func TestOpen_StampsAndReopensCurrentGeneration(t *testing.T) {
 				t.Fatalf("prepare: %v", err)
 			}
 			for i := range 2 {
-				root, err := Open(path)
+				root, err := Open(context.Background(), path)
 				if err != nil {
 					t.Fatalf("Open #%d: %v", i+1, err)
 				}

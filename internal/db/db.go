@@ -419,7 +419,10 @@ func DefaultPath() (string, error) {
 // (commitBusyBudget). A variable so a test can run it out quickly.
 var openBusyBudget = commitBusyBudget
 
-func Open(path string) (retStore *RootStore, retErr error) {
+// Open opens (creating and migrating as needed) the database at path, or
+// at DefaultPath when path is "". ctx bounds the wait for another process
+// holding the write lock during migrate, so an interrupt stops it.
+func Open(ctx context.Context, path string) (retStore *RootStore, retErr error) {
 	if path == "" {
 		var err error
 		path, err = DefaultPath()
@@ -452,7 +455,7 @@ func Open(path string) (retStore *RootStore, retErr error) {
 	}
 	// Refuse an incompatible file before a read-write connection touches it
 	// (probeGeneration): closing one would checkpoint its WAL.
-	if err := probeGeneration(context.Background(), path); err != nil {
+	if err := probeGeneration(ctx, path); err != nil {
 		return nil, incompatible(err)
 	}
 
@@ -471,8 +474,7 @@ func Open(path string) (retStore *RootStore, retErr error) {
 	// Another pvmt opening the same new file at once holds the write lock
 	// while it stamps, converts and creates it. Every step of migrate is
 	// idempotent, so a busy run is retried like any write, for up to
-	// openBusyBudget.
-	ctx := context.Background()
+	// openBusyBudget, or until ctx is done.
 	if err := retryBusyWithin(ctx, openBusyBudget, func() error { return migrate(ctx, db) }); err != nil {
 		if errors.Is(err, ErrIncompatibleDatabase) {
 			return nil, incompatible(err)

@@ -31,7 +31,7 @@ type diffFixture struct {
 func newDiffFixture(t *testing.T) *diffFixture {
 	t.Helper()
 	ctx := context.Background()
-	root, err := db.Open(":memory:")
+	root, err := db.Open(context.Background(), ":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}

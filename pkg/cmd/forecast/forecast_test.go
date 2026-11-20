@@ -320,7 +320,7 @@ func TestRunForecast_Snapshot(t *testing.T) {
 // TestForecast_UnknownSnapshotRefusedOnce: a --snapshot no snapshot has is
 // refused before any city runs, not once per city.
 func TestForecast_UnknownSnapshotRefusedOnce(t *testing.T) {
-	root, err := db.Open(filepath.Join(t.TempDir(), db.FileName))
+	root, err := db.Open(context.Background(), filepath.Join(t.TempDir(), db.FileName))
 	if err != nil {
 		t.Fatal(err)
 	}

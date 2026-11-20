@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"errors"
 	"path/filepath"
 	"sync"
@@ -20,7 +21,7 @@ func TestOpen_ConcurrentFirstOpenSucceeds(t *testing.T) {
 		errs := make(chan error, openers)
 		for range openers {
 			wg.Go(func() {
-				s, err := Open(p)
+				s, err := Open(context.Background(), p)
 				if err == nil {
 					err = s.Close()
 				}

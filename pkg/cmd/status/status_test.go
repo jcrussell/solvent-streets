@@ -634,7 +634,7 @@ func TestPartOf(t *testing.T) {
 // configured city, each row naming its city, and --json writes them all as
 // one document.
 func TestStatus_EveryConfiguredCity(t *testing.T) {
-	root, err := db.Open(filepath.Join(t.TempDir(), db.FileName))
+	root, err := db.Open(context.Background(), filepath.Join(t.TempDir(), db.FileName))
 	if err != nil {
 		t.Fatal(err)
 	}

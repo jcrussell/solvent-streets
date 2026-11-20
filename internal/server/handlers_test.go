@@ -417,7 +417,7 @@ func TestHandleSnapshots_SingleCity(t *testing.T) {
 // zero rows) — so this assertion must run through real SQLite.
 func TestHandleSnapshots_EmptyEmitsArrayNotNull(t *testing.T) {
 	ctx := context.Background()
-	root, err := db.Open(":memory:")
+	root, err := db.Open(context.Background(), ":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}

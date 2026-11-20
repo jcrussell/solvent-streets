@@ -31,7 +31,7 @@ type sqliteCity struct {
 func newSQLiteCity(t *testing.T, cfg *config.Config, name, boundary string) *sqliteCity {
 	t.Helper()
 	ctx := context.Background()
-	root, err := db.Open(":memory:")
+	root, err := db.Open(context.Background(), ":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}

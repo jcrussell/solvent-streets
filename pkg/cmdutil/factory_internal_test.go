@@ -62,7 +62,7 @@ func TestStoreCache_BuildsOncePerKey(t *testing.T) {
 // each call rebuilds a fresh *sqliteStore (WithLatestCompute copies), so identity
 // equality is the observable proof the cache short-circuited the rebuild.
 func TestWithCity_MemoizesStore(t *testing.T) {
-	root, err := db.Open(filepath.Join(t.TempDir(), "pvmt.db"))
+	root, err := db.Open(context.Background(), filepath.Join(t.TempDir(), "pvmt.db"))
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}

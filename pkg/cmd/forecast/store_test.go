@@ -24,7 +24,7 @@ import (
 func seedComputedCity(t *testing.T, path string, cfg *config.Config, city *config.CityConfig) db.Store {
 	t.Helper()
 	ctx := context.Background()
-	root, err := db.Open(path)
+	root, err := db.Open(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
 	}

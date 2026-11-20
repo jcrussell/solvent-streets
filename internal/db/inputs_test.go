@@ -14,7 +14,7 @@ import (
 // (for direct SQL) and the city's store.
 func openInputsStore(t *testing.T) (*RootStore, Store, int64) {
 	t.Helper()
-	root, err := Open(":memory:")
+	root, err := Open(context.Background(), ":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}

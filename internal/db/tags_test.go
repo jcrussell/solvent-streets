@@ -50,7 +50,7 @@ func deleteSnapshotID(store Store, id int64) (bool, error) {
 func openTwoCities(t *testing.T) (root *RootStore, a, b int64) {
 	t.Helper()
 	ctx := context.Background()
-	root, err := Open(":memory:")
+	root, err := Open(context.Background(), ":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -282,7 +282,7 @@ func TestRootListSnapshots(t *testing.T) {
 // connection, and nothing for a path with no database.
 func TestSnapshotNames(t *testing.T) {
 	path := filepath.Join(t.TempDir(), FileName)
-	root, err := Open(path)
+	root, err := Open(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
 	}
