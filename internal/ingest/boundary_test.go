@@ -2,12 +2,16 @@ package ingest
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/jcrussell/solvent-streets/internal/geo"
 )
 
 // overpassTestServer mirrors nominatimTestServer's shape but accepts
@@ -48,12 +52,9 @@ func TestFetchCityBoundaryFromRelation_AlbuquerqueFixture(t *testing.T) {
 	if !strings.HasPrefix(result, `{"type":"MultiPolygon","coordinates":[[`) {
 		t.Errorf("expected MultiPolygon GeoJSON, got prefix: %.80s", result)
 	}
-	// Sanity check: Albuquerque's bbox is roughly lon -107..-106.4,
-	// lat 34.95..35.25. Spot-check that the rendered coordinates fall
-	// inside that envelope so we know stitching produced real geometry.
-	if !strings.Contains(result, "-106.") {
-		t.Errorf("expected ABQ-area longitudes in output, got: %.200s", result)
-	}
+	// Two polygons holding 59 rings (2 outer, 57 holes), 518.3 km²
+	// projected: a ring lost or mis-stitched moves the count or the area.
+	checkBoundaryShape(t, result, 2, 59, 518.3)
 }
 
 // TestFetchCityBoundaryFromRelation_DenverFixture exercises the real
@@ -78,9 +79,35 @@ func TestFetchCityBoundaryFromRelation_DenverFixture(t *testing.T) {
 	if !strings.HasPrefix(result, `{"type":"MultiPolygon","coordinates":[[`) {
 		t.Errorf("expected MultiPolygon GeoJSON, got prefix: %.80s", result)
 	}
-	// Denver's bbox is roughly lon -105.11..-104.60, lat 39.61..39.91.
-	if !strings.Contains(result, "-104.") || !strings.Contains(result, "-105.") {
-		t.Errorf("expected Denver-area longitudes in output, got: %.200s", result)
+	// One polygon with 6 rings, 401.2 km², about the Census total area of
+	// the city and county (land plus water, 401 km²).
+	checkBoundaryShape(t, result, 1, 6, 401.2)
+}
+
+// checkBoundaryShape fails t unless the MultiPolygon GeoJSON gj has exactly
+// the given polygon and total ring counts, and a projected area within 1% of
+// wantKm2.
+func checkBoundaryShape(t *testing.T, gj string, polys, rings int, wantKm2 float64) {
+	t.Helper()
+	var mp struct {
+		Coordinates [][][][2]float64 `json:"coordinates"`
+	}
+	if err := json.Unmarshal([]byte(gj), &mp); err != nil {
+		t.Fatalf("decode boundary: %v", err)
+	}
+	gotRings := 0
+	for _, p := range mp.Coordinates {
+		gotRings += len(p)
+	}
+	if len(mp.Coordinates) != polys || gotRings != rings {
+		t.Errorf("boundary has %d polygons and %d rings, want %d and %d", len(mp.Coordinates), gotRings, polys, rings)
+	}
+	area, err := geo.BoundaryArea(context.Background(), gj)
+	if err != nil {
+		t.Fatalf("BoundaryArea: %v", err)
+	}
+	if km2 := area / 1e6; math.Abs(km2/wantKm2-1) > 0.01 {
+		t.Errorf("boundary area %.1f km², want %.1f km² within 1%%", km2, wantKm2)
 	}
 }
 
