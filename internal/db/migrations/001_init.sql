@@ -245,8 +245,8 @@ CREATE INDEX IF NOT EXISTS idx_snapshot_parts_run ON snapshot_parts(run_id);
 -- (run, measure) write-once. Its run_id prefix serves every read, which
 -- filters `run_id IN (<the resolved snapshot's runs>)`, and every delete.
 --
---   metric  what is measured, snake_case with a unit: paved_area_m2,
---           coverage_pct, feature_count, parking_spaces, fire_response_s ...
+--   metric  what is measured, a key of the metric catalog (internal/metric):
+--           paved_area, feature_count, estimated_spaces, fire_response_s ...
 --   subject what it is measured over: a pavement resource.Type including its
 --           scope ('roads', 'roads:city', 'combined:city'), or '' for
 --           producers that are not about one resource (fire, census).
@@ -263,8 +263,8 @@ CREATE TABLE IF NOT EXISTS city_metrics (
     PRIMARY KEY (run_id, metric, subject, class)
 ) STRICT, WITHOUT ROWID;
 
--- hex_metrics holds per-hex values: pavement coverage (paved_area_m2,
--- coverage_pct, parking_spaces) and the registered metrics of
+-- hex_metrics holds per-hex values: pavement coverage (paved_area,
+-- paved_share, estimated_spaces) and the registered metrics of
 -- internal/hexmetric (fire_response_s, population ...), plus an optional
 -- reference id (the nearest facility for a coverage metric).
 CREATE TABLE IF NOT EXISTS hex_metrics (
