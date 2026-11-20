@@ -14,13 +14,12 @@ const totalBacklog = (doc) => doc.querySelector('#cohort-table tbody tr.total-ro
 /** @param {any[]} cohorts */
 const sum = (cohorts) => cohorts.reduce((s, c) => s + c.deferred_backlog, 0);
 
-test('the fixture roads entry has distinct city and all-jurisdiction cohorts', () => {
+test('the cohort table follows the scope toggle', async () => {
+  // Precondition: the toggle is visible only if the two scopes' cohorts differ.
   assert.ok(roads.city_baseline, 'forecast.json roads has no city_baseline; the Go json tag moved');
   assert.ok(roads.baseline.final_cohorts.length > 1 && roads.city_baseline.final_cohorts.length > 1);
   assert.notEqual(sum(roads.baseline.final_cohorts), sum(roads.city_baseline.final_cohorts));
-});
 
-test('the cohort table follows the scope toggle', async () => {
   const { win, doc, flush } = load({ data: fullData });
   await flush();
   const money = (v) => win.PvmtCommon.fmtMoney(v, { full: true });

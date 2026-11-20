@@ -63,7 +63,22 @@ func TestSpecValidate(t *testing.T) {
 	}
 }
 
+// unregisterOnCleanup removes keys from the registry when t ends, so a test
+// that registers scratch keys leaves the shared registry as it found it and
+// passes under -count=N.
+func unregisterOnCleanup(t *testing.T, keys ...string) {
+	t.Helper()
+	t.Cleanup(func() {
+		mu.Lock()
+		defer mu.Unlock()
+		for _, k := range keys {
+			delete(registry, k)
+		}
+	})
+}
+
 func TestRegisterLookupAll(t *testing.T) {
+	unregisterOnCleanup(t, "zz_test_a_s", "zz_test_b_s")
 	if err := TryRegister(validSpec("zz_test_b_s")); err != nil {
 		t.Fatal(err)
 	}

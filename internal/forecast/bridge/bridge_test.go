@@ -396,18 +396,19 @@ func TestJSONKeyContract(t *testing.T) {
 	}
 }
 
-// TestRun_MissingCostMultiplierPricesBareNotZero is the stale-seed guard.
+// TestRun_CostMultiplierEnvelope checks the multiplier at the JSON boundary;
+// TestTranslate_CostMultiplierReachesTheProjectorOnce pins the pricing.
 //
-// Input is decoded from untrusted browser JSON. A partially-rebuilt site pairs
-// a new pvmt.wasm with an old per-city forecast_seed.json that has no
-// cost_multiplier field at all, which decodes to 0.0. A bare multiply would then
-// price every figure on the page at $0 — and $0 renders as a plausible-looking
-// "fully funded" rather than as an error.
-func TestRun_MissingCostMultiplierPricesBareNotZero(t *testing.T) {
-	base := `{"area":1000000,"initial_pci":70,"decay_rate":0.04,"horizon_years":3,
-	          "treatment_cycle_years":12,"annual_budget":0,"strategy":"do_nothing"}`
+// A partially-rebuilt site can pair a new pvmt.wasm with an old
+// forecast_seed.json that has no cost_multiplier at all, which decodes to 0.
+// That must price bare, not $0, which would render as a plausible-looking
+// "fully funded" rather than as an error. A negative multiplier is a caller
+// error, not a stale seed, so it is rejected rather than clamped.
+func TestRun_CostMultiplierEnvelope(t *testing.T) {
+	const base = `{"area":1000000,"initial_pci":70,"decay_rate":0.04,"horizon_years":3,
+	              "treatment_cycle_years":12,"annual_budget":0,"strategy":"do_nothing"`
 
-	out, err := Run([]byte(base))
+	out, err := Run([]byte(base + `}`))
 	if err != nil {
 		t.Fatalf("Run with no cost_multiplier: %v", err)
 	}
@@ -419,40 +420,11 @@ func TestRun_MissingCostMultiplierPricesBareNotZero(t *testing.T) {
 	if err := json.Unmarshal(out, &got); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if len(got.Years) == 0 {
-		t.Fatal("no years returned")
-	}
-	if got.Years[0].AnnualNeed <= 0 {
-		t.Fatalf("annual_need = %g with an absent cost_multiplier; a stale seed must price bare, not zero",
-			got.Years[0].AnnualNeed)
+	if len(got.Years) == 0 || got.Years[0].AnnualNeed <= 0 {
+		t.Errorf("an absent cost_multiplier priced %+v; a stale seed must price bare, not zero", got.Years)
 	}
 
-	// And an explicit multiplier must actually scale, so the test above is not
-	// passing because the field is ignored entirely.
-	loaded, err := Run([]byte(base[:len(base)-1] + `,"cost_multiplier":2}`))
-	if err != nil {
-		t.Fatalf("Run with cost_multiplier: %v", err)
-	}
-	var got2 struct {
-		Years []struct {
-			AnnualNeed float64 `json:"annual_need"`
-		} `json:"years"`
-	}
-	if err := json.Unmarshal(loaded, &got2); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if want := got.Years[0].AnnualNeed * 2; math.Abs(got2.Years[0].AnnualNeed-want) > 1e-6*want {
-		t.Errorf("annual_need at multiplier 2 = %g, want %g (bare %g x 2)",
-			got2.Years[0].AnnualNeed, want, got.Years[0].AnnualNeed)
-	}
-}
-
-// A negative multiplier is a caller error, not a stale seed, so it is rejected
-// rather than clamped — clamping it to bare would hide the mistake.
-func TestRun_NegativeCostMultiplierIsRejected(t *testing.T) {
-	in := `{"area":1000,"initial_pci":70,"decay_rate":0.04,"horizon_years":1,
-	        "annual_budget":0,"strategy":"do_nothing","cost_multiplier":-1}`
-	if _, err := Run([]byte(in)); err == nil {
+	if _, err := Run([]byte(base + `,"cost_multiplier":-1}`)); err == nil {
 		t.Error("a negative cost_multiplier was accepted; want a validation error")
 	}
 }

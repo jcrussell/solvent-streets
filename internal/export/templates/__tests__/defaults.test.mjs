@@ -153,13 +153,12 @@ test("play: the start screen offers the city's own horizon and opens on it", asy
 });
 
 // The page seed is the region's on a multi-city site, so the play page's
-// fallbacks do not follow it (the fixture's seed horizon is not the default).
-test('play: the page defaults do not follow the page seed', () => {
-  const { win } = load({ page: 'play' });
-  assert.notEqual(win.PVMT_CONFIG.forecast_defaults.horizon_years, seedJSON.horizon_years);
-});
-
+// fallbacks do not follow it.
 test('play: the start screen offers the configured horizon and opens on it', async () => {
+  // Precondition: opening on the seed's horizon is distinguishable from
+  // opening on the page default only while the two differ.
+  assert.notEqual(load({ page: 'play' }).win.PVMT_CONFIG.forecast_defaults.horizon_years, seedJSON.horizon_years,
+    'the play page defaults follow the seed');
   const offered = Array.from(served('play.html').querySelectorAll('#horizon-buttons .btn')).map((b) => b.dataset.horizon);
   assert.ok(offered.includes(String(seedJSON.horizon_years)), 'the configured horizon is not offered: ' + offered);
   assert.equal(offered.at(-1), 'endless');

@@ -6,7 +6,8 @@ import (
 )
 
 // TestCostMultiplier_DefaultIsTheCalibratedOne: an unset cost_multiplier resolves to
-// DefaultCostMultiplier. Pinned because the tiers LOOK ~2-3x low treatment-by-
+// 1.0. The literal is asserted, not DefaultCostMultiplier, so changing the
+// constant fails here. Pinned because the tiers LOOK ~2-3x low treatment-by-
 // treatment (validation.md §3), which invites "helpfully" defaulting this to
 // ~1.5 — but the system output is already loaded-equivalent (§6), so that would
 // double-count and put Berkeley ~47% above its own cited figure.
@@ -22,8 +23,8 @@ overpass = true
 		t.Fatalf("Load: %v", err)
 	}
 	city := cityBySlug(t, cfg, "alpha")
-	if got := cfg.ResolvedForecast(&city).CostMultiplier; got != DefaultCostMultiplier {
-		t.Errorf("cost_multiplier = %v, want %v", got, DefaultCostMultiplier)
+	if got := cfg.ResolvedForecast(&city).CostMultiplier; got != 1.0 {
+		t.Errorf("cost_multiplier = %v, want 1.0", got)
 	}
 }
 

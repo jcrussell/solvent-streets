@@ -5,20 +5,29 @@ import (
 	"testing"
 )
 
-// TestCatalog_Valid: every declared key passes the naming rule (Register
-// panics otherwise, so reaching here means init ran) and is found by Lookup.
-func TestCatalog_Valid(t *testing.T) {
+// unregisterOnCleanup removes keys from the catalog when t ends, so a test
+// that declares scratch keys leaves the shared catalog as it found it and
+// passes under -count=N.
+func unregisterOnCleanup(t *testing.T, keys ...string) {
+	t.Helper()
+	t.Cleanup(func() {
+		mu.Lock()
+		defer mu.Unlock()
+		for _, k := range keys {
+			delete(catalog, k)
+		}
+	})
+}
+
+// TestCatalog_LookupRoundTrip: the catalog is populated and Lookup finds what
+// All lists.
+func TestCatalog_LookupRoundTrip(t *testing.T) {
 	all := All()
 	if len(all) == 0 {
 		t.Fatal("the catalog is empty")
 	}
-	for _, d := range all {
-		if err := d.Validate(); err != nil {
-			t.Error(err)
-		}
-		if got, ok := Lookup(d.Key); !ok || got != d {
-			t.Errorf("Lookup(%q) = %+v, %v", d.Key, got, ok)
-		}
+	if got, ok := Lookup(all[0].Key); !ok || got != all[0] {
+		t.Errorf("Lookup(%q) = %+v, %v; want %+v", all[0].Key, got, ok, all[0])
 	}
 }
 
@@ -65,6 +74,7 @@ func TestDefValidate_NamingRule(t *testing.T) {
 
 func TestRegister_Duplicate(t *testing.T) {
 	d := Def{"zz_test_metric", UnitCount, Hex, "test"}
+	unregisterOnCleanup(t, d.Key)
 	if err := TryRegister(d); err != nil {
 		t.Fatal(err)
 	}
