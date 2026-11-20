@@ -204,7 +204,7 @@ func TestDiff_JSON(t *testing.T) {
 		"paved_area_m2 roads":                    {100.0, 150.0},
 		"feature_count roads":                    {3.0, 3.0},
 		"population ":                            {10.0, 12.0},
-		"fire_response_s median":                 {400.0, 100.0},
+		"fire_response_s median":                 {250.0, 100.0},
 		"within_threshold_share fire_response_s": {0.5, 1.0},
 	} {
 		if got[key] != want {

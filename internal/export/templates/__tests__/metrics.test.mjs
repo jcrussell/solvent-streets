@@ -66,7 +66,7 @@ test('the Color-by selector lists the available derived metrics plus each stored
   assert.equal($('#hex-metric').hidden, false);
   const card = $$('#stats .stat-card').find((c) => c.querySelector('h3').textContent === 'Fire response');
   assert.ok(card, 'no metric card rendered from meta.metrics');
-  assert.match(card.textContent, /Median per hex\s*11:40/, 'median must render in m:ss, marked per hex');
+  assert.match(card.textContent, /Median per hex\s*8:20/, 'median must render in m:ss, marked per hex');
   assert.match(card.textContent, /Range per hex/);
   assert.match(card.textContent, /Stations serving the city\s*1/);
   assert.doesNotMatch(card.textContent, /outside the city/, 'the fixture station is inside the city');

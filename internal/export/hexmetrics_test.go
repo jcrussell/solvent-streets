@@ -230,6 +230,9 @@ func TestBuildMeta_UnreachableHexesLowerTheShare(t *testing.T) {
 	if s.HexCount != 2 || s.UnreachableCount != 2 || s.Min != 300 || s.Max != 420 {
 		t.Errorf("summary = %+v, want 2 timed hexes (300..420) and 2 unreachable", s)
 	}
+	if s.Median != 360 {
+		t.Errorf("median = %v, want 360 (the mean of the two timed hexes)", s.Median)
+	}
 	if s.WithinThresholdShare == nil || *s.WithinThresholdShare != 0.25 {
 		t.Errorf("share = %v, want 0.25 (1 within of 4 on the network)", s.WithinThresholdShare)
 	}
@@ -316,5 +319,23 @@ func TestDerivedMetricKeysMatchStoredMetricNames(t *testing.T) {
 	}
 	if hexmetric.KeySpaces != resource.MetricParkingSpaces {
 		t.Errorf("hexmetric.KeySpaces = %q, resource.MetricParkingSpaces = %q", hexmetric.KeySpaces, resource.MetricParkingSpaces)
+	}
+}
+
+// TestMedian: an odd count takes the middle value and an even count the
+// mean of the two middle values.
+func TestMedian(t *testing.T) {
+	for _, tc := range []struct {
+		vals []float64
+		want float64
+	}{
+		{[]float64{5}, 5},
+		{[]float64{1, 3}, 2},
+		{[]float64{1, 2, 9}, 2},
+		{[]float64{1, 2, 4, 9}, 3},
+	} {
+		if got := Median(tc.vals); got != tc.want {
+			t.Errorf("Median(%v) = %v, want %v", tc.vals, got, tc.want)
+		}
 	}
 }

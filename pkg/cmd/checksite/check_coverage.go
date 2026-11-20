@@ -89,7 +89,8 @@ func (r *runner) judgeCoverage(rt string, cities []cityCoverage) {
 	for i, c := range cities {
 		vals[i] = c.perResid
 	}
-	med := median(vals)
+	sort.Float64s(vals)
+	med := export.Median(vals)
 	if med <= 0 {
 		return
 	}
@@ -107,15 +108,4 @@ func (r *runner) judgeCoverage(rt string, cities []cityCoverage) {
 	if low == 0 {
 		r.passf("coverage: [%s]: every city is at least %.0f%% of the site median (%.1f m² per resident)", rt, lowCoverageFraction*100, med)
 	}
-}
-
-// median returns the median of vals, which it sorts in place. vals must be
-// non-empty.
-func median(vals []float64) float64 {
-	sort.Float64s(vals)
-	n := len(vals)
-	if n%2 == 1 {
-		return vals[n/2]
-	}
-	return (vals[n/2-1] + vals[n/2]) / 2
 }
