@@ -51,8 +51,7 @@ func TestFlagParseErrorWrappedAsFlagError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected flag-parse error, got nil")
 	}
-	var flagErr *cmdutil.FlagError
-	if !errors.As(err, &flagErr) {
+	if _, ok := errors.AsType[*cmdutil.FlagError](err); !ok {
 		t.Fatalf("expected *cmdutil.FlagError, got %T: %v", err, err)
 	}
 }
@@ -179,8 +178,7 @@ func TestLogLevelFlag_RejectsBadValueAtParseTime(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected flag-parse error for --log-level=fatal, got nil")
 	}
-	var flagErr *cmdutil.FlagError
-	if !errors.As(err, &flagErr) {
+	if _, ok := errors.AsType[*cmdutil.FlagError](err); !ok {
 		t.Fatalf("expected *cmdutil.FlagError, got %T: %v", err, err)
 	}
 }

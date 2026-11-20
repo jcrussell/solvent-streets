@@ -254,7 +254,7 @@ func TestHex_InteriorXY(t *testing.T) {
 	}
 	c := clipped[0]
 	x, y := c.InteriorXY()
-	pt := geom.NewPoint(geom.Coordinates{XY: geom.XY{X: x, Y: y}}).AsGeometry()
+	pt := geom.NewPoint(geom.Coordinates{X: x, Y: y}).AsGeometry()
 	if !geom.Intersects(pt, c.Geom) || y < h.CenterY+45 {
 		t.Errorf("clipped hex: InteriorXY = (%v, %v), want a point on the strip (y >= %v)", x, y, h.CenterY+45)
 	}

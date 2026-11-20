@@ -213,8 +213,7 @@ func TestClassifyUsageError_WrapsLiveCobraFlagGroupErrors(t *testing.T) {
 				t.Fatal("expected cobra to raise a flag-group violation")
 			}
 			classified := classifyUsageError(err)
-			var flagErr *cmdutil.FlagError
-			if !errors.As(classified, &flagErr) {
+			if _, ok := errors.AsType[*cmdutil.FlagError](classified); !ok {
 				t.Fatalf("classifyUsageError(%v) is not *FlagError: %T", err, classified)
 			}
 		})

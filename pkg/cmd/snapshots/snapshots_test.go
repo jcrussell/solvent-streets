@@ -270,7 +270,7 @@ func TestRunDelete_PromptsOnTTY(t *testing.T) {
 	var deleted []string
 	ios, _, _, _ := iostreams.Test()
 	ios.SetStdinTTY(true)
-	stub := &askStub{Stub: prompt.Stub{Confirms: []bool{true}}}
+	stub := &askStub{Confirms: []bool{true}}
 	opts := &DeleteOptions{IO: ios, Prompter: stub, RootDB: rootDBFunc(tagRoot(&deleted)), Name: "v2"}
 	if err := runDelete(context.Background(), opts); err != nil {
 		t.Fatalf("runDelete: %v", err)
@@ -380,7 +380,7 @@ func TestRunPrune_CancelOnPromptNo(t *testing.T) {
 	var deleted []string
 	ios, _, _, _ := iostreams.Test()
 	ios.SetStdinTTY(true)
-	stub := &askStub{Stub: prompt.Stub{Confirms: []bool{false}}}
+	stub := &askStub{Confirms: []bool{false}}
 	opts := &PruneOptions{IO: ios, Prompter: stub, RootDB: rootDBFunc(tagRoot(&deleted)), Keep: 1}
 	if err := runPrune(context.Background(), opts); !errors.Is(err, cmdutil.ErrCancel) {
 		t.Errorf("want ErrCancel, got %v", err)

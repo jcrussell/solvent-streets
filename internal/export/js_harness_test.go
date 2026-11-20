@@ -329,7 +329,7 @@ func writeJSFixtureSite(t *testing.T, dir string, seed template.JS) {
 	}
 	td := TemplateData{
 		MethodologyHTML: methodology,
-		MetaJSON:        MetaJSON{ProjectName: "Harness"},
+		ProjectName:     "Harness",
 		ForecastSeed:    seed,
 		LayerColors:     ResourceColorsJS(),
 		UnitSystem:      "imperial",

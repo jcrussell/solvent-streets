@@ -17,16 +17,25 @@ type CostTier struct {
 	Label      string  `json:"label"`
 }
 
+// Default tier labels, shared by the cost and material schedules. The
+// export page colours a tier by these names (DEFAULT_TIER_LABELS in
+// internal/export/templates/app.js), so keep the two in step.
+const (
+	TierPreventive     = "preventive"
+	TierRehab          = "rehab"
+	TierReconstruction = "reconstruction"
+)
+
 var DefaultCostTiers = []CostTier{
-	{MinPCI: 70, MaxPCI: 101, CostPerSqM: 5.00, Label: "preventive"},     // microsurfacing + crack seal (~$3-5/sq m)
-	{MinPCI: 40, MaxPCI: 70, CostPerSqM: 50.00, Label: "rehab"},          // mill & overlay ($30-72/sq m median)
-	{MinPCI: 0, MaxPCI: 40, CostPerSqM: 150.00, Label: "reconstruction"}, // full-depth reconstruction ($96-239/sq m median)
+	{MinPCI: 70, MaxPCI: 101, CostPerSqM: 5.00, Label: TierPreventive},     // microsurfacing + crack seal (~$3-5/sq m)
+	{MinPCI: 40, MaxPCI: 70, CostPerSqM: 50.00, Label: TierRehab},          // mill & overlay ($30-72/sq m median)
+	{MinPCI: 0, MaxPCI: 40, CostPerSqM: 150.00, Label: TierReconstruction}, // full-depth reconstruction ($96-239/sq m median)
 }
 
 var DefaultSidewalkCostTiers = []CostTier{
-	{MinPCI: 70, MaxPCI: 101, CostPerSqM: 3.00, Label: "preventive"},    // crack sealing, joint repair
-	{MinPCI: 40, MaxPCI: 70, CostPerSqM: 30.00, Label: "rehab"},         // panel replacement
-	{MinPCI: 0, MaxPCI: 40, CostPerSqM: 90.00, Label: "reconstruction"}, // full replacement
+	{MinPCI: 70, MaxPCI: 101, CostPerSqM: 3.00, Label: TierPreventive},    // crack sealing, joint repair
+	{MinPCI: 40, MaxPCI: 70, CostPerSqM: 30.00, Label: TierRehab},         // panel replacement
+	{MinPCI: 0, MaxPCI: 40, CostPerSqM: 90.00, Label: TierReconstruction}, // full replacement
 }
 
 // costAnchor is a PCI→cost anchor point derived from a tier's midpoint.
@@ -207,7 +216,7 @@ func TierForPCI(pci float64) string {
 	if label := TierForPCIIn(DefaultCostTiers, pci); label != "" {
 		return label
 	}
-	return "reconstruction"
+	return TierReconstruction
 }
 
 // TierForPCI returns the cost tier label for a PCI value using the projector's

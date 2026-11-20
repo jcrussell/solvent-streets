@@ -343,13 +343,13 @@ func TestBuildMeta_CarriesEstimatedSpaces(t *testing.T) {
 // multi-city page names the city its selector opens on (the first city of
 // the first tag group), not the config's first city.
 func TestHeadingName(t *testing.T) {
-	single := TemplateData{MetaJSON: MetaJSON{ProjectName: "Livermore, CA"}}
+	single := TemplateData{ProjectName: "Livermore, CA"}
 	if got := single.HeadingName(); got != "Livermore, CA" {
 		t.Errorf("single-city HeadingName = %q, want the project name", got)
 	}
 	multi := TemplateData{
-		MetaJSON: MetaJSON{ProjectName: "Livermore, CA"},
-		Cities:   []CityInfo{{Name: "Livermore, CA"}, {Name: "Piedmont, CA"}},
+		ProjectName: "Livermore, CA",
+		Cities:      []CityInfo{{Name: "Livermore, CA"}, {Name: "Piedmont, CA"}},
 		TagDimensions: []TagDimension{{Groups: []CityGroup{
 			{Tag: "East Bay", Cities: []CityInfo{{Name: "Piedmont, CA"}}},
 			{Tag: "Tri-Valley", Cities: []CityInfo{{Name: "Livermore, CA"}}},

@@ -380,8 +380,7 @@ func TestRunGC_NoTTYWithoutYesIsFlagError(t *testing.T) {
 		ResolveCities: resolveCitiesFunc(cities),
 	}
 	err := runGC(context.Background(), opts)
-	var fe *cmdutil.FlagError
-	if !errors.As(err, &fe) {
+	if _, ok := errors.AsType[*cmdutil.FlagError](err); !ok {
 		t.Fatalf("want *cmdutil.FlagError, got %T: %v", err, err)
 	}
 	var he *hint.ErrHint

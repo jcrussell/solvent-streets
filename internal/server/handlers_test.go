@@ -341,7 +341,7 @@ func TestParseIndexTemplate_StaticExport(t *testing.T) {
 		t.Fatal(err)
 	}
 	td := export.TemplateData{
-		MetaJSON:    export.MetaJSON{ProjectName: "Test"},
+		ProjectName: "Test",
 		UnitSystem:  "metric",
 		LayerColors: export.ResourceColorsJS(),
 		// IsLiveServer left zero → static export

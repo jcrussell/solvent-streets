@@ -104,8 +104,7 @@ func TestNewCmdPrune_BadFlagsAreFlagErrors(t *testing.T) {
 			if err == nil {
 				t.Fatalf("%s: expected an error", arg)
 			}
-			var fe *cmdutil.FlagError
-			if !errors.As(err, &fe) {
+			if _, ok := errors.AsType[*cmdutil.FlagError](err); !ok {
 				t.Errorf("%s: error is %T, want *cmdutil.FlagError", arg, err)
 			}
 		})
@@ -334,8 +333,7 @@ func TestRunPrune_NoTTYWithoutYesRefuses(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected a refusal without --yes and without a TTY")
 	}
-	var fe *cmdutil.FlagError
-	if !errors.As(err, &fe) {
+	if _, ok := errors.AsType[*cmdutil.FlagError](err); !ok {
 		t.Errorf("error is %T, want *cmdutil.FlagError (exit 2)", err)
 	}
 	if _, statErr := os.Stat(body); statErr != nil {

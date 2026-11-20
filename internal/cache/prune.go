@@ -66,11 +66,10 @@ func isTempFile(name string) bool {
 		return false
 	}
 	rest := strings.TrimSuffix(name, suffix)
-	i := strings.LastIndex(rest, prefix)
-	if i < 0 {
+	base, random, ok := strings.CutLast(rest, prefix)
+	if !ok {
 		return false
 	}
-	base, random := rest[:i], rest[i+len(prefix):]
 	if random == "" || strings.TrimLeft(random, "0123456789") != "" {
 		return false
 	}

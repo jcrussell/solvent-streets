@@ -70,8 +70,7 @@ func TestOptions_Validate_EmptyOutputDir(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for empty --output, got nil")
 	}
-	var flag *cmdutil.FlagError
-	if !errors.As(err, &flag) {
+	if _, ok := errors.AsType[*cmdutil.FlagError](err); !ok {
 		t.Errorf("error %v is not *FlagError", err)
 	}
 }
@@ -102,8 +101,7 @@ func TestOptions_Validate_SensitiveLocations(t *testing.T) {
 			if err == nil {
 				t.Fatalf("expected error for %s, got nil", tc.name)
 			}
-			var flag *cmdutil.FlagError
-			if !errors.As(err, &flag) {
+			if _, ok := errors.AsType[*cmdutil.FlagError](err); !ok {
 				t.Errorf("error %v is not *FlagError", err)
 			}
 		})
@@ -125,8 +123,7 @@ func TestOptions_Validate_ExistingWithoutClean(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for existing dir without --clean, got nil")
 	}
-	var flag *cmdutil.FlagError
-	if !errors.As(err, &flag) {
+	if _, ok := errors.AsType[*cmdutil.FlagError](err); !ok {
 		t.Errorf("error %v is not *FlagError", err)
 	}
 }

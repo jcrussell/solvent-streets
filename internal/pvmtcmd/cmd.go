@@ -74,8 +74,7 @@ func exitCode(err error, errOut io.Writer) int {
 		return 0
 	}
 	err = classifyUsageError(err)
-	var flagErr *cmdutil.FlagError
-	if errors.As(err, &flagErr) {
+	if _, ok := errors.AsType[*cmdutil.FlagError](err); ok {
 		printError(errOut, err)
 		return 2
 	}
@@ -110,8 +109,7 @@ func classifyUsageError(err error) error {
 	if err == nil {
 		return nil
 	}
-	var flagErr *cmdutil.FlagError
-	if errors.As(err, &flagErr) {
+	if _, ok := errors.AsType[*cmdutil.FlagError](err); ok {
 		return err
 	}
 	msg := err.Error()

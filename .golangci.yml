@@ -86,6 +86,18 @@ linters:
         - os.Unsetenv
         # HTTP response writes - errors rarely actionable
         - (net/http.ResponseWriter).Write
+    goconst:
+      # goconst 1.10 (golangci-lint v2.12) began counting strings inside
+      # composite literals. Those are data tables: GeoJSON object shapes,
+      # --json field lists, OSM class lookups, tier schedule rows. A value
+      # recurring across rows or tables is the table's nature, not a hidden
+      # shared concept, and a constant there only renames the literal.
+      # Strings code compares or returns (case, ==, return, assignment)
+      # are still counted. `call` is the default exclusion and must be
+      # restated when the list is set.
+      exclude-types:
+        - call
+        - compositelit
     gocognit:
       min-complexity: 20
     nestif:

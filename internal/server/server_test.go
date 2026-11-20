@@ -94,14 +94,12 @@ func TestServer_ReadyFile(t *testing.T) {
 	select {
 	case <-srv.Ready:
 	case <-ctx.Done():
-		<-errCh
-		t.Fatalf("server did not become ready within deadline")
+		t.Fatalf("server did not become ready within deadline (ListenAndServe: %v)", <-errCh)
 	}
 	content, err := os.ReadFile(readyPath)
 	if err != nil {
 		cancel()
-		<-errCh
-		t.Fatalf("ready file %q not readable after Ready: %v", readyPath, err)
+		t.Fatalf("ready file %q not readable after Ready: %v (ListenAndServe: %v)", readyPath, err, <-errCh)
 	}
 
 	got := strings.TrimSpace(string(content))
@@ -199,12 +197,13 @@ func TestServer_RejectsOversizedHeaders(t *testing.T) {
 	select {
 	case <-srv.Ready:
 	case <-ctx.Done():
-		<-errCh
-		t.Fatalf("server did not become ready within deadline")
+		t.Fatalf("server did not become ready within deadline (ListenAndServe: %v)", <-errCh)
 	}
 	defer func() {
 		cancel()
-		<-errCh
+		if err := <-errCh; err != nil {
+			t.Errorf("ListenAndServe: %v", err)
+		}
 	}()
 
 	base := "http://127.0.0.1:" + strconv.Itoa(port) + "/"

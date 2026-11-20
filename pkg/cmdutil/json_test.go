@@ -38,7 +38,7 @@ func (r fakeRow) ExportData(fields []string) map[string]any {
 func TestJSONExporter_Write(t *testing.T) {
 	t.Run("populated rows", func(t *testing.T) {
 		ios, _, out, _ := iostreams.Test()
-		e := &jsonExporter{baseExporter: baseExporter{fields: []string{"name", "count"}}}
+		e := &jsonExporter{fields: []string{"name", "count"}}
 		rows := []map[string]any{{"name": "a", "count": 1}, {"name": "b", "count": 2}}
 		if err := e.Write(ios, rows); err != nil {
 			t.Fatal(err)
@@ -50,7 +50,7 @@ func TestJSONExporter_Write(t *testing.T) {
 	})
 	t.Run("empty rows marshals to [] not null", func(t *testing.T) {
 		ios, _, out, _ := iostreams.Test()
-		e := &jsonExporter{baseExporter: baseExporter{fields: []string{"name"}}}
+		e := &jsonExporter{fields: []string{"name"}}
 		if err := e.Write(ios, []map[string]any{}); err != nil {
 			t.Fatal(err)
 		}
@@ -114,8 +114,8 @@ func TestJQFilterExporter_Write(t *testing.T) {
 			t.Fatalf("parse: %v", err)
 		}
 		e := &jqFilterExporter{
-			baseExporter: baseExporter{fields: []string{"name", "count"}},
-			query:        query,
+			fields: []string{"name", "count"},
+			query:  query,
 		}
 		rows := []map[string]any{{"name": "first", "count": 1}, {"name": "second", "count": 2}}
 		if err := e.Write(ios, rows); err != nil {
@@ -137,8 +137,8 @@ func TestTemplateExporter_Write(t *testing.T) {
 			t.Fatalf("parse: %v", err)
 		}
 		e := &templateExporter{
-			baseExporter: baseExporter{fields: []string{"name", "count"}},
-			tmpl:         tmpl,
+			fields: []string{"name", "count"},
+			tmpl:   tmpl,
 		}
 		rows := []map[string]any{{"name": "a", "count": 1}, {"name": "b", "count": 2}}
 		if err := e.Write(ios, rows); err != nil {
@@ -231,8 +231,7 @@ func TestBuildExporter_ParsesExpressionsEarly(t *testing.T) {
 		if err == nil {
 			t.Fatal("got nil error, want FlagError")
 		}
-		var fe *FlagError
-		if !errors.As(err, &fe) {
+		if _, ok := errors.AsType[*FlagError](err); !ok {
 			t.Fatalf("got error of type %T (%v), want *FlagError", err, err)
 		}
 	}
@@ -286,7 +285,7 @@ func TestBuildExporter_ParsesExpressionsEarly(t *testing.T) {
 // every subcommand relies on.
 func TestWriteRows(t *testing.T) {
 	ios, _, out, _ := iostreams.Test()
-	e := &jsonExporter{baseExporter: baseExporter{fields: []string{"name"}}}
+	e := &jsonExporter{fields: []string{"name"}}
 	rows := []fakeRow{{Name: "x", Count: 99}, {Name: "y", Count: 100}}
 	if err := WriteRows(ios, e, rows); err != nil {
 		t.Fatal(err)
@@ -391,8 +390,7 @@ func TestAddDocumentJSONFlags_RejectsMisuseEarly(t *testing.T) {
 		{"--json", "--template", "{{"},
 	} {
 		got, err := docCmd(t, testDoc, args...)
-		var fe *FlagError
-		if !errors.As(err, &fe) {
+		if _, ok := errors.AsType[*FlagError](err); !ok {
 			t.Errorf("%v: err = %v, want a FlagError", args, err)
 		}
 		if got != "" {

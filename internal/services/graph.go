@@ -4,6 +4,7 @@ import (
 	"container/heap"
 	"context"
 	"math"
+	"slices"
 
 	"github.com/peterstace/simplefeatures/geom"
 
@@ -131,7 +132,7 @@ func WithRoutingRoads(roads []resource.Feature, source string, routing []resourc
 	for _, r := range roads {
 		have[r.ID] = true
 	}
-	out := roads[:len(roads):len(roads)]
+	out := slices.Clip(roads)
 	for _, r := range routing {
 		if !have[r.ID] {
 			out = append(out, r)
@@ -225,7 +226,7 @@ func (b *graphBuilder) finish() *Graph {
 	g := b.g
 	pts := make([]geom.Geometry, len(g.xs))
 	for i := range g.xs {
-		pts[i] = geom.NewPoint(geom.Coordinates{XY: geom.XY{X: g.xs[i], Y: g.ys[i]}}).AsGeometry()
+		pts[i] = geom.NewPoint(geom.Coordinates{X: g.xs[i], Y: g.ys[i]}).AsGeometry()
 	}
 	g.index = geo.NewGeomIndexFromGeoms(pts)
 	lines := make([]geom.Geometry, len(g.segs))

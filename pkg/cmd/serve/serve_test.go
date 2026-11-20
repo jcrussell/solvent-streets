@@ -147,8 +147,7 @@ func TestOptions_Validate_Port(t *testing.T) {
 			if err == nil {
 				t.Fatalf("expected FlagError for port=%d, got nil", port)
 			}
-			var flag *cmdutil.FlagError
-			if !errors.As(err, &flag) {
+			if _, ok := errors.AsType[*cmdutil.FlagError](err); !ok {
 				t.Errorf("error %v is not *FlagError", err)
 			}
 		})

@@ -148,6 +148,9 @@ func NewCmdRoot(f *cmdutil.Factory) *cobra.Command {
 	return cmd
 }
 
+// completionCmdName is the name cobra gives the completion command it adds.
+const completionCmdName = "completion"
+
 // RefuseUnknownShells makes `pvmt completion <typo>` a usage error (exit 2).
 // Cobra adds the completion command lazily, as a parent with no RunE, so
 // without this a typo'd shell prints its help and exits 0: cmdutil.MarkGroup
@@ -157,7 +160,7 @@ func NewCmdRoot(f *cmdutil.Factory) *cobra.Command {
 func RefuseUnknownShells(root *cobra.Command) {
 	root.InitDefaultCompletionCmd()
 	for _, c := range root.Commands() {
-		if c.Name() == "completion" {
+		if c.Name() == completionCmdName {
 			cmdutil.MarkGroup(c)
 		}
 	}
@@ -224,13 +227,13 @@ func applyLogLevel(f *cmdutil.Factory, verbose int, logLevel *cmdutil.LogLevel) 
 
 func skipMiddleware(c *cobra.Command) bool {
 	switch c.Name() {
-	case "help", "completion", "version":
+	case "help", completionCmdName, "version":
 		return true
 	}
 	if strings.HasPrefix(c.Name(), "__complete") {
 		return true
 	}
-	if p := c.Parent(); p != nil && p.Name() == "completion" {
+	if p := c.Parent(); p != nil && p.Name() == completionCmdName {
 		return true
 	}
 	return false

@@ -283,8 +283,7 @@ func TestOverpassURLFactory_GuardsAndAnnouncesNonDefault(t *testing.T) {
 		if !errors.Is(err, guardErr) {
 			t.Fatalf("err = %v; want the guard's", err)
 		}
-		var h *hint.ErrHint
-		if !errors.As(err, &h) {
+		if _, ok := errors.AsType[*hint.ErrHint](err); !ok {
 			t.Errorf("err %v carries no hint", err)
 		}
 		if stderr.Len() != 0 {

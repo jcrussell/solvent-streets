@@ -20,8 +20,7 @@ func createCitySnapshot(store Store, hash string, hexEdgeM float64, check CheckF
 	root := &RootStore{db: s.db}
 	snap, err := root.CreateSnapshot(context.Background(), fmt.Sprintf("t%d", testSnapshots.Add(1)), testEpoch,
 		[]SnapshotRequest{{CityID: s.cityID, ConfigHash: hash, HexEdgeM: hexEdgeM, Check: check}})
-	var refused *SnapshotRefusedError
-	if errors.As(err, &refused) {
+	if refused, ok := errors.AsType[*SnapshotRefusedError](err); ok {
 		return nil, refused.Refusals[0].Err
 	}
 	if err != nil {

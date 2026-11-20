@@ -34,7 +34,7 @@ func (h Hex) InteriorXY() (float64, float64) {
 	if h.Geom.IsEmpty() {
 		return h.CenterX, h.CenterY
 	}
-	center := geom.NewPoint(geom.Coordinates{XY: geom.XY{X: h.CenterX, Y: h.CenterY}}).AsGeometry()
+	center := geom.NewPoint(geom.Coordinates{X: h.CenterX, Y: h.CenterY}).AsGeometry()
 	if geom.Intersects(center, h.Geom) {
 		return h.CenterX, h.CenterY
 	}

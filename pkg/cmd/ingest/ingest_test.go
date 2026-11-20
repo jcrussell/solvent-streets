@@ -471,8 +471,7 @@ func TestNewCmdIngest_InvalidSource(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for bogus source")
 	}
-	var flagErr *cmdutil.FlagError
-	if !errors.As(err, &flagErr) {
+	if _, ok := errors.AsType[*cmdutil.FlagError](err); !ok {
 		t.Errorf("expected FlagError through pflag wrapping, got %T: %v", err, err)
 	}
 }
@@ -967,8 +966,7 @@ func TestResolveBoundary_CancelledWaterFetchHasNoOverloadHint(t *testing.T) {
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want context.Canceled", err)
 	}
-	var he *hint.ErrHint
-	if errors.As(err, &he) {
+	if he, ok := errors.AsType[*hint.ErrHint](err); ok {
 		t.Errorf("a cancelled water fetch carries hint %q, want none", he.Hint)
 	}
 }
@@ -1118,8 +1116,7 @@ func TestNewCmdIngest_SourceTheResourceCannotUse(t *testing.T) {
 				cmd.SilenceUsage = true
 				cmd.SetArgs(args)
 				err := cmd.Execute()
-				var flagErr *cmdutil.FlagError
-				if !errors.As(err, &flagErr) {
+				if _, ok := errors.AsType[*cmdutil.FlagError](err); !ok {
 					t.Fatalf("Execute(%v) = %T: %v, want a FlagError", args, err, err)
 				}
 				if !strings.Contains(err.Error(), tc.source) {
@@ -1977,8 +1974,7 @@ func TestResolveBoundary_CancelledRoadsFetchHasNoHint(t *testing.T) {
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want context.Canceled", err)
 	}
-	var he *hint.ErrHint
-	if errors.As(err, &he) {
+	if he, ok := errors.AsType[*hint.ErrHint](err); ok {
 		t.Errorf("a cancelled roads fetch carries hint %q, want none", he.Hint)
 	}
 	if len(store.Attempts) != 0 {

@@ -17,8 +17,7 @@ func TestFlagErrorf_ReturnsErrorInterface(t *testing.T) {
 	if err == nil {
 		t.Fatal("FlagErrorf returned nil")
 	}
-	var flagErr *FlagError
-	if !errors.As(err, &flagErr) {
+	if _, ok := errors.AsType[*FlagError](err); !ok {
 		t.Fatalf("errors.As(*FlagError) failed: %T", err)
 	}
 	if got, want := err.Error(), `bad flag "x"`; got != want {

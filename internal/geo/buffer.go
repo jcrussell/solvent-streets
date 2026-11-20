@@ -327,7 +327,7 @@ func GeoJSONToProjectedGeometryDropped(gjson string, proj Projector) (geom.Geome
 // projectedPoint projects one lon/lat pair to a simplefeatures Point.
 func projectedPoint(c [2]float64, proj Projector) geom.Point {
 	x, y := proj.ToProjected(c[0], c[1])
-	return geom.NewPoint(geom.Coordinates{XY: geom.XY{X: x, Y: y}})
+	return geom.NewPoint(geom.Coordinates{X: x, Y: y})
 }
 
 func buildProjectedLineString(coordsRaw json.RawMessage, proj Projector) (geom.Geometry, error) {

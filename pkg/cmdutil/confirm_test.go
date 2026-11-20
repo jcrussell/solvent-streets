@@ -34,8 +34,7 @@ func TestConfirmDestructiveYesBypassesPrompt(t *testing.T) {
 func TestConfirmDestructiveRefusesOffTTY(t *testing.T) {
 	io, _, _, _ := iostreams.Test()
 	err := ConfirmDestructive(context.Background(), io, nil, false, "?", "refused")
-	var flagErr *FlagError
-	if !errors.As(err, &flagErr) {
+	if _, ok := errors.AsType[*FlagError](err); !ok {
 		t.Fatalf("got %v, want FlagError", err)
 	}
 	var hint *hint.ErrHint
@@ -84,8 +83,7 @@ func TestConfirmDestructiveNotTTYFromPrompterGetsHint(t *testing.T) {
 	io, _, _, _ := iostreams.Test()
 	io.SetStdinTTY(true)
 	err := ConfirmDestructive(context.Background(), io, &fakePrompter{confirmErr: prompt.ErrNotTTY}, false, "?", "refused")
-	var flagErr *FlagError
-	if !errors.As(err, &flagErr) {
+	if _, ok := errors.AsType[*FlagError](err); !ok {
 		t.Fatalf("got %v, want FlagError", err)
 	}
 	var hint *hint.ErrHint

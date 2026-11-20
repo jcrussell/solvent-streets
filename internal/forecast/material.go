@@ -40,9 +40,9 @@ type MaterialTier struct {
 // (cement/aggregate) would REPLACE that share with a real blend, not stack on
 // top of it — the way DefaultSidewalkCostTiers parallels DefaultCostTiers.
 var DefaultMaterialTiers = []MaterialTier{
-	{Label: "preventive", MinPCI: 70, MaxPCI: MaxTierPCI, MixKgPerSqM: 30, BinderShare: 0.065}, // microsurfacing/slurry seal, ~2.0 kg/m^2 binder
-	{Label: "rehab", MinPCI: 40, MaxPCI: 70, MixKgPerSqM: 120, BinderShare: 0.055},             // ~50 mm mill & overlay (0.05 m x 2400), ~6.6 kg/m^2 binder
-	{Label: "reconstruction", MinPCI: 0, MaxPCI: 40, MixKgPerSqM: 480, BinderShare: 0.05},      // ~200 mm full-depth asphalt (0.20 m x 2400), ~24 kg/m^2 binder
+	{Label: TierPreventive, MinPCI: 70, MaxPCI: MaxTierPCI, MixKgPerSqM: 30, BinderShare: 0.065}, // microsurfacing/slurry seal, ~2.0 kg/m^2 binder
+	{Label: TierRehab, MinPCI: 40, MaxPCI: 70, MixKgPerSqM: 120, BinderShare: 0.055},             // ~50 mm mill & overlay (0.05 m x 2400), ~6.6 kg/m^2 binder
+	{Label: TierReconstruction, MinPCI: 0, MaxPCI: 40, MixKgPerSqM: 480, BinderShare: 0.05},      // ~200 mm full-depth asphalt (0.20 m x 2400), ~24 kg/m^2 binder
 }
 
 // BarrelsPerTonBinder converts asphalt-cement (bitumen) tonnage to

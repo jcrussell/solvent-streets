@@ -23,8 +23,7 @@ func TestUnitSystem_Set(t *testing.T) {
 			var u UnitSystem
 			err := u.Set(tt.in)
 			if tt.wantErr {
-				var flagErr *FlagError
-				if !errors.As(err, &flagErr) {
+				if _, ok := errors.AsType[*FlagError](err); !ok {
 					t.Fatalf("expected FlagError, got %T: %v", err, err)
 				}
 				return
@@ -55,8 +54,7 @@ func TestSourceFlag_Set(t *testing.T) {
 	// rejected exactly like a typo.
 	for _, v := range []string{"overpass", "bogus"} {
 		err := f.Set(v)
-		var flagErr *FlagError
-		if !errors.As(err, &flagErr) {
+		if _, ok := errors.AsType[*FlagError](err); !ok {
 			t.Fatalf("Set(%s) = %T: %v, want FlagError", v, err, err)
 		}
 		if s != "tigerweb" {
@@ -86,8 +84,7 @@ func TestLogLevel_Set(t *testing.T) {
 			var l LogLevel
 			err := l.Set(tt.in)
 			if tt.wantErr {
-				var flagErr *FlagError
-				if !errors.As(err, &flagErr) {
+				if _, ok := errors.AsType[*FlagError](err); !ok {
 					t.Fatalf("expected FlagError, got %T: %v", err, err)
 				}
 				if l.IsSet() {

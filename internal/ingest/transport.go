@@ -357,8 +357,7 @@ func (e *noRetryError) Timeout() bool {
 }
 
 func isRetryableErr(err error) bool {
-	var final *noRetryError
-	if errors.As(err, &final) {
+	if _, ok := errors.AsType[*noRetryError](err); ok {
 		return false
 	}
 	// Caller-driven cancellation is never retryable — the ctx itself is

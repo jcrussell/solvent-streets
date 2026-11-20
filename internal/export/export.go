@@ -290,8 +290,8 @@ func compareCityNames(a, b string) int {
 // splitCityName splits "place, ST" at its last ", " into place and state; a
 // name with none is all place.
 func splitCityName(name string) (place, state string) {
-	if i := strings.LastIndex(name, ", "); i >= 0 {
-		return name[:i], name[i+2:]
+	if place, state, ok := strings.CutLast(name, ", "); ok {
+		return place, state
 	}
 	return name, ""
 }
