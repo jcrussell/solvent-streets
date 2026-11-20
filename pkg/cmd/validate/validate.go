@@ -122,12 +122,14 @@ func NewCmdValidate(f *cmdutil.Factory, runF func(context.Context, *Options) err
 
 	cmd := &cobra.Command{
 		Use:   "validate",
-		Short: "Check forecast solvency dollars against published city figures",
+		Short: "Check the forecast model against the shipped Bay Area reference figures",
 		Long: `Compare the forecast model's break-even budget to committed, cited figures
-from real cities.
+for the Bay Area cities whose reference data ships with pvmt.
 
-This is an offline calibration gate: no database, no ingest, no network. The
-reference data ships with the binary and every row carries its source. Each
+It checks the model, not your configuration: it reads no pvmt.toml, no
+database and no network, and your cities, cost tiers and forecast settings
+play no part. The reference data ships with the binary and every row carries
+its source. Each
 city is priced as one residential class of its published paved area, PCI
 and decay rate, with the shipped cost tiers, condition spread and treatment
 cycle, no cost multiplier, 0.5% annual area growth and a 25-year worst-first
