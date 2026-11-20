@@ -398,7 +398,11 @@ func (d TemplateData) IndexConfigJSON() template.JS {
 // GameConfigJSON is the window.PVMT_CONFIG payload for play.html, consumed by
 // templates/game.js. data_prefix is empty when there is no ActiveSlug (the
 // client resolves the city itself); map_href is the back-to-map link, relative
-// on a static host. cities/tag_dimensions carry the same payload the index page
+// on a static host. It carries no forecast seed: the board fetches the active
+// city's forecast_seed.json, and the only seed a multi-city page could embed
+// is the region's. For the same reason its forecast_defaults are the package
+// defaults alone, the fallback for a value the city's seed omits, never the
+// page seed's. cities/tag_dimensions carry the same payload the index page
 // gets so the play page's tag filters can rebuild its city selector
 // client-side from the same data. hexgrid_version is the hexgrid.geojson
 // "v" the board reads (HexGridFileVersion), as on the index page. The
@@ -416,7 +420,6 @@ func (d TemplateData) GameConfigJSON() template.JS {
 		Cities        []CityInfo       `json:"cities"`
 		TagDimensions []jsTagDimension `json:"tag_dimensions"`
 		Center        [2]float64       `json:"center"`
-		ForecastSeed  json.RawMessage  `json:"forecast_seed"`
 		Defaults      ForecastDefaults `json:"forecast_defaults"`
 		DataPrefix    string           `json:"data_prefix"`
 		MapHref       string           `json:"map_href"`
@@ -426,8 +429,7 @@ func (d TemplateData) GameConfigJSON() template.JS {
 		Cities:        citiesOrEmpty(d.Cities),
 		TagDimensions: jsTagDimensions(d.TagDimensions),
 		Center:        d.Center,
-		ForecastSeed:  rawOrNull(d.ForecastSeed),
-		Defaults:      d.ForecastDefaults(),
+		Defaults:      TemplateData{}.ForecastDefaults(),
 		DataPrefix:    dataPrefix,
 		MapHref:       mapHref,
 		BandCount:     d.BandCount(),

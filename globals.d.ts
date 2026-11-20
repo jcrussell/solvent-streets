@@ -106,7 +106,7 @@ interface PvmtConfig {
   map_href?: string;
   band_count?: number;
   hexgrid_version: number; // the hexgrid.geojson "v" both pages read (export.HexGridFileVersion)
-  forecast_seed: any;
+  forecast_seed?: any; // index page only: the play board fetches its city's seed
   // The Go-owned forecast settings (export.ForecastDefaults), for a value a
   // city's seed omits.
   forecast_defaults: {

@@ -137,6 +137,26 @@ test('play: a seed without a horizon or initial PCI falls back to the page defau
   assert.equal(get('gameConfig').initial_pci, 71);
 });
 
+// The start screen is rendered from the page's settings, which on a
+// multi-city site are the region's; the board opens on the city's own
+// horizon, offering it when the page did not.
+test("play: the start screen offers the city's own horizon and opens on it", async () => {
+  const { $$ } = await bootBoard({ ...structuredClone(seedJSON), horizon_years: 37 });
+  const offered = $$('#horizon-buttons .btn').map((b) => b.dataset.horizon);
+  assert.ok(offered.includes('37'), "the city's horizon is not offered: " + offered);
+  const years = offered.slice(0, -1).map(Number);
+  assert.deepEqual(years, [...years].sort((a, b) => a - b), 'horizons are not ascending');
+  assert.equal(offered.at(-1), 'endless');
+  assert.deepEqual($$('#horizon-buttons .btn.active').map((b) => b.dataset.horizon), ['37']);
+});
+
+// The page seed is the region's on a multi-city site, so the play page's
+// fallbacks do not follow it (the fixture's seed horizon is not the default).
+test('play: the page defaults do not follow the page seed', () => {
+  const { win } = load({ page: 'play' });
+  assert.notEqual(win.PVMT_CONFIG.forecast_defaults.horizon_years, seedJSON.horizon_years);
+});
+
 test('play: the start screen offers the configured horizon and opens on it', async () => {
   const offered = Array.from(served('play.html').querySelectorAll('#horizon-buttons .btn')).map((b) => b.dataset.horizon);
   assert.ok(offered.includes(String(seedJSON.horizon_years)), 'the configured horizon is not offered: ' + offered);

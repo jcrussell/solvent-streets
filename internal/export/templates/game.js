@@ -3,8 +3,9 @@
         // TemplateData.GameConfigJSON in internal/export/meta.go).
         const PVMT_CONFIG = window.PVMT_CONFIG;
         const CENTER = PVMT_CONFIG.center;
-        const FORECAST_SEED = PVMT_CONFIG.forecast_seed;
-        // The Go-owned forecast settings, for a value the city's seed omits.
+        // The Go package's forecast defaults, for a value the city's seed
+        // omits. The seed itself is the city's forecast_seed.json, fetched at
+        // boot; every forecast setting the board uses comes from it.
         const FORECAST_DEFAULTS = PVMT_CONFIG.forecast_defaults;
         // Single-city: data files are at data/<file> (DATA_PREFIX ''). Multi-city:
         // the live server injects the active city's slug (it re-renders per
@@ -256,7 +257,7 @@
         function updateHUD(state) {
             if (state.deferred_backlog != null && state.deferred_backlog > peakBacklog) peakBacklog = state.deferred_backlog;
             const endless = !!(gameConfig && gameConfig.endless);
-            const horizon = gameConfig ? gameConfig.horizon_years : ((FORECAST_SEED && FORECAST_SEED.horizon_years) || 0);
+            const horizon = gameConfig ? gameConfig.horizon_years : FORECAST_DEFAULTS.horizon_years;
             const yr = state.year != null ? state.year.toFixed(1) : '0';
             document.getElementById('hud-year').textContent =
                 endless ? (yr + ' (Endless)') : (yr + (horizon ? ' / ' + horizon : ''));
@@ -535,6 +536,7 @@
          */
         function wireStartOverlay(defaultBudget, holdSteady) {
             const hwrap = document.getElementById('horizon-buttons');
+            offerHorizon(hwrap, gameConfig.horizon_years);
             const markActive = () => queryAll('.btn', hwrap).forEach(b => {
                 const h = b.dataset.horizon;
                 const on = (h === 'endless') ? !!gameConfig.endless
@@ -572,6 +574,26 @@
 
             refreshProjection(); // initial preview for the default budget + horizon
             document.getElementById('start-btn').addEventListener('click', startGame);
+        }
+
+        /**
+         * offerHorizon adds a button for the city's own horizon when the
+         * rendered start screen lacks one: the page renders its horizons from
+         * the page's settings, which on a multi-city site are the region's.
+         * The button goes in ascending order, before Endless.
+         * @param {HTMLElement} wrap
+         * @param {number} years
+         */
+        function offerHorizon(wrap, years) {
+            const buttons = queryAll('.btn', wrap);
+            if (!(years > 0) || buttons.some(b => Number(b.dataset.horizon) === years)) return;
+            const btn = document.createElement('button');
+            btn.className = 'btn';
+            btn.type = 'button';
+            btn.dataset.horizon = String(years);
+            btn.textContent = years + 'y';
+            const after = buttons.find(b => b.dataset.horizon === 'endless' || Number(b.dataset.horizon) > years);
+            wrap.insertBefore(btn, after || null);
         }
 
         // ---- Pregame insolvency projection preview ---------------------------
@@ -671,12 +693,13 @@
                 return;
             }
 
-            // 1. Fetch the board (hexgrid.geojson: geometry, road area, k) + budget.
-            //    Also fetch the PER-CITY forecast seed (cohorts/cost_tiers/etc.) so
-            //    it comes from the SAME city as the board and budget below; the
-            //    template-embedded FORECAST_SEED is a region-wide aggregate in
-            //    multi-city static export and would mismatch the per-city budget.
-            const [hexgrid, forecast, fetchedSeed] = await Promise.all([
+            // 1. Fetch the board (hexgrid.geojson: geometry, road area, k), the
+            //    budget (forecast.json) and the forecast inputs
+            //    (forecast_seed.json), all three from the SAME city. The page
+            //    carries no seed of its own: on a multi-city site the only one it
+            //    could carry is the region's, whose cohorts sum every city and
+            //    would price this city's budget against the whole region.
+            const [hexgrid, forecast, seed] = await Promise.all([
                 loadJSON(DATA_PREFIX + 'data/hexgrid.geojson'),
                 loadJSON(DATA_PREFIX + 'data/forecast.json'),
                 loadJSON(DATA_PREFIX + 'data/forecast_seed.json')
@@ -685,6 +708,9 @@
                 showError('board data', 'missing hexgrid');
                 return;
             }
+            // loadJSON has already said which file failed; with no forecast
+            // inputs there is no game to start.
+            if (!seed) return;
             // Same format gate as the map (app.js): a hexgrid of another shape
             // would read as an empty or wrong board with no error anywhere.
             if (hexgrid.v !== HEXGRID_VERSION) {
@@ -796,14 +822,10 @@
             window.addEventListener('touchcancel', endStroke);
             map.getCanvas().addEventListener('mouseleave', () => { document.getElementById('brush-cursor').style.display = 'none'; });
 
-            // 5. Build the gameInit config from real data and seed the game.
-            //    Prefer the per-city seed fetched above so cohorts/cost_tiers/
-            //    initial_pci/years/treatment_cycle_years/growth_rate all come from
-            //    the SAME city as annual_budget (pickStartingBudget below). Fall
-            //    back to the embedded scalar (single-city equals it; also covers a
-            //    fetch error). loadJSON returns null on failure, so the || chain
-            //    picks the embedded seed only when the fetch didn't yield one.
-            const seed = fetchedSeed || FORECAST_SEED || {};
+            // 5. Build the gameInit config from the city's seed fetched above, so
+            //    cohorts/cost_tiers/initial_pci/years/treatment_cycle_years/
+            //    growth_rate all come from the SAME city as annual_budget
+            //    (pickStartingBudget below).
             const startingBudget = pickStartingBudget(forecast);
             // The game must simulate exactly the hexes it renders: build cfg.hexes
             // from `features`, so no hex decays, closes or drives the loss

@@ -1,8 +1,8 @@
 // Play page board boot (game.js boot()): once the WASM is up and the map has
 // loaded, the board is built from the city's own files. These replace Go greps
-// of game.js for the wiring: the board must seed from
-// the PER-CITY forecast_seed.json in preference to the region-wide seed
-// embedded in the page, and fit the map to the board rather than the region.
+// of game.js for the wiring: the board must seed from the city's own
+// forecast_seed.json (the page embeds none), and fit the map to the board
+// rather than the region.
 // The engine is never called here; game.js only reaches it on Start.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -33,14 +33,10 @@ const boardData = (seed) => ({
   'hexgrid.geojson': hexgridJSON,
 });
 
-test('play: the board seeds from the per-city forecast_seed.json, not the embedded region seed', async () => {
-  // Mark the fetched seed so it cannot be confused with the embedded one.
+test('play: the board seeds from the per-city forecast_seed.json', async () => {
   const perCity = { ...structuredClone(seedJSON), initial_pci: 61.25, horizon_years: 17 };
-  const { get } = await bootBoard(boardData(perCity));
-
-  const embedded = get('FORECAST_SEED');
-  assert.ok(embedded, 'the page embeds no region seed, so the preference is untested');
-  assert.notEqual(embedded.initial_pci, 61.25);
+  const { get, win } = await bootBoard(boardData(perCity));
+  assert.equal(win.PVMT_CONFIG.forecast_seed, undefined, 'the play page embeds a seed');
 
   const cfg = get('gameConfig');
   assert.ok(cfg, 'the board did not boot');
@@ -49,14 +45,14 @@ test('play: the board seeds from the per-city forecast_seed.json, not the embedd
   assert.equal(cfg.hexes.length, boardFeatures().length, 'every playable hex should be on the board');
 });
 
-test('play: without a per-city seed the board falls back to the embedded one', async () => {
+// A multi-city page could only fall back to the region's seed, which prices
+// this city's budget against every city's cohorts: no seed, no game.
+test('play: without the city seed the board does not boot', async () => {
   const data = boardData(undefined);
   delete data['forecast_seed.json'];
-  const { get } = await bootBoard(data);
-
-  const cfg = get('gameConfig');
-  assert.ok(cfg, 'the board did not boot');
-  assert.equal(cfg.initial_pci, get('FORECAST_SEED').initial_pci);
+  const { get, doc } = await bootBoard(data);
+  assert.equal(get('gameConfig'), null, 'the board booted without the city seed');
+  assert.match(doc.body.textContent, /forecast_seed\.json/);
 });
 
 test('play: the map is fitted to the board, not left on the region', async () => {

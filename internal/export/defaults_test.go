@@ -62,8 +62,11 @@ func TestGameHorizons(t *testing.T) {
 }
 
 // TestPageConfigCarriesGoDefaults pins that both pages' PVMT_CONFIG carry the
-// forecast defaults and the hexgrid version they read. The board's PCI jitter
-// is the engine's default, so the play page carries none.
+// forecast defaults and the hexgrid version they read. The play page's
+// defaults are the package ones, not the page seed's: the board reads the
+// city's own seed, and on a multi-city page the page seed is the region's.
+// The board's PCI jitter is the engine's default, so the play page carries
+// none.
 func TestPageConfigCarriesGoDefaults(t *testing.T) {
 	td := TemplateData{ForecastSeed: `{"horizon_years":25}`}
 	for name, payload := range map[string]template.JS{"index": td.IndexConfigJSON(), "play": td.GameConfigJSON()} {
@@ -75,8 +78,12 @@ func TestPageConfigCarriesGoDefaults(t *testing.T) {
 		if err := json.Unmarshal([]byte(payload), &cfg); err != nil {
 			t.Fatalf("%s config: %v", name, err)
 		}
-		if cfg.Defaults != td.ForecastDefaults() {
-			t.Errorf("%s forecast_defaults = %+v; want %+v", name, cfg.Defaults, td.ForecastDefaults())
+		want := td.ForecastDefaults()
+		if name == "play" {
+			want = TemplateData{}.ForecastDefaults()
+		}
+		if cfg.Defaults != want {
+			t.Errorf("%s forecast_defaults = %+v; want %+v", name, cfg.Defaults, want)
 		}
 		if cfg.HexGridV != HexGridFileVersion {
 			t.Errorf("%s hexgrid_version = %d; want %d", name, cfg.HexGridV, HexGridFileVersion)

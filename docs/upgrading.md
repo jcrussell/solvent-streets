@@ -98,7 +98,7 @@ Only names that existed in v0.4.x are listed. Fields of the commands and files t
 | `forecast_seed.json` | `years`; material `binder_pct` | `horizon_years`; material `binder_share` |
 | `forecast_seed.json` | `total_area`, `city_paved`: the paved footprint (the union, as `meta.json`'s `total_paved`) | `maintained_area`, `city_maintained_area`: the maintained area, roads + parking + sidewalks summed as the forecast prices them. The footprint is only in `meta.json` |
 | `PVMT_CONFIG` (dashboard) | `layerColors`, `unitSystem`, `forecastSeed`, `wasmPrefix`; `cities[].lon`, `cities[].lat` | `layer_colors`, `unit_system`, `forecast_seed`, `hexgrid_version` (`wasmPrefix` is gone); `cities[].center` |
-| `PVMT_CONFIG` (play page) | `forecastSeed`, `dataPrefix`, `mapHref`, `bandCount`, `wasmPrefix` | `forecast_seed`, `data_prefix`, `map_href`, `band_count`, `hexgrid_version` (`wasmPrefix` is gone) |
+| `PVMT_CONFIG` (play page) | `forecastSeed`, `dataPrefix`, `mapHref`, `bandCount`, `wasmPrefix` | `data_prefix`, `map_href`, `band_count`, `hexgrid_version`; no seed (the board fetches the city's `forecast_seed.json`) and no `wasmPrefix` |
 | play page game state | `backlog`, `spent`, `treatments`, `budget_rate`, `closed_count`; `insolvency_year` (`null` when solvent); `changed[].pci`; the `gameTreat` and `gameSetBudget` WASM exports | `deferred_backlog`, `total_spend`, `treatment_count`, `annual_budget`, `closed_share` (the closed share of road area, which the closures loss reads); no `insolvency_year` (the start screen projects it), no `changed[].pci`, no `gameTreat` or `gameSetBudget` |
 | play page `gameInit` config | `starting_budget`; `hexes[]`: `road_area`, `k` | `annual_budget`; `hexes[]`: `roads_area`, `decay_rate` |
 
