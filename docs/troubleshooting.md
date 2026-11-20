@@ -14,8 +14,8 @@ can be trusted:
 |------|---------|
 | 0 | Success, or you declined a confirmation prompt |
 | 1 | The command failed, or was interrupted (Ctrl-C / SIGTERM) |
-| 2 | Usage error: a bad flag, a missing argument, an invalid config ([`#invalid-config`](#invalid-config)) or one with no cities ([`#no-cities`](#no-cities)), or a destructive command run without `--yes` and without a terminal to confirm on |
-| 3 | The command ran cleanly but produced nothing (no features, no cities with data) |
+| 2 | Usage error: a bad flag, a missing argument, a `--city`, `--source` or snapshot name that matches nothing, an invalid config ([`#invalid-config`](#invalid-config)) or one with no cities ([`#no-cities`](#no-cities)), or a destructive command run without `--yes` and without a terminal to confirm on |
+| 3 | Nothing to do yet: the command needs an earlier step first, and its hint names it (`run 'pvmt all ingest' first`, as `pvmt cities` says on an empty database), or it ran cleanly but produced nothing. A run over several cities exits 3 only when no city produced a result |
 
 An interrupt exits 1 because the work did not finish. Treating it as success
 would let `pvmt check-site && deploy` publish a site whose checks never ran.
@@ -41,8 +41,8 @@ The config parsed but defines no cities, either directly or through
 
 The config parsed as TOML but a value is wrong. Examples are an unknown key, a
 `hex_edge_m` below 10 m, an unknown `display.units`, a service name that isn't
-registered, or a malformed tag. There is no hint, because the error itself
-names the field and what is wrong with it. pvmt exits 2, so scripts can tell
+registered, or a malformed tag. Usually there is no hint, because the error
+itself names the field and what is wrong with it. pvmt exits 2, so scripts can tell
 bad input from an operational failure. Valid values and ranges are in
 [configuration.md](configuration.md).
 
@@ -64,7 +64,7 @@ usual causes:
 
 ## `#incompatible-database`
 
-**Hint:** *move `<path>` (and any `-wal`/`-shm` files beside it) aside; pvmt creates a fresh database on the next run. Then re-ingest with `pvmt all ingest` and `pvmt all compute`. pvmt never deletes it for you.*
+**Hint:** *move `<path>` (and any -wal/-shm files beside it) aside, and pvmt creates a fresh database on the next run (it never deletes the old one for you); then re-ingest with 'pvmt all ingest', 'pvmt all compute' and 'pvmt snapshots create <name>'*
 
 Every database is stamped with a *schema generation*, and pvmt opens only its
 own. The error says which way the mismatch runs:
@@ -83,10 +83,11 @@ companions:
 for f in <path> <path>-wal <path>-shm; do [ -e "$f" ] && mv "$f" "$f.old"; done
 ```
 
-Then run ingest and compute again. Everything in the database is rebuilt from
-upstream sources. The HTTP cache is separate, so any response younger than
-`[cache] ttl` (a week by default) is reused. [upgrading.md](upgrading.md) lists the releases
-that need this.
+Then run the three commands the hint names; export and serve need the
+snapshot. Everything in the database is rebuilt from upstream sources. The
+HTTP cache is separate, so a response younger than `[cache] ttl` that this pvmt
+can read is reused. [upgrading.md](upgrading.md) lists the releases that need
+a rebuild.
 
 ## Database is locked
 
@@ -103,7 +104,7 @@ the middle of a long write, such as a large ingest saving its features or
 
 ## `#export-errnowasm`
 
-**Hint:** *`go install` builds from the published module, which cannot include the generated WASM. Install a release (.deb or tarball), or build from a checkout with `make build`.*
+**Hint:** *install a release (.deb or tarball), or build from a checkout with 'make build' …*
 
 The error reads `this pvmt binary was built without the forecast WASM`. The
 dashboard's interactive forecast is compiled to WASM when pvmt is built, and a
@@ -119,7 +120,7 @@ it writes anything, and its hint lists each such city with the command that
 fixes it:
 
 ```
-hint: Export publishes each city's newest snapshot. Create one for each first:
+hint: export publishes each city's newest snapshot; create one for each first:
   Oakland, CA: pvmt snapshots create <name>
   Reno, NV: pvmt --city reno-nv all compute && pvmt snapshots create <name>
 ```
@@ -134,7 +135,7 @@ stored rather than refusing it, but when no city has one (a fresh database)
 it fails with `nothing to export` and exit 3, before writing anything: run
 `pvmt all ingest` first.
 
-With `--snapshot NAME`, export fails instead with `snapshot NAME does not
+With `--snapshot NAME`, export fails instead with `snapshot "NAME" does not
 cover N cities (…): no snapshot` when a configured city was added after the
 snapshot was created (or was refused then), before anything is written and
 before `--clean`. Export the cities it covers with `--city`, or create a new
@@ -163,9 +164,9 @@ its cities.
 
 ## Snapshot was created under other settings
 
-`pvmt export` warns `<city>: snapshot <name> was created under other settings
-(hash <old>, now <new>): …; exporting it as created`, and `pvmt serve` logs the
-same at startup. Export and serve publish each city from its snapshot whatever
+`pvmt export` warns `<city>: snapshot "<name>" was created under other settings
+(hash <old>, now <new>): …; exporting it as created`, and `pvmt serve` warns the
+same at startup, ending `serving it as created`. Export and serve publish each city from its snapshot whatever
 settings it was frozen under, and draw it exactly as created: its hex edge,
 boundary, stations and results. A setting in the hash changed since (see
 [Snapshots and the config hash](configuration.md#snapshots-and-the-config-hash)),
@@ -174,7 +175,7 @@ differently. To publish the current settings, run
 `pvmt --city <slug> all compute`, then `pvmt snapshots create <name>`.
 To keep publishing the old snapshot, ignore the warning.
 
-A related **note** reads `<city>: the latest compute has <parts> not yet
+A related **warning** reads `<city>: the latest compute has <parts> not yet
 snapshotted`. A compute ran after the newest snapshot was created, so the
 export publishes the snapshot without it. Run
 `pvmt snapshots create <name>` to publish it.
@@ -183,7 +184,7 @@ export publishes the snapshot without it. Run
 
 `pvmt serve` answers a data request with **410 Gone**, `the snapshot this page
 was serving has been deleted or pruned`, or `pvmt export` fails with
-`snapshot <id>: snapshot no longer exists (deleted or pruned)`. Both pin each
+`snapshot "<name>" no longer exists (deleted or pruned)`. Both pin each
 city's snapshot when they start, and `pvmt snapshots delete` or `prune` deleted it
 while they were running. Restart `pvmt serve`, or re-run the export, and it
 reads the city's newest snapshot. `pvmt serve` also answers 410 for a city it
@@ -193,13 +194,13 @@ compute replaced.
 ## `snapshots create` refuses a city
 
 `pvmt snapshots create <name>` is all or nothing: it judges every city, and
-when any is refused it creates nothing, prints one line per refused city and
-exits 1:
+when any is refused it creates nothing, prints one line per refused city on
+stdout, with its hint on stderr, and exits 1:
 
 ```
 oakland-ca: refused: roads re-ingested 2026-11-14 10:02 UTC after the combined, roads and fire coverage computes
-  hint: run 'pvmt --city oakland-ca all compute'
-refused 2026-11: 1 of 2 cities refused; nothing was created
+hint: run 'pvmt --city oakland-ca all compute'
+refused "2026-11": 1 of 2 cities refused; nothing was created
 ```
 
 A snapshot must be coherent; `pvmt snapshots create --help` lists what refuses
@@ -213,7 +214,7 @@ settings, create exits 3 instead, a missing first step, and the error's
 hint names the compute to run first: `run 'pvmt --city <slug> all compute'
 first` for one city, `run 'pvmt all compute' first` for several.
 
-`snapshot <name> already exists` is a refusal too: snapshots never change.
+`snapshot "<name>" already exists` is a refusal too: snapshots never change.
 Delete it with `pvmt snapshots delete <name>` and create it again (cities that
 were not recomputed keep their runs, so this is cheap), or choose another
 name.

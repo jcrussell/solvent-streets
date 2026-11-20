@@ -234,11 +234,12 @@ each example's data (see
 [Config identity](docs/configuration.md#config-identity-config_id)). Ingest and
 compute can't run in CI: the database is about 1 GB, and the upstream pulls are
 slow and rate-limited. So the site is built from a developer machine. To
-publish:
+publish, from the repo root (the `pvmt` steps run in a subshell inside
+`examples/all`, and the `make` targets run from the root):
 
 ```
-cd examples/all && pvmt all ingest && pvmt all compute   # every city; hours (one city: --city <slug>)
-cd examples/all && pvmt snapshots create 2026-11         # freeze every city's latest compute
+(cd examples/all && pvmt all ingest && pvmt all compute)   # every city; hours (one city: --city <slug>)
+(cd examples/all && pvmt snapshots create 2026-11)         # freeze every city's latest compute
 make site          # render ./site/ from each city's newest snapshot
 make site-report   # pvmt check-site: per-city size budgets and the asset audit
 make deploy        # force-push ./site/ to gh-pages

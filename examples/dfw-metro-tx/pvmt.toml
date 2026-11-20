@@ -49,6 +49,7 @@
 #   cd examples/dfw-metro-tx
 #   pvmt all ingest      # 18 Nominatim + Overpass pulls
 #   pvmt all compute
+#   pvmt snapshots create <name>
 #   pvmt serve
 
 config_id = "dfw-metro-tx"

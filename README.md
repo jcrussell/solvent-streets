@@ -11,7 +11,7 @@ forecasts how it deteriorates and what keeping it up costs, and publishes the
 result as an interactive map and financial dashboard. It is a single pure-Go
 binary with a local SQLite database, and it handles many cities side by side.
 
-**Live showcase:** <https://joncrussell.com/solvent-streets/> — 277 US cities,
+**Live showcase:** <https://joncrussell.com/solvent-streets/> — 407 US cities,
 built from the configs in [`examples/`](examples/).
 
 ## Install
@@ -49,7 +49,7 @@ pvmt all ingest
 pvmt all compute
 pvmt snapshots create 2026-11 # freeze every city under a name, like a git tag
 pvmt serve                    # http://localhost:8080; publishes the newest snapshot
-pvmt export -o ./site         # or: a static site for any web host
+pvmt export                   # or: a static site in ./site for any web host
 ```
 
 `pvmt forecast` prints the same deterioration and cost projections in the

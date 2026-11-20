@@ -12,6 +12,7 @@ that share a size, a role or a name across the whole country. To try one:
 cd examples/livermore-ca
 pvmt all ingest
 pvmt all compute
+pvmt snapshots create 2026-11
 pvmt serve
 ```
 

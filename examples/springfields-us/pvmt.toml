@@ -39,6 +39,7 @@
 #   cd examples/springfields-us
 #   pvmt all ingest      # 21 Nominatim + Overpass pulls, mostly small towns
 #   pvmt all compute
+#   pvmt snapshots create <name>
 #   pvmt serve
 
 config_id = "springfields-us"

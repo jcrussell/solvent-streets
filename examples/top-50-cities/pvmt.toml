@@ -25,6 +25,7 @@
 #   cd examples/top-50-cities
 #   pvmt all ingest      # 50 Nominatim + 50 Overpass pulls; takes hours
 #   pvmt all compute
+#   pvmt snapshots create <name>
 #   pvmt serve           # or `make site` from the repo root to publish
 
 # Database scoping key, set explicitly so this dataset keeps its rows if the
@@ -78,7 +79,7 @@ name = "Houston, TX"
 #@cite Public Works Pavement Conditions, length-weighted network average, ratings through 2023
 #@cite     https://geohub.houstontx.gov/datasets/pavement-conditions (accessed 2026-06-14)
 forecast.initial_pci = 66
-# No current_budget (2026-11-18, solvent-streets-ern4.24): the cited $281M is the broad Street & Traffic Control CIP category, not a pavement budget.
+# No current_budget (2026-11-18): the cited $281M is the broad Street & Traffic Control CIP category, not a pavement budget.
 #     https://www.houstontx.gov/budget/26budprop/IX_CIP.pdf
 overpass = true
 hex_edge_m = 300  # ~2,397,315 residents; large land area
@@ -170,7 +171,7 @@ overpass = true
 # 14.
 [[cities]]
 name = "Charlotte, NC"
-# No current_budget (2026-11-18, solvent-streets-ern4.24): the cited $31M resurfacing approval bundles sidewalk and curb work in an unknown share.
+# No current_budget (2026-11-18): the cited $31M resurfacing approval bundles sidewalk and curb work in an unknown share.
 #     https://www.wsoctv.com/news/local/map-council-voting-31-million-resurface-hundreds-charlottes-roads/5BQF22PXBNH3VNHHP3YSXDVR74/
 overpass = true
 # 964,784 residents
@@ -190,7 +191,7 @@ hex_edge_m = 250  # ~901,116 residents; large land area
 # 17.
 [[cities]]
 name = "San Francisco, CA"
-# No current_budget (2026-11-18, solvent-streets-ern4.24): the cited $90M FY2025-26 repaving program bundles one-off local bond funds with SB1, so it is not a recurring roads budget.
+# No current_budget (2026-11-18): the cited $90M FY2025-26 repaving program bundles one-off local bond funds with SB1, so it is not a recurring roads budget.
 #     https://www.sf.gov/news-mayor-lurie-announces-priority-street-repaving-projects/
 #@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
 #@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
@@ -267,7 +268,7 @@ overpass = true
 # 26.
 [[cities]]
 name = "Detroit, MI"
-# No current_budget (2026-11-18, solvent-streets-ern4.24): the cited $95M 2023 Infrastructure Improvement Program is a single-year program, not a recurring paving budget.
+# No current_budget (2026-11-18): the cited $95M 2023 Infrastructure Improvement Program is a single-year program, not a recurring paving budget.
 #     https://detroitmi.gov/news/city-announces-95m-2023-infrastructure-improvement-program-paving-81-miles-roads-and-replacing-70k
 overpass = true
 # 649,095 residents
@@ -328,8 +329,7 @@ overpass = true
 name = "Albuquerque, NM"
 overpass = true
 # Nominatim returns a place=city node (Point geometry) for ABQ; the
-# admin_level=8 boundary lives only as an OSM relation. See
-# solvent-streets-95i8.
+# admin_level=8 boundary lives only as an OSM relation.
 boundary_relation_id = 171262
 # 556,588 residents
 
@@ -400,7 +400,7 @@ overpass = true
 [[cities]]
 name = "Colorado Springs, CO"
 #@cite 2C road-improvement program annual revenues $50M, ~50% of which funds sidewalks/curbs (2023);
-#@cite the pavement half, $25M (solvent-streets-ern4.24)
+#@cite the pavement half, $25M
 #@cite     https://coloradosprings.gov/public-works/page/what-2c (accessed 2026-06-14)
 forecast.current_budget = 25000000.0
 overpass = true
@@ -466,7 +466,7 @@ overpass = true
 # 48.
 [[cities]]
 name = "Tulsa, OK"
-# No current_budget (2026-11-18, solvent-streets-ern4.24): the cited $20M is a modelling assumption for arterials only, not a published budget.
+# No current_budget (2026-11-18): the cited $20M is a modelling assumption for arterials only, not a published budget.
 #     https://www.cityoftulsa.org/media/7018/pci_presentation.pdf
 overpass = true
 # 416,209 residents

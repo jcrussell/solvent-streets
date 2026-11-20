@@ -13,9 +13,9 @@ overpass = true
 ```
 
 Unknown keys and out-of-range values are rejected when the config loads, with
-exit code 2 and a message naming the field. `pvmt config show --sources` prints
-every resolved value with where it came from: `flag`, `env`, `file` or
-`default`. Working configs to copy from are in [`examples/`](../examples/README.md).
+exit code 2 and a message naming the field. `pvmt config show` prints the
+resolved config, and `--sources` says where each overridable setting came
+from: `flag`, `env`, `file` or `default`. Working configs to copy from are in [`examples/`](../examples/README.md).
 
 ## Finding the config and resolving values
 
@@ -253,7 +253,7 @@ snapshots are stored is in
 **`hex_edge_m`** sets the hex edge in meters. Set it in `[grid]` or per city.
 The default is 100 and the minimum is 10. Hex count grows with the square of
 the inverse edge, so large cities run coarser: the examples range from 60 m to
-300 m.
+400 m.
 
 **`min_hex_area`** drops boundary slivers smaller than this many square meters
 (m², whatever `[display].units` shows) from the map, the stats and the play
@@ -359,9 +359,10 @@ includes it, where an unset one counts as the default 30.
 
 `pvmt services` computes how long a public service takes to reach each hex
 over the road network. The dashboard shows it as **Color by → Fire response**.
-`fire` is the one registered service. `pvmt all` runs the service steps after
-the pavement passes: a city with no stations mapped is skipped quietly, and any
-other failure is a warning. Coverage routes over the ingested roads, so it
+`fire` is the one registered service. `pvmt all compute` runs the service step
+after the pavement passes: a city with no stations mapped is skipped quietly,
+and any other failure is a warning. `pvmt all ingest` fetches the stations
+with the other layers, and a failed fetch fails the run like any other step. Coverage routes over the ingested roads, so it
 needs a roads ingest but not a roads compute.
 
 ```toml
@@ -410,8 +411,11 @@ interrupted write of a listed file left beside it),
 then one path per line, relative to the site root. Run one export into a
 directory at a time.
 
-**`[export].title`** names a multi-city dashboard built by `pvmt export`. It
-defaults to the output directory's name. `pvmt serve` does not use it.
+The `[export]` settings apply to `pvmt serve` as well as `pvmt export`.
+
+**`[export].title`** names a multi-city dashboard. It defaults to the output
+directory's name for `pvmt export`, and to the config file's directory name
+for `pvmt serve`.
 
 **`[export].coordinate_decimals`** sets the precision of emitted GeoJSON. The
 default is 5, about 1 m, which is far finer than any hex, and the range is

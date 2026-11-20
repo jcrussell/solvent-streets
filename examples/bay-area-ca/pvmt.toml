@@ -17,7 +17,8 @@
 #
 # Heads up: 98 Nominatim + 98 Overpass + 14 ArcGIS pulls — expect hours
 # for `pvmt all ingest`. The committed file ships the config only; run
-# `pvmt all ingest` and `pvmt all compute` before exporting.
+# `pvmt all ingest`, `pvmt all compute` and `pvmt snapshots create <name>`
+# before exporting.
 
 config_id = "bay-area-ca"
 
@@ -176,7 +177,7 @@ name = "Antioch, CA"
 #@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
 #@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
 forecast.initial_pci = 63
-# No current_budget (2026-11-18, solvent-streets-ern4.24): the cited $2.38M is the SB1 (RMRA) line only, one of several paving funding sources.
+# No current_budget (2026-11-18): the cited $2.38M is the SB1 (RMRA) line only, one of several paving funding sources.
 #     https://www.antiochca.gov/AgendaCenter/ViewFile/Item/347?fileID=1783
 overpass = true
 
@@ -277,7 +278,7 @@ name = "Pittsburg, CA"
 #@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
 #@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
 forecast.initial_pci = 59
-# No current_budget (2026-11-18, solvent-streets-ern4.24): the cited $1.95M is the SB1 (RMRA) allocation only, one of several paving funding sources.
+# No current_budget (2026-11-18): the cited $1.95M is the SB1 (RMRA) allocation only, one of several paving funding sources.
 #     https://www.pittsburgca.gov/Home/Components/News/News/3448/
 overpass = true
 
@@ -814,7 +815,7 @@ name = "Sebastopol, CA"
 #@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
 #@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
 forecast.initial_pci = 54
-# No current_budget (2026-11-18, solvent-streets-ern4.24): the cited $500K is a digout/repair CIP line, not the city's paving program.
+# No current_budget (2026-11-18): the cited $500K is a digout/repair CIP line, not the city's paving program.
 #     https://www.cityofsebastopol.gov/wp-content/uploads/2025/01/STAFF-REPORT_CIP-GP-Consistency-FY2025-26-with-attachments.pdf
 overpass = true
 

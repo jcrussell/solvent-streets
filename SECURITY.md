@@ -1,5 +1,11 @@
 # Security Policy
 
+## Supported Versions
+
+Security fixes go into the latest release only. Upgrade to it to receive
+them; [docs/upgrading.md](docs/upgrading.md) lists the steps each release
+needs.
+
 ## Reporting a Vulnerability
 
 Please report suspected security vulnerabilities privately, **not** via
@@ -50,9 +56,10 @@ Out of scope:
   Overpass and Nominatim APIs, including an Overpass instance chosen with
   `[overpass] url` or `PVMT_OVERPASS_URL`, ArcGIS feature servers, the
   Census Bureau's TIGERweb). Report those upstream. A configured Overpass
-  endpoint must be `https://` and resolve to public addresses. So must an
-  `arcgis_url`, unless its city sets `allow_private_arcgis = true`, which
-  also permits `http://` and private addresses for a self-hosted endpoint.
+  endpoint must be `https://` and resolve to public addresses. An
+  `arcgis_url` must too, unless its city sets `allow_private_arcgis = true`,
+  which permits an `http://` URL and private addresses, for a self-hosted
+  endpoint.
   The address check applies to every redirect and to the address each
   connection is actually made to, not only to the first DNS answer, and
   pvmt never follows a redirect from `https://` to `http://`. Through an

@@ -120,9 +120,11 @@ producers write them:
 - **Population.** `internal/population` apportions 2020 Census blocks onto
   hexes by area.
 
-The pavement keys are deliberately not registered as stored metrics: the
-exporter folds coverage and parking spaces into `hexgrid.geojson`, and the
-dashboard derives its colorings from there. The roads compute also stores
+The pavement keys are stored per hex like any catalog metric, under a
+resource subject, but `internal/hexmetric` registers them as derived
+colorings rather than shipping them in `hex-metrics.json`: the exporter folds
+coverage and parking spaces into `hexgrid.geojson`, and the dashboard derives
+their colorings from there. The roads compute also stores
 `default_decay_rate` under `roads:city`: each city road hex's blend of its
 road classes' decay rates, weighted by in-hex class area, at no `decay_rate`
 override. It comes from the per-hex class areas the cohort split already
@@ -136,7 +138,7 @@ Both metric producers resolve, through `compute.LoadMetricTarget`
 (`pkg/cmd/compute`), the same projection and clipped grid the pavement passes
 use, so hex ids line up. No producer reads another producer's stored results.
 
-The dashboard paints every coloring from that registry. Stored metrics ship in
+The dashboard paints every coloring from the `internal/hexmetric` registry. Stored metrics ship in
 `hex-metrics.json`. *Derived* metrics are registered beside
 them under the key of the measure they compute: coverage % (`paved_share`),
 paved area (`paved_area`), parking spaces (`estimated_spaces`) and year-1
@@ -169,7 +171,7 @@ each comes from one fixed upstream, whatever the city's `overpass` /
 stale-source sweep covers only the pavement types in `resource.All`, so a new
 own-sourced type needs no special case in either. A facility ingest also
 fetches its *companion* (`resource.Companioned`), the routing roads
-(`routing-roads`, OSM only, never in `resource.All`), and both are fetched
+(public name `routing_roads`, stored as `routing-roads`; OSM only, never in `resource.All`), and both are fetched
 over the boundary bbox padded by `resource.ServiceAreaPadM`
 (`resource.FetchPadder`), so a station across the city line exists and the
 graph reaches it. For a city whose roads come from Overpass, the routing roads
@@ -219,7 +221,7 @@ that saves nothing until it ends:
    the unstripped boundary.
 5. Save the boundary, then the roads that touch its bbox. Those are the rows
    a fetch over that bbox stores, so the roads step reuses them, and the
-   routing-roads ring still excludes exactly the city's own roads.
+   routing roads' ring still excludes exactly the city's own roads.
 
 A failed roads or water fetch saves nothing, so the next ingest retries; for
 a city that uses Overpass, a failed Overpass roads fetch counts as failed
@@ -266,7 +268,7 @@ the rest: one row per source an ingest asked, per input (`boundary` or a
 `resource_type`), with its outcome (`ok`, `empty` or `failed`), its feature
 count and, for a failure, the error. The ingest command records them after
 the save, so a source whose rows could not be saved is recorded as failed.
-The write is best-effort and never fails an ingest. A cancelled request
+The write is best-effort and never fails an ingest. A canceled request
 leaves no row, and only the newest 20 rows per city, input and source are
 kept. `Store.IngestHistory` reads each key's newest attempt, success and
 failure. It is how a failed or partial ingest is told apart from a complete
@@ -567,7 +569,7 @@ part recorded a digest that is no longer current, when there is no pavement
 part, when pavement has no combined part, or when a pavement input is stored
 with no part. It warns about a missing service or census part whose inputs
 are stored. `pvmt status` shows the same comparison per part
-(`coherence.PartStates`: current, stale or not computed), footnotes a stale
+(`coherence.PartStates`: `current`, `stale` or `not_computed`), footnotes a stale
 combined total, and counts the parts the newest snapshot does not hold
 (`db.UnsnapshottedParts`). The check runs inside the snapshot's IMMEDIATE transaction, so no
 ingest lands between the check and the freeze. No city of a snapshot is ever
@@ -583,7 +585,7 @@ land on the wrong hexes: each hash has its own latest compute, and a snapshot
 holds, per city, runs of one hash. Export keeps a defensive check that a snapshot holds a
 pavement compute.
 
-Uncommitted runs are invisible. A cancelled or failed command discards its
+Uncommitted runs are invisible. A canceled or failed command discards its
 runs, and `pvmt gc` sweeps any that neither a snapshot nor a latest compute
 references once they are a day old
 (`db.OrphanRunGrace`). The grace is that long because one city of `pvmt all
@@ -596,7 +598,7 @@ transactions take the lock up front (`_txlock=immediate`), and one that finds
 another process holding it keeps retrying for up to two minutes
 (`commitBusyBudget`), well past SQLite's five-second busy timeout. So two
 commands writing at once wait for each other: a compute beside a long ingest
-or `gc --sweep` saves its results once the other's transaction ends. No
+or `pvmt gc` saves its results once the other's transaction ends. No
 producer reads
 another's results, so two commands committing in either order each swap in
 only their own parts. `pvmt snapshots prune --keep N` keeps the newest N

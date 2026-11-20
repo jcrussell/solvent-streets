@@ -35,6 +35,7 @@
 #   cd examples/state-capitals-us
 #   pvmt all ingest      # 50 Nominatim + 50 Overpass pulls; takes hours
 #   pvmt all compute
+#   pvmt snapshots create <name>
 #   pvmt serve
 
 # Database scoping key, set explicitly so this dataset keeps its rows if the
