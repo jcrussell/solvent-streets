@@ -414,8 +414,8 @@ func singleCohortScenarios(classification string, area, initialPCI, decayRate fl
 //     so rounding in the builder would feed it rounded input.
 //   - The server memoizes that same slice behind two cached handlers, so
 //     rounding it in place would mutate shared state.
-//   - It must not move into internal/forecast: parity_test.go is there to catch
-//     Simulate semantic changes, and this is a display concern.
+//   - It must not move into internal/forecast: Simulate's output is the
+//     model's full-precision result, and this is a display concern.
 //
 // Precisions are chosen to be invisible to the client, not merely "close":
 // dollars and areas render with 0-1 decimals against magnitudes in the millions,

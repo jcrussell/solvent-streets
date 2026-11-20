@@ -34,7 +34,7 @@ func TestOverhead_ScalesLinearlyAndExactlyOnce(t *testing.T) {
 // config: this package resolves 0 to 1.0, NOT to config.DefaultCostOverhead.
 //
 // Changing it to default here would break two things at once. A projector built
-// without going through config — which is what every test and the parity golden
+// without going through config — which is what every test and the WASM bridge
 // do — would silently acquire the config default. And a zero-value projector
 // would price at that default rather than failing loudly, so a construction
 // site that forgot to pass the overhead would move dollars instead of erroring.

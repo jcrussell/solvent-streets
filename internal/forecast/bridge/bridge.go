@@ -180,9 +180,10 @@ func Run(raw []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	// Load-bearing call: shared with the CLI forecast path. Output is
-	// locked down by internal/forecast/parity_test.go — any drift here
-	// or in Simulate breaks both surfaces at once.
+	// Load-bearing call: shared with the CLI forecast path, so any drift
+	// here or in Simulate moves both surfaces at once. Simulate's mechanism
+	// is asserted by internal/forecast/simulate_invariants_test.go and its
+	// headline output by integration's TestExportForecast_SummaryGolden.
 	result := forecast.Simulate(scenario, cohorts, years, params)
 
 	// Collapse the per-band summary rows to one per class for the browser's

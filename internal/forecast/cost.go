@@ -119,9 +119,9 @@ type TieredCostProjector struct {
 	//     than fail. That the default is currently 1.0 (making the divergence
 	//     zero today) is exactly why the rule has to be structural: it would
 	//     otherwise look safe to drop right up until the default moves.
-	//  2. Tests and the parity golden build Params directly, without going
-	//     through config. Defaulting in this package would move
-	//     testdata/parity_output.json and every export golden.
+	//  2. Tests and the WASM bridge build Params directly, without going
+	//     through config. Defaulting in this package would move every
+	//     dollar those paths produce, and every export golden with them.
 	//
 	// The default is injected by config resolution
 	// (config.ForecastConfig.CostOverhead, currently
