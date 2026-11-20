@@ -409,6 +409,11 @@ func DefaultPath() (string, error) {
 	return filepath.Join(dir, "pvmt.db"), nil
 }
 
+// openBusyBudget bounds how long Open's migrate retries while another
+// process holds the write lock: the write budget every write gets
+// (commitBusyBudget). A variable so a test can run it out quickly.
+var openBusyBudget = commitBusyBudget
+
 func Open(path string) (retStore *RootStore, retErr error) {
 	if path == "" {
 		var err error
@@ -458,11 +463,22 @@ func Open(path string) (retStore *RootStore, retErr error) {
 		}
 	}()
 
-	if err := migrate(context.Background(), db); err != nil {
+	// Another pvmt opening the same new file at once holds the write lock
+	// while it stamps, converts and creates it. Every step of migrate is
+	// idempotent, so a busy run is retried like any write, for up to
+	// openBusyBudget.
+	ctx := context.Background()
+	if err := retryBusyWithin(ctx, openBusyBudget, func() error { return migrate(ctx, db) }); err != nil {
 		if errors.Is(err, ErrIncompatibleDatabase) {
 			return nil, incompatible(err)
 		}
-		return nil, fmt.Errorf("migrate: %w", err)
+		err = fmt.Errorf("migrate: %w", err)
+		if isBusy(err) {
+			return nil, hint.Withf(err,
+				"Another pvmt process is initializing or writing %s; run the command again once it finishes. "+
+					"See docs/troubleshooting.md#database-is-locked.", path)
+		}
+		return nil, err
 	}
 
 	return &RootStore{db: db}, nil

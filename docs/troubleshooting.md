@@ -88,6 +88,18 @@ upstream sources. The HTTP cache is separate, so any response younger than
 `[cache] ttl` (a week by default) is reused. [upgrading.md](upgrading.md) lists the releases
 that need this.
 
+## Database is locked
+
+**Hint:** *another pvmt process is initializing or writing `<path>`; run the command again once it finishes.*
+
+The error reads `migrate: … database is locked (5) (SQLITE_BUSY)`: pvmt could
+not open the database because another process held its write lock. One pvmt
+command writes to a database at a time, and the others wait for its write
+transaction, for up to two minutes. A command still waiting after that gives
+up with this error instead of hanging. Usually the other command is in the
+middle of a long write, such as a large ingest saving its features or
+`pvmt gc --sweep`. Let it finish, then run yours again.
+
 ## `#export-errnowasm`
 
 **Hint:** *`go install` builds from the published module, which cannot include the generated WASM. Install a release (.deb or tarball), or build from a checkout with `make build`.*

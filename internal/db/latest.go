@@ -123,7 +123,12 @@ func freezeCity(ctx context.Context, tx *sql.Tx, snapshotID int64, req SnapshotR
 // retryBusy runs attempt until it does not fail with isBusy, for up to
 // commitBusyBudget, backing off between tries.
 func retryBusy(ctx context.Context, attempt func() error) error {
-	deadline := time.Now().Add(commitBusyBudget)
+	return retryBusyWithin(ctx, commitBusyBudget, attempt)
+}
+
+// retryBusyWithin is retryBusy for up to budget.
+func retryBusyWithin(ctx context.Context, budget time.Duration, attempt func() error) error {
+	deadline := time.Now().Add(budget)
 	for wait := 100 * time.Millisecond; ; wait = min(2*wait, 5*time.Second) {
 		err := attempt()
 		if !isBusy(err) || time.Now().Add(wait).After(deadline) {
