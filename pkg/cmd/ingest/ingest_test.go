@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -775,6 +777,28 @@ func TestResolveBoundary_RelationErrorHintsAreClassSpecific(t *testing.T) {
 			fetchErr:        fmt.Errorf("%w: id=%d span=12.3°", ingestpkg.ErrBoundaryRelationTooLarge, relationID),
 			wantHintHas:     []string{"spans >5", "county or state"},
 			wantHintMissing: []string{"set [[cities]].boundary_relation_id"},
+		},
+		{
+			name:            "network error",
+			fetchErr:        &url.Error{Op: "Get", URL: "https://nominatim.example/search", Err: &net.DNSError{Err: "no such host", Name: "nominatim.example"}},
+			wantHintHas:     []string{"network connection", "HTTPS_PROXY"},
+			wantHintMissing: []string{"boundary_relation_id", "relation"},
+		},
+		{
+			name:            "timeout",
+			fetchErr:        fmt.Errorf("fetch: %w", &net.OpError{Op: "dial", Net: "tcp", Err: os.ErrDeadlineExceeded}),
+			wantHintHas:     []string{"network connection"},
+			wantHintMissing: []string{"boundary_relation_id"},
+		},
+		{
+			name:            "SSRF refusal is not a network error",
+			fetchErr:        &url.Error{Op: "Get", URL: "https://x.example/", Err: &net.OpError{Op: "dial", Net: "tcp", Err: &ingestpkg.BlockedAddressError{Host: "x.example", Kind: "private"}}},
+			wantHintMissing: []string{"network connection"},
+		},
+		{
+			name:            "refused redirect is not a network error",
+			fetchErr:        &url.Error{Op: "Get", URL: "https://x.example/", Err: errors.New("redirect blocked: refusing to follow https to http")},
+			wantHintMissing: []string{"network connection"},
 		},
 		{
 			name:        "generic nominatim error keeps the original hint",
