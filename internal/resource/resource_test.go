@@ -55,3 +55,18 @@ func TestType_WithAndBare(t *testing.T) {
 		t.Errorf("bare TypeRoads.Scope() = %q; want ScopeAll", TypeRoads.Scope())
 	}
 }
+
+func TestPublicName(t *testing.T) {
+	for in, want := range map[Type]string{
+		TypeRoads:            "roads",
+		TypeSidewalks:        "sidewalks",
+		FacilityType("fire"): "fire_stations",
+		TypeRoutingRoads:     "routing_roads",
+		TypeCensusBlocks:     "census_blocks",
+		Type("boundary"):     "boundary",
+	} {
+		if got := in.PublicName(); got != want {
+			t.Errorf("%q.PublicName() = %q, want %q", in, got, want)
+		}
+	}
+}

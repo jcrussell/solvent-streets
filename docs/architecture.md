@@ -667,9 +667,11 @@ files, `window.PVMT_CONFIG`, and the game and WASM payloads.
 - Elsewhere `name` is an identifier and `label` its display form: a
   scenario, a snapshot, a tag dimension, a cost tier.
 - `resource_type` is a pavement resource (`roads`, `parking`,
-  `sidewalks`). `layer` (`pvmt status --all`) is any stored input, so it
-  also takes `boundary`, each service's stations, routing roads and census
-  blocks.
+  `sidewalks`). `layer` (`pvmt status --all`, `services status`,
+  `census status`) is any stored input, so it also takes `boundary`, each
+  service's stations (`fire_stations`), `routing_roads` and
+  `census_blocks`. These are public names (`resource.Type.PublicName`); the
+  database keeps its own hyphenated ids.
 - A value that does not apply is omitted, never `null` or a 0 sentinel.
 - Scope values are `"city"` (city-maintained) and `"all"` (every
   jurisdiction). A value per scope is an object keyed by scope

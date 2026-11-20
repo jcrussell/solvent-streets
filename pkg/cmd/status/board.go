@@ -52,7 +52,7 @@ func (r boardRow) ExportData(fields []string) map[string]any {
 		switch f {
 		case "city":
 			v = r.City
-		case "layer":
+		case fieldLayer:
 			v = r.Layer
 		case "feature_count":
 			v = r.FeatureCount
@@ -144,7 +144,7 @@ func cityBoard(ctx context.Context, c boardCity, hash string) ([]boardRow, error
 		if err != nil {
 			return nil, err
 		}
-		row := boardRow{City: slug, Layer: l.name, FeatureCount: count}
+		row := boardRow{City: slug, Layer: resource.Type(l.name).PublicName(), FeatureCount: count}
 		row.Failing = db.FailingSources(history, l.input, l.sources)
 		row.LastSuccessAt, row.Error = lastAnswers(history, l.input, row.Failing)
 		row.EmptyUpstream = count == 0 && len(row.Failing) == 0 && db.AnsweredEmpty(history, l.input, l.sources)

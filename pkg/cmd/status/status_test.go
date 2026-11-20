@@ -679,3 +679,49 @@ func TestStatus_EveryConfiguredCity(t *testing.T) {
 		t.Errorf("rows = %v, want one per city in config order", rows)
 	}
 }
+
+// TestRunStatus_FacilityRowIsALayer: a status over a non-pavement input names
+// it as a layer by its public name, never by its stored id, and so do its
+// stale inputs.
+func TestRunStatus_FacilityRowIsALayer(t *testing.T) {
+	cfg := &config.Config{}
+	city := &config.CityConfig{Name: "Test City"}
+	fire := string(resource.FacilityType("fire"))
+	store := &dbtest.MockStore{
+		StatsFunc: func(_ context.Context, rt resource.Type) (*db.StatusInfo, error) {
+			return &db.StatusInfo{ResourceType: rt}, nil
+		},
+		LatestComputeFunc: func(context.Context, string) ([]db.LatestPart, error) {
+			return []db.LatestPart{{Part: db.ServiceProducer("fire"), RunID: 1, Inputs: map[string]string{fire: "f1"}}}, nil
+		},
+		InputStatesFunc: func(context.Context) ([]db.InputState, error) {
+			return []db.InputState{{Input: fire, Digest: "f2"}}, nil
+		},
+	}
+	ios, _, stdout, _ := iostreams.Test()
+	f := &cmdutil.Factory{
+		IOStreams:   ios,
+		UnitSystem:  func() units.System { return units.Metric },
+		CityDB:      func() (db.Store, error) { return store, nil },
+		Config:      func() (*config.Config, error) { return cfg, nil },
+		CurrentCity: func() (*config.CityConfig, error) { return city, nil },
+	}
+	cmd := NewCmdStatus(f, &resource.Facility{Service: "fire"}, nil)
+	cmd.SetArgs([]string{"--json", "layer,state,stale_inputs"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	var rows []map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &rows); err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0]["layer"] != "fire_stations" || fmt.Sprint(rows[0]["stale_inputs"]) != "[fire_stations]" {
+		t.Errorf("--json = %v, want layer fire_stations, stale on fire_stations", rows)
+	}
+	cmd = NewCmdStatus(f, &resource.Facility{Service: "fire"}, nil)
+	cmd.SetArgs([]string{"--json", "resource_type"})
+	cmd.SilenceUsage, cmd.SilenceErrors = true, true
+	if err := cmd.Execute(); err == nil {
+		t.Error("--json resource_type on a facility status was accepted, want an unknown-field error")
+	}
+}

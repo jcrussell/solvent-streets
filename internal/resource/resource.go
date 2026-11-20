@@ -86,6 +86,23 @@ func (t Type) Scope() Scope {
 	return ScopeAll
 }
 
+// PublicName is t as an enumerated JSON value (a status row's layer): a
+// snake_case noun for what is stored. The pavement types are their own
+// names; a facility type names the service's stations ("fire_stations"), and
+// the other hyphenated ids swap the hyphen and drop the namespace
+// ("routing_roads", "census_blocks"). The stored ids keep their hyphenated
+// form; only JSON and tables show this one.
+func (t Type) PublicName() string {
+	s := string(t)
+	switch {
+	case t.IsFacility():
+		s = t.FacilityService() + "_stations"
+	case t.IsLayer():
+		s = strings.TrimPrefix(s, layerPrefix)
+	}
+	return strings.ReplaceAll(s, "-", "_")
+}
+
 // Pre-built ResourceType values for the cross-resource union rows written
 // by `pvmt all compute`. Used by the compute producer and the export
 // consumer; kept here so the labels are reachable without an internal →

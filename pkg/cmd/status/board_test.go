@@ -108,7 +108,7 @@ func TestBoard_IncompleteLayers(t *testing.T) {
 	want := []string{
 		"albany-ca/roads -> pvmt --city albany-ca roads ingest --source overpass",
 		"albany-ca/sidewalks -> pvmt --city albany-ca sidewalks ingest --source overpass",
-		"albany-ca/layer-census-blocks -> pvmt --city albany-ca census ingest",
+		"albany-ca/census_blocks -> pvmt --city albany-ca census ingest",
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("incomplete rows =\n  %s\nwant\n  %s", strings.Join(got, "\n  "), strings.Join(want, "\n  "))
@@ -130,12 +130,12 @@ func TestBoard_TableAndExitStatus(t *testing.T) {
 		t.Errorf("runBoard = %v, want ErrSilent (exit 1) while Albany is incomplete", err)
 	}
 	out, errOut := output()
-	for _, want := range []string{"albany-ca", "lakeside-ca", "facility-fire", "routing-roads", "502 Gateway Timeout"} {
+	for _, want := range []string{"albany-ca", "lakeside-ca", "fire_stations", "routing_roads", "502 Gateway Timeout"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("table lacks %q:\n%s", want, out)
 		}
 	}
-	if strings.Contains(out, "lakeside-ca  layer-census-blocks") {
+	if strings.Contains(out, "lakeside-ca  census_blocks") {
 		t.Errorf("census listed for a city that opted out:\n%s", out)
 	}
 	if !strings.Contains(errOut, "1 of 2 cities incomplete") {

@@ -47,8 +47,12 @@ type Options struct {
 
 type statusRow struct {
 	// City is the city's slug; empty (and omitted) without a config.
-	City          string  `json:"city,omitempty"`
-	ResourceType  string  `json:"resource_type"`
+	City string `json:"city,omitempty"`
+	// ResourceType is a pavement row's resource; Layer, the public name
+	// (resource.Type.PublicName) of any other stored input (`services
+	// status`, `census status`). A row has exactly one of them.
+	ResourceType  string  `json:"resource_type,omitempty"`
+	Layer         string  `json:"layer,omitempty"`
 	FeatureCount  int     `json:"feature_count"`
 	LastIngestAt  string  `json:"last_ingest_at,omitempty"`
 	LastComputeAt string  `json:"last_compute_at,omitempty"`
@@ -83,7 +87,9 @@ func (r statusRow) field(f string) (any, bool) {
 	case "city":
 		return r.City, r.City != ""
 	case "resource_type":
-		return r.ResourceType, true
+		return r.ResourceType, r.ResourceType != ""
+	case fieldLayer:
+		return r.Layer, r.Layer != ""
 	case "feature_count":
 		return r.FeatureCount, true
 	case "last_ingest_at":
@@ -135,9 +141,9 @@ again since) or not computed.`, noun, area), cmdutil.HelpWidth)
 // Example is the --help example text for the status subcommand of the
 // command group named group (`pvmt <group> status`). The group name is not
 // derivable from the resource type (census blocks are stored as
-// "layer-census-blocks" but their command is `pvmt census`).
+// "layer-census-blocks" but their command is 'pvmt census').
 func Example(group string, rt resource.Source) string {
-	fields := "city,resource_type,feature_count,state"
+	fields := "city,layer,feature_count,state"
 	if paved(rt) {
 		fields = "city,resource_type,feature_count,area"
 	}
@@ -148,17 +154,23 @@ func Example(group string, rt resource.Source) string {
   pvmt %s status --json %s`, group, group, fields)
 }
 
+// fieldLayer is the --json field naming a row's stored input.
+const fieldLayer = "layer"
+
 var statusFields = []string{"city", "resource_type", "feature_count", "last_ingest_at", "last_compute_at", "area", "estimated_spaces", "state", "stale_inputs"}
 
 // fieldsFor is the --json fields of a status over rt (nil: every
-// resource); only pavement has an area and estimated spaces.
+// resource). Only pavement has a resource_type, an area and estimated
+// spaces; any other input is named as a layer.
 func fieldsFor(rt resource.Source) []string {
 	if rt == nil || paved(rt) {
 		return statusFields
 	}
-	return slices.DeleteFunc(slices.Clone(statusFields), func(f string) bool {
+	out := slices.DeleteFunc(slices.Clone(statusFields), func(f string) bool {
 		return f == "area" || f == "estimated_spaces"
 	})
+	out[slices.Index(out, "resource_type")] = fieldLayer
+	return out
 }
 
 func NewCmdStatus(f *cmdutil.Factory, rt resource.Source, runF func(context.Context, *Options) error) *cobra.Command {
@@ -360,10 +372,11 @@ func buildRows(ctx context.Context, ios *iostreams.IOStreams, store db.Store, so
 			cmdutil.Warnf(ios, "could not get stats for %s: %v", rt.Type(), err)
 			continue
 		}
-		row := statusRow{
-			City:         view.slug(),
-			ResourceType: string(rt.Type()),
-			FeatureCount: info.FeatureCount,
+		row := statusRow{City: view.slug(), FeatureCount: info.FeatureCount}
+		if paved(rt) {
+			row.ResourceType = string(rtVal)
+		} else {
+			row.Layer = rtVal.PublicName()
 		}
 		if info.LastIngestAt != nil {
 			row.LastIngestAt = info.LastIngestAt.UTC().Format(time.RFC3339)
@@ -373,7 +386,10 @@ func buildRows(ctx context.Context, ios *iostreams.IOStreams, store db.Store, so
 			row.LastComputeAt = tot.ComputedAt.UTC().Format(time.RFC3339)
 		}
 		if st, ok := view.state(partOf(rtVal)); ok {
-			row.State, row.StaleInputs, row.stateText = st.State, st.StaleInputs, st.String()
+			row.State, row.stateText = st.State, st.String()
+			for _, in := range st.StaleInputs {
+				row.StaleInputs = append(row.StaleInputs, resource.Type(in).PublicName())
+			}
 		}
 		rows = append(rows, row)
 	}
@@ -396,7 +412,11 @@ func partOf(t resource.Type) string {
 // printTable renders rows, with a State column when withState.
 func printTable(ios *iostreams.IOStreams, rows []statusRow, sys units.System, withState bool) error {
 	tp := iostreams.NewTablePrinter(ios)
-	header := []string{"City", "Resource", "Features", "Last Ingest", "Last Compute", units.AreaLabel(sys), units.AreaLargeLabel(sys), "Est. Spaces"}
+	kind := "Resource"
+	if len(rows) > 0 && rows[0].Layer != "" {
+		kind = "Layer"
+	}
+	header := []string{"City", kind, "Features", "Last Ingest", "Last Compute", units.AreaLabel(sys), units.AreaLargeLabel(sys), "Est. Spaces"}
 	if withState {
 		header = append(header, "State")
 	}
@@ -408,7 +428,7 @@ func printTable(ios *iostreams.IOStreams, rows []statusRow, sys units.System, wi
 		}
 		cells := []string{
 			r.City,
-			r.ResourceType,
+			r.ResourceType + r.Layer,
 			strconv.Itoa(r.FeatureCount),
 			iostreams.FormatTimestamp(r.LastIngestAt, ios.IsTTY()),
 			iostreams.FormatTimestamp(r.LastComputeAt, ios.IsTTY()),
