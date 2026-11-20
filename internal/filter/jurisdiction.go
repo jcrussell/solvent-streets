@@ -569,7 +569,13 @@ var stateAbbrev = map[string]bool{
 }
 
 // isStateRef reports whether an OSM ref denotes a state route. It assumes
-// federal and county refs have already been ruled out by the caller.
+// federal and county refs have already been ruled out by the caller, and is
+// correct only inside ClassifyJurisdiction's ladder, which does that first.
+// Called on its own it misreads county refs: statePostalRefRe's [A-Z]{1,2}
+// arm reads "CO RD 45" as a Colorado state route ("CO" plus the designator
+// "RD"), which the ladder's earlier spelledCountyRefRe check routes to
+// County. statePostalDeny cannot backstop it, since denying "CO" would lose
+// every real Colorado route.
 func isStateRef(ref string) bool {
 	if stateExplicitRefRe.MatchString(ref) {
 		return true
