@@ -6,56 +6,69 @@ The release notes link here from their header. Their "Breaking Changes" list nam
 
 ## v0.5.0
 
-Upgrading from v0.4.x takes thirteen steps. Plan for the first one: it re-fetches every city from the upstream sources.
+Upgrading from v0.4.x takes five steps. Do them in order. v0.5.0 checks the config when it loads, so a config it refuses fails in seconds, before the ingest of step 2, which re-fetches every city and can take hours.
 
-### 1. Move the database aside and re-ingest
+### 1. Fix the config
 
-pvmt v0.5.0 refuses a database created by v0.4.1 or earlier with `incompatible database` and leaves the file untouched. There is no in-place migration. Move it aside with its `-wal`/`-shm` files and rebuild it, as [`#incompatible-database`](troubleshooting.md#incompatible-database) describes:
+Run `pvmt config show` in each config's directory. A config v0.5.0 refuses fails with exit 2, and the message names the field and the fix. These are the v0.4.x configs it refuses:
+
+| In a v0.4.x config | In v0.5.0 |
+|--------|--------|
+| `[forecast] years` | `[forecast] horizon_years` |
+| `[forecast] cost_overhead` (and per city) | `[forecast] cost_multiplier`, the same factor, named as the dashboard's Cost multiplier slider |
+| `[display] min_hex_area` | `[grid] min_hex_area`, beside the `hex_edge_m` it is sized for. The per-city `min_hex_area` is unchanged |
+| `years` in `[cities.forecast]` | refused: a config has one horizon, so set `horizon_years` in the top-level `[forecast]`, and every `[[include]]`d file must resolve to the same one ([Forecast](configuration.md#forecast)) |
+| a horizon above 200 years | refused. The browser forecast never ran one, so such a config exported a site whose Financials page failed |
+| a tag with a colon that is not `dimension:value` (`"Bay Area: East"`) | refused: a colon now separates a dimension from its value ([Tags](configuration.md#tags)). Rename it, e.g. to `"metro:Bay Area East"` |
+| `[[forecast.cost_tiers]]` bands that overlap | refused, naming the two bands. Move one band's `min_pci` or `max_pci` so they meet or leave a gap |
+| an `arcgis_url` that is not `https://` | refused. Use the layer's `https://` URL; the error's hint covers a self-hosted `http://` endpoint ([Cities](configuration.md#cities)) |
+
+A renamed key fails with a message such as `forecast.years was renamed to forecast.horizon_years`. The environment variable `PVMT_FORECAST_YEARS` is now `PVMT_FORECAST_HORIZON_YEARS`, and the old name is ignored with a `warning:` naming the new one. `[cache]`, which sets how long the HTTP cache serves a response, is new in v0.5.0 and has its own rules ([HTTP cache](configuration.md#http-cache-cache)). None of these changes alters a stored result.
+
+One change loads without an error: the default horizon is 30 years, up from 20. A config that left the horizon unset now forecasts 30 years, so its headline totals (`30-Year Spend`) and insolvency years cover a longer run. Set `horizon_years = 20` in `[forecast]` to keep the old horizon. Forecasts are simulated on read, so this needs a re-export (step 4), not a recompute.
+
+### 2. Rebuild the database
+
+v0.5.0 refuses a database created by v0.4.1 or earlier with `incompatible database`, and leaves the file untouched. There is no in-place migration. Move the file ([where it lives](configuration.md#files-and-directories)) aside as [`#incompatible-database`](troubleshooting.md#incompatible-database) describes, then rebuild and publish it:
 
 ```
 pvmt all ingest
 pvmt all compute
-```
-
-The new database fills from Overpass, ArcGIS and TIGERweb again, so a large config takes as long as its first ingest did (hours; about a day for the 277-city showcase). The HTTP cache from v0.4.x is not reused either: v0.5.0 stores responses gzip-compressed (`<key>.json.gz`, about a sixth of the size) and never reads the old uncompressed `<key>.json` files. Reclaim them once the ingest is done:
-
-```
-pvmt cache prune --dry-run   # the old bodies count as orphans
-pvmt cache prune
-```
-
-From then on a response stays in the cache for `[cache] ttl`, a week by default.
-
-Snapshot config hashes are also computed differently: per city, over only the settings that affect results (see [Snapshots and the config hash](configuration.md#snapshots-and-the-config-hash)). A `config_hash` a script recorded from v0.4.x never matches a v0.5.0 snapshot; the recompute above is all that is needed.
-
-### 2. Create a snapshot before exporting
-
-Computes no longer publish. `pvmt all compute` and every `pvmt <resource> compute` update the city's *latest compute*, and `pvmt export` and `pvmt serve` publish each city's newest snapshot, which only `pvmt snapshots create <name>` makes. A snapshot is a named tag over every configured city, like a git tag. After the compute, run:
-
-```
 pvmt snapshots create 2026-11
+pvmt cache prune --max-age=0 --max-size=0
 ```
 
-`pvmt export` refuses, before writing anything, when any city has no snapshot, and lists each with the command that makes one. A script that ran `compute` then `export` needs `snapshots create <name>` between them. `create` freezes every configured city or none: it refuses the snapshot when any city's parts were computed from features or a boundary ingested again since, and names the compute to rerun for each (see [troubleshooting](troubleshooting.md#snapshots-create-refuses-a-city)). A snapshot never changes after it is created: export draws it as created, whatever was ingested or edited since, and a name that exists is refused (`pvmt snapshots delete <name>`, then create it again, replaces it). Publish an older snapshot with `pvmt export --snapshot <name>` or `pvmt serve --snapshot <name>`, and compare two with `pvmt snapshots diff <a> <b>`. `pvmt snapshots ls` and `rm` are now `list` and `delete`, with the old names kept as aliases.
+The ingest fills the new database from Overpass, ArcGIS and TIGERweb again, so a large config takes as long as its first ingest did (hours; about a day for the showcase). The v0.4.x HTTP cache is not reused: v0.5.0 stores responses gzip-compressed and never reads the old uncompressed bodies. With both caps off, `cache prune` removes only those and other unservable leftovers, and keeps the responses the ingest just fetched; its default caps would evict a large config's.
 
-### 3. Re-export sites
+Computes no longer publish. A compute updates each city's *latest compute*, and export and serve publish the newest *snapshot*, which only `pvmt snapshots create <name>` makes ([Snapshots and the config hash](configuration.md#snapshots-and-the-config-hash)). The config hash is computed differently too, so a `config_hash` a script recorded from v0.4.x never matches a v0.5.0 snapshot.
 
-A site exported by v0.4.x cannot be refreshed in place. Its data files use the old formats, and the v0.5.0 dashboard refuses them (`unsupported hexgrid format (expected v6) — re-export this site`). After `pvmt snapshots create <name>`, run `pvmt export` again (and `pvmt check-site` on the result) and redeploy the whole tree.
+### 3. Update scripts that drive the CLI
 
-### 4. Update links to the dashboard
+- **Snapshot before you publish.** A script that ran `compute` then `export` needs `pvmt snapshots create <name>` between them: `pvmt export` refuses, before writing anything, when a city has no snapshot. `pvmt snapshots ls` and `rm` are now `list` and `delete` (the old names are aliases), and they and every other snapshot command take a snapshot's name rather than an id. `--snapshot <name>` on `export` and `serve` publishes an older snapshot.
+- **`pvmt export` writes to `./site`**, not `./dist`, the directory `pvmt check-site` checks by default. A deploy script that reads `dist/` should pass `-o dist` or read `site/`. `--clean` no longer deletes the output directory: it removes only the files the previous export listed in its `.pvmt-export` manifest. A site exported by v0.4.x has no manifest, so `--clean` refuses it: export into a new directory, or delete the old tree yourself once. `-o` also refuses some directories outright; `pvmt export --help` lists them.
+- **A partial ingest exits 1.** `pvmt all ingest` and each `pvmt <resource> ingest` exit 1 when any of a city's sources or steps failed. They used to warn and exit 0. What answered is still saved, and the error lists each failure with the command that retries it. A script that ran `pvmt all ingest || true` to ride out a flaky upstream now sees those failures: retry the listed commands, or keep `|| true` if a partial city is acceptable.
+- **Exit codes 2 and 3.** A `--city`, `--source` or snapshot name that matches nothing is a usage error and exits 2. A command that needs an earlier step first, or has nothing to do, exits 3 and says what to run. Some of these exited 1, and `pvmt cities` on an empty database, which exited 0, now exits 3 and names `pvmt all ingest` ([Exit codes](troubleshooting.md#exit-codes)).
+- **Results on stdout, prose on stderr.** `pvmt gc`, `pvmt cache prune`, `pvmt snapshots delete` and `pvmt snapshots prune` print their report on stdout instead of stderr, and take `--json` for it, as `pvmt check-site` does; `snapshots delete` and `snapshots prune` also take `--dry-run`, and `snapshots prune --keep N` keeps the N newest snapshots overall rather than per city (`--city` is not supported). `gc` heads each city's report with its slug (`=== oakland-ca ===`), even for one city. A compute heads each result block on stdout with the city's slug (`oakland-ca: roads Results (all):`), and the per-city `=== <city> ===` header goes to stderr. `pvmt snapshots create` prints each refused city's row and the summary on stdout, and its hints and warnings on stderr.
+- **`pvmt status` reports every city**, not only the first, unless `--city` names one. Each row starts with the city's slug, in the table and as the `city` field of `--json`, which is one document for all cities. The sections after the table go to stdout with it, each naming the city (`=== oakland-ca: City Summary ===`), and the stale-settings note is a `hint:` on stderr.
+- **`--city-only` is `--maintained-only`** on `pvmt <resource> compute`. The old spelling still works for now and prints a deprecation notice.
+
+### 4. Re-export and redeploy
+
+A site exported by v0.4.x cannot be refreshed in place. Its data files use the old formats, and the v0.5.0 dashboard refuses them (`unsupported hexgrid format (expected v6) — re-export this site with a current pvmt`). Once the snapshot of step 2 exists, run `pvmt export` into a fresh directory, check it with `pvmt check-site`, and redeploy the whole tree.
+
+Update links to the dashboard:
 
 | v0.4.x URL | v0.5.0 URL |
 |------------|------------|
 | `?tag=<value>` | `?tag=group:<value>`. A tag without its dimension prefix is ignored |
 | `?scope=bbox` | `?scope=all` |
+| `?snapshot=<id>` (`pvmt serve`) | `?snapshot=<name>`, or `?snapshot=latest` for the latest compute |
 
 ### 5. Update anything that reads pvmt's JSON
 
-Every JSON document pvmt emits (`--json` output, the `pvmt serve` API, the exported site's data files and `window.PVMT_CONFIG`) now uses one vocabulary, described in [JSON conventions](architecture.md#json-conventions). A script that reads an old name gets nothing back rather than an error, so check each one against the tables below.
+Every JSON document pvmt emits now uses one vocabulary, described in [JSON conventions](architecture.md#json-conventions). A script that reads an old name gets nothing back rather than an error, so check each one against the tables below. They list only names that existed in v0.4.x: the commands and files new in v0.5.0 (`pvmt census`, `pvmt services`, `hex-metrics.json` and the multi-city `compare.json`) have no older name.
 
 `--jq` and `--template` see the same keys `--json` prints. `pvmt export --json` and `pvmt validate --json` stay bare flags (each prints one document) and now accept `--jq` and `--template` too.
-
-Only names that existed in v0.4.x are listed. Fields of the commands and files that are new in v0.5.0 (`pvmt census`, `pvmt services`, `hex-metrics.json`, and the multi-city site's `compare.json` rollup) have no older name.
 
 #### CLI `--json`
 
@@ -63,13 +76,13 @@ Only names that existed in v0.4.x are listed. Fields of the commands and files t
 |---------|--------|--------|
 | `status` | `resourceType`, `featureCount`, `lastIngest`, `lastCompute` | `resource_type`, `feature_count`, `last_ingest_at`, `last_compute_at`; new `state` (`current`, `stale`, `not_computed`) and `stale_inputs` |
 | `cities` | `features`, `totalArea`, `lastIngest`, `lastCompute` | `feature_counts`, `total_paved` (omitted for a city with nothing computed), `last_ingest_at`, `last_compute_at` |
-| `snapshots list` (`ls`) | one row per city's snapshot: `id`, `computedAt`, `configHash` | one row per named snapshot: `name`, `created_at`, `city_count`, `compute_epoch`; each city's `config_hash`, `hex_edge_m` and `parts` (`part`, `run_id`, `computed_at`) are in `snapshots show <name>` |
+| `snapshots list` (`ls`) | one row per city's snapshot: `city`, `id`, `computedAt`, `configHash` | one row per named snapshot: `name`, `created_at`, `city_count`, `compute_epoch`; each city's `config_hash`, `hex_edge_m` and `parts` (`part`, `run_id`, `computed_at`) are in `snapshots show <name>` |
 | `<resource> compute` | `resourceType`, `jurisdiction`, `featureCount`, `snapshotId` | `resource_type`, `scope`, `feature_count`, `run_id` (the compute run, not a snapshot) |
 | `<resource> compute` | `city`: display name (`Oakland, CA`) | `city`: slug (`oakland-ca`) |
 | `forecast` | `resourceType`, `treatmentCost`, `treatmentTier` | `resource_type`, `annual_need`, `cost_tier`; new `city` |
 | `export` | `total` | `file_count` |
 | `validate` | `break_even`; `hold_steady_budget`; `passed`, `failed`, `context` | `break_even_budget`; `published_break_even_budget`; `pass_count`, `fail_count`, `context_count` |
-| `config show` | `key` and the file `source.detail`: `units`, `display.min_hex_area`, `forecast.years`, `forecast.cost_overhead`, `cities[<slug>].forecast.cost_overhead` | `display.units`, `grid.min_hex_area`, `forecast.horizon_years`, `forecast.cost_multiplier`, `cities[<slug>].forecast.cost_multiplier` (the config keys of step 12); `--sources` prints the same keys |
+| `config show` | `key` and the file `source.detail`: `units`, `display.min_hex_area`, `forecast.years`, `forecast.cost_overhead`, `cities[<slug>].forecast.cost_overhead` | `display.units`, `grid.min_hex_area`, `forecast.horizon_years`, `forecast.cost_multiplier`, `cities[<slug>].forecast.cost_multiplier` (the config keys of step 1); `--sources` prints the same keys |
 
 #### `pvmt serve` API
 
@@ -78,19 +91,22 @@ Only names that existed in v0.4.x are listed. Fields of the commands and files t
 | `/api/snapshots`, `/api/cities/{slug}/snapshots` | `id`, `computed_at` | `created_at`; no `id` (a snapshot is named by `name`); new `name`, `compute_epoch`, `hex_edge_m`, `parts` (`part`, `run_id`, `computed_at`) and `served` (the snapshot the server pinned) |
 | every `/api/` endpoint | errors as plain text | errors as `{"error": "<message>"}` with `Content-Type: application/json` |
 | `/api/cities` | as `cities.json` below | as `cities.json` below |
+| `/data/{file}?snapshot=` | a snapshot id; absent, the city's newest snapshot | a snapshot name, or `latest`; absent, the snapshot the server pinned |
 
 `/data/{file}` serves the site data files below. `?snapshot=<name>` picks a snapshot, and `?snapshot=latest` the city's latest compute as the server read it at startup.
 
 #### Site data files and `window.PVMT_CONFIG`
+
+Only a script that reads an exported site's files, or a page that embeds one, needs this table.
+
+<details>
+<summary>The site's data files, page config and Play payloads</summary>
 
 | File | v0.4.x | v0.5.0 |
 |------|--------|--------|
 | `cities.json`, `meta.json` | `center_lon`, `center_lat` | `center`: `[lon, lat]` |
 | `cities.json`, `meta.json` | `bbox`: `[south, west, north, east]` | `bbox`: `[west, south, east, north]` |
 | `meta.json` | `project_name`; `pct_paved` (0..100); `stats[].type`; `stats[].total_area`; `stats[].feature_count` | `name`, and new `city` (the slug); `paved_share` (0..1); `stats[].resource_type`; `stats[].area`; no feature count |
-| `meta.json` | — | `missing_resources`: the resources with no ingested data (omitted when none) |
-| `meta.json` | — | `failing_sources`: resource → the configured sources whose last ingest failed and hold none of its rows (omitted when none) |
-| `meta.json` | — | `empty_sources`: missing resource → the configured sources, every one of which last answered with no rows, so upstream maps none (omitted when none) |
 | `meta.json` | `snapshot_date`: the render date | `snapshot_date`: the date of the data (the snapshot's `created_at`, or the latest compute's newest run); new `snapshot` (its name), and from `pvmt serve` `latest_compute: true` for a latest compute (each omitted when not applicable) |
 | `hexgrid.geojson` | format `v` 2; per-hex scope key `bbox`; coverage `pct` (0..100) | format `v` 6; scope key `all`; coverage `share` (0..1); city road hexes carry `k`, the Play board's decay rate |
 | `play-hexes.json` | the Play board: `id`, `road_area`, `k` per hex | gone: the board reads `hexgrid.geojson`. Its road area is now the map's city-scope roads area, which counts pavement where road classes overlap once rather than once per class |
@@ -106,59 +122,4 @@ Only names that existed in v0.4.x are listed. Fields of the commands and files t
 | play page game state | `backlog`, `spent`, `treatments`, `budget_rate`, `closed_count`; `insolvency_year` (`null` when solvent); `changed[].pci`; the `gameTreat` and `gameSetBudget` WASM exports | `deferred_backlog`, `total_spend`, `treatment_count`, `annual_budget`, `closed_share` (the closed share of road area, which the closures loss reads); no `insolvency_year` (the start screen projects it), no `changed[].pci`, no `gameTreat` or `gameSetBudget` |
 | play page `gameInit` config | `starting_budget`; `hexes[]`: `road_area`, `k` | `annual_budget`; `hexes[]`: `roads_area`, `decay_rate` |
 
-### 6. Check where `pvmt export` writes
-
-`pvmt export` without `-o` writes to `./site`, the directory `pvmt check-site` checks by default, rather than `./dist`. A deploy script that picks the site up from `dist/` should pass `-o dist` or read `site/`. `--clean` no longer deletes the output directory: it removes only the files the previous export listed in the site's `.pvmt-export` manifest ([Export and hosting](configuration.md#export-and-hosting)) and leaves every other file alone. A site exported by v0.4.x has no manifest (its `.pvmt-export`, if any, lists no files), so `--clean` refuses it: export into a new directory, or delete the old tree yourself once, and every later `--clean` works. `-o` also refuses the working directory, the config file's directory, the home directory and any directory containing one of them. An existing empty directory needs no `--clean`.
-
-### 7. Check tags that contain a colon
-
-A tag is now read as `dimension:value` when it contains a colon, and the config refuses one whose dimension is not an identifier or whose value is empty ([Tags](configuration.md#tags)). A v0.4.x tag such as `"Bay Area: East"` fails to load with exit 2; rename it, e.g. to `"metro:Bay Area East"`.
-
-### 8. Set the forecast horizon once per config
-
-A config now has one forecast horizon, named `horizon_years` (step 12), and its default is 30 years (up from 20). A horizon inside `[cities.forecast]` fails to load with exit 2: move it to the top-level `[forecast]`. A file pulled in with `[[include]]` must resolve to the same `horizon_years` as the file that includes it, where an unset one counts as the default 30. A config that left the horizon unset now forecasts 30 years, so its headline totals (`30-Year Spend`) and insolvency years cover a longer run. Set `horizon_years = 20` at the top level to keep the old horizon. The horizon is also capped at 200 years: a `horizon_years` above 200 fails to load with exit 2, and a `PVMT_FORECAST_HORIZON_YEARS` above 200 is ignored with a warning. The browser forecast never ran a longer one, so such a config used to export a site whose Financials page failed. Forecasts are not part of the snapshot hash, so this needs a re-export, not a recompute.
-
-### 9. Expect a partial ingest to exit 1
-
-`pvmt all ingest`, and each `pvmt <resource> ingest`, now exit 1 when any of a city's sources or steps failed, including the fire and Census steps of `all ingest`. They used to warn and exit 0. What did answer is still saved, and `all ingest` still runs every remaining step and city. The final error lists each failure, with a hint naming the command that retries it. A script that ran `pvmt all ingest || true` before `compute` to ride out a flaky upstream now sees those failures. Retry the listed commands, or keep `|| true` if a partial city is acceptable.
-
-### 10. Remove overlapping cost tiers
-
-A config whose `[[forecast.cost_tiers]]` bands overlap now fails to load with exit 2, naming the two bands. A PCI inside both had two prices, and the dashboard already refused to run its forecast controls on such a schedule. Move one band's `min_pci` or `max_pci` so the bands meet or leave a gap ([Forecast](configuration.md#forecast)).
-
-### 11. Update scripts that drive the CLI
-
-A few commands changed their flags or output so the CLI reads the same everywhere:
-
-- `pvmt <resource> compute --city-only` is now `--maintained-only`. The old spelling still works for now and prints a deprecation notice.
-- `pvmt gc`, `pvmt cache prune`, `pvmt snapshots delete` and `pvmt snapshots prune` print their report on stdout instead of stderr; `gc` heads each city's report with its slug (`=== oakland-ca ===`), even when there is one city. `snapshots delete` and `snapshots prune` also take `--dry-run`, and all four, like `pvmt check-site`, take `--json` for that report.
-- A `--city` that matches no `[[cities]]` entry is a usage error and exits 2 (it exited 1), and so is a snapshot name no snapshot has (`no snapshot named "<name>"`), wherever a command takes one. A command that needs an earlier step first (a compute with no boundary or no features stored, an export with no snapshot, a `snapshots create` whose refused cities have nothing computed, a `check-site` with no site) exits 3 and says what to run (some exited 1).
-- `pvmt status` and `pvmt <resource> status` report every configured city, not only the first one, unless `--city` names one. Each row starts with the city's slug, in the table and as the `city` field of `--json` (one document for all cities). The sections after the table (other parts, the not-yet-snapshotted count, the city summary and snapshot list) now go to stdout with the table, each naming the city's slug (`=== oakland-ca: City Summary ===`); the stale-settings note is a `hint:` on stderr. `census status` and `services status` no longer offer the pavement-only `area` and `estimated_spaces` fields, and name each row's input as `layer` (`census_blocks`, `fire_stations`) rather than `resource_type`.
-- `pvmt <resource> compute`, `services compute` and `census compute` (and so `all compute`) head each result block on stdout with the city's slug (`oakland-ca: roads Results (all):`), since the per-city `=== <city> ===` header goes to stderr.
-- `pvmt snapshots create` writes each refused city's hint and every warning to stderr; the refused rows and the summary stay on stdout.
-
-### 12. Rename config keys
-
-Some `pvmt.toml` keys and environment variables have new names, so each setting reads the same in the config, the CLI and the site. A config that still uses an old key fails to load with exit 2, and the message names the new key, for example `forecast.years was renamed to forecast.horizon_years`. An old environment variable is ignored with a `warning:` naming the new one. None of these renames changes a stored result, so no recompute is needed.
-
-| v0.4.x | v0.5.0 |
-|--------|--------|
-| `[forecast] years` | `[forecast] horizon_years` |
-| `PVMT_FORECAST_YEARS` | `PVMT_FORECAST_HORIZON_YEARS` |
-| `[display] min_hex_area` | `[grid] min_hex_area`, beside the `hex_edge_m` it is sized for; the per-city `min_hex_area` is unchanged (a config with `[[include]]` still may not set it at the top level) |
-| `[forecast] cost_overhead` (and per city) | `[forecast] cost_multiplier`; the same factor, named as the dashboard's Cost multiplier slider |
-
-### 13. Use an https:// arcgis_url
-
-An `arcgis_url` that is not `https://` fails to load with exit 2. Switch it to the layer's `https://` URL; a self-hosted endpoint that only serves `http://` on an internal network needs `allow_private_arcgis = true` on its city ([Data sources](configuration.md#cities)). A redirect from `https://` to `http://` is refused, whatever the city sets.
-
-### Known issues
-
-These are open in v0.5.0. None of them needs a step from you; they are here so you can read the published figures with them in mind.
-
-- **Run one pvmt process per database at a time.** Only `snapshots create` and a compute's final commit to the latest compute retry a busy database; the compute's run writes before it do not. A compute that runs while another process ingests or collects garbage can stop with `SQLITE_BUSY` and discard its work, and two processes that open a brand-new database at once can fail the same way. Rerun the one that stopped.
-- **Some state and federal routes count as city streets.** Jurisdiction is read from each road's OpenStreetMap `ref`. Historic designations (`US HISTORIC 66`) and ref shapes the rules don't anchor on fall through to city maintenance, so a city's maintained area can include a little state or federal mileage.
-- **A garage mapped inside a parking-lot polygon is over-counted.** The lot's area already includes the garage's footprint, and the garage adds it again once per level, so the footprint counts levels + 1 times. Such nesting is uncommon in OpenStreetMap and has not been seen in the published data.
-- **Boundaries are OpenStreetMap's.** Area, population and per-resident figures all describe the OSM polygon. Where it lags the Census, a city is smaller than its legal limits. In the published site, Austin, TX is missing about 160 km² and Cheyenne, WY about 27 km² of recent annexations. Louisville, KY is the consolidated metro, and Honolulu, HI includes East Honolulu.
-- **Some cities' parking or sidewalks are barely mapped.** Where OpenStreetMap maps few lots or sidewalks (much of Los Angeles County, among others), that layer's per-resident figures and rankings undercount the city. `pvmt check-site` lists each such layer under COVERAGE.
-- **Service coverage edge cases.** `services ingest --force` fetches the boundary twice. A city where no fire station snaps to the road network computes 0% coverage but shows no coverage layer on the site.
+</details>

@@ -380,7 +380,10 @@ are hex-clipped the same way). Limitations:
 - Only `amenity=parking` polygons count. On-street parking is not
   estimated, and lots mapped as a single node are not ingested.
 - Overlapping lots, or a multipolygon lot whose member ways are also
-  tagged, are each counted — unlike paved area, which unions overlaps.
+  tagged, are each counted — unlike paved area, which unions overlaps. So
+  a garage mapped inside a lot polygon counts its footprint levels + 1
+  times: once in the lot's area, then once per level. Such nesting is
+  uncommon in OpenStreetMap.
 - OSM `capacity` tags are sparse and uneven; most lots use the area rule.
 
 ### Color by
@@ -513,6 +516,21 @@ encodes; and OSM's station coverage is uneven (see 8).
 - Treatment effectiveness is modeled as an efficiency factor on how
   much condition a dollar buys, not as a deterministic post-treatment PCI
   bump.
+- Boundaries are OpenStreetMap's, so area, population and per-resident
+  figures describe the OSM polygon. Where it lags the Census, a city is
+  smaller than its legal limits, and where OSM maps a consolidated or
+  combined government, the city is that whole area. In the published
+  showcase, for example, Austin, TX is missing about 160 km² and Cheyenne,
+  WY about 27 km² of recent annexations, Louisville, KY is the
+  consolidated metro, and Honolulu, HI includes East Honolulu.
+- Where OpenStreetMap maps few parking lots or sidewalks (much of Los
+  Angeles County, among others), that layer's per-resident figures and
+  rankings undercount the city.
+- Jurisdiction is read from each road's OpenStreetMap `ref`, `operator`
+  and `network` tags. Historic
+  designations (`US HISTORIC 66`) and ref shapes the rules don't
+  recognize count as city streets, so a city's maintained area can include
+  a little state or federal mileage.
 - Output is a planning-grade estimate, not an engineering specification.
 
 ### References
