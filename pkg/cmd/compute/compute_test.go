@@ -485,10 +485,17 @@ func TestRunCompute_MaintainedOnlySuppressesAllCohortBreakdown(t *testing.T) {
 		t.Fatalf("compute: %v", err)
 	}
 	out := stdout.String()
-	// "\nCohort breakdown:" is the all-jurisdiction header; "City cohort
-	// breakdown:" is the city one (not prefixed by a bare newline+"Cohort").
-	if strings.Contains(out, "\nCohort breakdown:") {
+	// Each result block's header names the city: "<slug>: Cohort breakdown:"
+	// is the all-jurisdiction header, "<slug>: City cohort breakdown:" the
+	// city one.
+	slug := testCity.Slug()
+	if strings.Contains(out, "\n"+slug+": Cohort breakdown:") {
 		t.Errorf("--maintained-only should suppress the all-jurisdiction cohort breakdown, got:\n%s", out)
+	}
+	for _, want := range []string{"\n" + slug + ": City cohort breakdown:\n", "\n" + slug + ": roads Results (city only):\n"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("stdout lacks the city-named header %q:\n%s", want, out)
+		}
 	}
 }
 

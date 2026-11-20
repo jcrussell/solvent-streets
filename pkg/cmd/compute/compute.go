@@ -555,10 +555,10 @@ func (c *computer) saveAllJurisdictionsResult(ctx context.Context, allBuffered [
 	}
 	c.recordRow("all", featureCount, area, spaces)
 	if len(cohorts) > 0 && !c.opts.MaintainedOnly && c.opts.ResourceType.HasCohorts() {
-		printCohortBreakdown(c.out, "Cohort breakdown", cohorts, area, c.sys)
+		printCohortBreakdown(c.out, c.city.Slug(), "Cohort breakdown", cohorts, area, c.sys)
 	}
 	if !c.opts.MaintainedOnly {
-		printResults(c.out, fmt.Sprintf("%s Results (all)", rtAll.Bare()), featureCount, area, spaces, c.sys)
+		printResults(c.out, c.city.Slug(), fmt.Sprintf("%s Results (all)", rtAll.Bare()), featureCount, area, spaces, c.sys)
 	}
 	return nil
 }
@@ -636,10 +636,10 @@ func (c *computer) processCityResults(ctx context.Context, cityBuffered []resour
 	}
 	c.recordRow("city", featureCount, cityArea, citySpaces)
 	if len(cityCohorts) > 0 && c.opts.ResourceType.HasCohorts() {
-		printCohortBreakdown(c.out, "City cohort breakdown", cityCohorts, cityArea, c.sys)
+		printCohortBreakdown(c.out, c.city.Slug(), "City cohort breakdown", cityCohorts, cityArea, c.sys)
 	}
 
-	printResults(c.out, fmt.Sprintf("%s Results (city only)", c.opts.ResourceType.Type()), featureCount, cityArea, citySpaces, c.sys)
+	printResults(c.out, c.city.Slug(), fmt.Sprintf("%s Results (city only)", c.opts.ResourceType.Type()), featureCount, cityArea, citySpaces, c.sys)
 	return nil
 }
 
@@ -661,8 +661,16 @@ func (c *computer) recordRow(scope string, featureCount int, area float64, space
 	*c.opts.rows = append(*c.opts.rows, row)
 }
 
-func printResults(out io.Writer, label string, featureCount int, area float64, spaces int, sys units.System) {
-	fmt.Fprintf(out, "\n%s:\n", label)
+// ResultHeader is the header of a compute's result block on stdout,
+// "<slug>: <label>:". It names the city because the per-city "=== <city> ==="
+// header of a multi-city run goes to stderr, so 'pvmt roads compute > out.txt'
+// still says whose block each is.
+func ResultHeader(slug, label string) string {
+	return "\n" + slug + ": " + label + ":\n"
+}
+
+func printResults(out io.Writer, slug, label string, featureCount int, area float64, spaces int, sys units.System) {
+	fmt.Fprint(out, ResultHeader(slug, label))
 	// Features counts the fetched input (bounding box, before the buffer step
 	// and the boundary clip); Area is clipped, so N features beside zero area
 	// means they all lie outside the boundary.
@@ -675,8 +683,8 @@ func printResults(out io.Writer, label string, featureCount int, area float64, s
 	}
 }
 
-func printCohortBreakdown(out io.Writer, title string, stats []results.Cohort, totalArea float64, sys units.System) {
-	fmt.Fprintf(out, "\n%s:\n", title)
+func printCohortBreakdown(out io.Writer, slug, title string, stats []results.Cohort, totalArea float64, sys units.System) {
+	fmt.Fprint(out, ResultHeader(slug, title))
 	for _, cs := range stats {
 		pct := 0.0
 		if totalArea > 0 {

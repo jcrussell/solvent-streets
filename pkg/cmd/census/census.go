@@ -288,7 +288,7 @@ func apportion(ctx context.Context, out, errOut io.Writer, opts *Options, city *
 	if opts.rows != nil {
 		*opts.rows = append(*opts.rows, row)
 	}
-	fmt.Fprintf(out, "\nPopulation Results for %s:\n", city.Name)
+	fmt.Fprint(out, compute.ResultHeader(city.Slug(), "Population Results"))
 	fmt.Fprintf(out, "  Blocks:            %d\n", row.BlockCount)
 	fmt.Fprintf(out, "  Hexes populated:   %d\n", row.HexCount)
 	fmt.Fprintf(out, "  Residents in grid: %.0f\n", row.Population)

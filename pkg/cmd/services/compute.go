@@ -389,7 +389,7 @@ func route(ctx context.Context, out, progress, errOut io.Writer, notify tui.Phas
 	if opts.rows != nil {
 		*opts.rows = append(*opts.rows, row)
 	}
-	fmt.Fprintf(out, "\n%s Results:\n", spec.Label)
+	fmt.Fprint(out, compute.ResultHeader(city.Slug(), spec.Label+" Results"))
 	fmt.Fprintf(out, "  Facilities:        %d (%d unsnapped)\n", row.FacilityCount, row.UnsnappedCount)
 	fmt.Fprintf(out, "  Hexes reached:     %d\n", row.HexCount)
 	if row.UnreachableCount > 0 {

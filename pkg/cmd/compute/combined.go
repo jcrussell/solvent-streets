@@ -89,7 +89,7 @@ func RunCombined(ctx context.Context, f *cmdutil.Factory, grid []geo.Hex, draft 
 		if err != nil {
 			return err
 		}
-		cr := &combinedRunner{store: store, io: ios, sys: f.UnitSystem(), runID: runID}
+		cr := &combinedRunner{store: store, io: ios, sys: f.UnitSystem(), runID: runID, slug: city.Slug()}
 		if err := cr.save(ctx, combinedPass{hexes: hexes, buffered: bufs.all, label: resource.CombinedAll, featureCount: bufs.allCount}); err != nil {
 			return err
 		}
@@ -221,6 +221,7 @@ type combinedRunner struct {
 	io    *iostreams.IOStreams
 	sys   units.System
 	runID int64
+	slug  string // the city's, for the result headers
 }
 
 // combinedPass is one cross-resource union pass: the buffered geometries to
@@ -269,6 +270,6 @@ func (cr *combinedRunner) save(ctx context.Context, p combinedPass) error {
 	if p.label == resource.CombinedCity {
 		suffix = "Results (city only)"
 	}
-	printResults(cr.io.Out, "combined "+suffix, p.featureCount, area, 0, cr.sys)
+	printResults(cr.io.Out, cr.slug, "combined "+suffix, p.featureCount, area, 0, cr.sys)
 	return nil
 }
