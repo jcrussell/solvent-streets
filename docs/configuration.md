@@ -91,8 +91,8 @@ A relation whose bbox spans more than 5° is rejected as a likely county or
 state.
 
 **Census.** By default `pvmt all` also apportions 2020 Census population onto
-the city's hexes. Set `census = false` for a city outside the US, where
-TIGERweb has no blocks.
+the city's hexes: `census` defaults to true, unlike `overpass`. Set
+`census = false` for a city outside the US, where TIGERweb has no blocks.
 
 ### Tags
 
@@ -325,8 +325,8 @@ Every setting except `horizon_years` goes in `[forecast]` or a city's
 | Key | Default | Range | Sets |
 |---|---|---|---|
 | `initial_pci` | 85 | (0, 100] | the network's average starting condition ([Data sources](../internal/export/docs/methodology.md#data-sources)) |
-| `decay_rate` | per class | 0–1 | the decay rate of a typical road; every road class scales with it, and parking and sidewalks keep their own rates ([Decay model](../internal/export/docs/methodology.md#decay-model)) |
-| `growth_rate` | 0 | −0.5–0.5 | linear annual growth of paved area; a per-city `0` overrides the top level ([Area growth](../internal/export/docs/methodology.md#area-growth)) |
+| `decay_rate` | per class | 0–1 | the annual decay constant `k` of a typical road; every road class scales with it, and parking and sidewalks keep their own rates ([Decay model](../internal/export/docs/methodology.md#decay-model)) |
+| `growth_rate` | 0 | −0.5–0.5 | linear annual growth of paved area as a fraction, not a percentage (`0.01` is 1% a year); a per-city `0` overrides the top level ([Area growth](../internal/export/docs/methodology.md#area-growth)) |
 | `horizon_years` | 30 | 1–200 | the forecast horizon in years, one per config |
 | `cost_tiers` | 3 tiers | PCI 0–101 | treatment cost per m² by PCI band ([Cost model](../internal/export/docs/methodology.md#cost-model)) |
 | `cost_multiplier` | 1.0 | 0–5 | a factor on every tier's cost, not a percentage: 1.0 prices the tiers as written and 1.5 raises every cost by half ([Bare construction cost vs. loaded program cost](../internal/export/docs/methodology.md#bare-construction-cost-vs-loaded-program-cost)) |
@@ -379,8 +379,8 @@ overpass = true
   lon = -121.7680
 ```
 
-`[[services]]` overrides only the fields it sets, and an explicit `0` counts
-as set. The defaults and their sources are in the
+`turnout_s` and `travel_threshold_s` are in seconds. `[[services]]` overrides
+only the fields it sets, and an explicit `0` counts as set. The defaults and their sources are in the
 [methodology](../internal/export/docs/methodology.md#service-coverage-fire-response).
 A hand-placed facility is routed from exactly like a mapped one. Mapped
 stations are fetched up to 5 km beyond the boundary's bounding box, with the
