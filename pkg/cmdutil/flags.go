@@ -67,11 +67,6 @@ func (f *SourceFlag) Completion() cobra.CompletionFunc {
 // allowlist at parse time.
 type UnitSystem string
 
-const (
-	UnitMetric   UnitSystem = units.MetricName
-	UnitImperial UnitSystem = units.ImperialName
-)
-
 func (u *UnitSystem) Set(v string) error {
 	if v == "" {
 		*u = ""

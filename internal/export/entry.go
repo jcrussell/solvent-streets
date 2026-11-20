@@ -113,16 +113,6 @@ func (entry CityEntry) NewestSnapshot(ctx context.Context) (*db.SnapshotCity, er
 	return &snaps[0], nil // newest first
 }
 
-// PinNewestSnapshot returns entry pinned to its newest snapshot
-// (NewestSnapshot), or unchanged when it has none.
-func (entry CityEntry) PinNewestSnapshot(ctx context.Context) (CityEntry, error) {
-	snap, err := entry.NewestSnapshot(ctx)
-	if err != nil || snap == nil {
-		return entry, err
-	}
-	return entry.WithSnapshot(snap.ID), nil
-}
-
 // PinNewest pins every entry in place to its newest snapshot, so one export
 // reads each city from that one snapshot throughout even if another is created
 // meanwhile. It writes nothing and pins nothing unless every city has a

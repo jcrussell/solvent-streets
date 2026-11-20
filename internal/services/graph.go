@@ -385,12 +385,6 @@ func (g *Graph) Nearest(x, y, maxDist float64) (int, bool) {
 	return best, best >= 0
 }
 
-// NearestLonLat is Nearest for an unprojected position.
-func (g *Graph) NearestLonLat(lon, lat, maxDist float64) (int, bool) {
-	x, y := g.proj.ToProjected(lon, lat)
-	return g.Nearest(x, y, maxDist)
-}
-
 // squareAround is the envelope of half-side d centred on (x, y): the R-tree
 // prefilter for a radius-d search.
 func squareAround(x, y, d float64) geom.Envelope {
@@ -547,16 +541,6 @@ func (g *Graph) AlongSegment(from, to Snap) float64 {
 		return math.Abs(d) / sg.mps
 	}
 	return math.Inf(1)
-}
-
-// ShortestFrom runs a multi-source Dijkstra with every source vertex
-// starting at zero; see ShortestFromSeeds.
-func (g *Graph) ShortestFrom(sources []int) (dist []float64, src []int) {
-	seeds := make([]Seed, 0, len(sources))
-	for i, s := range sources {
-		seeds = append(seeds, Seed{Node: s, Source: i})
-	}
-	return g.ShortestFromSeeds(seeds)
 }
 
 // ShortestFromSeeds runs a multi-source Dijkstra from seeds: each vertex ends

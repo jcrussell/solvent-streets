@@ -59,7 +59,7 @@ func TestBuildHexMetrics_MarkersAndLegendFromTheRun(t *testing.T) {
 	if _, err := dbtest.Publish(ctx, c.root, c.id, hash, cfg.ResolvedHexEdge(&c.city), map[string]int64{"roads": roads.ID, db.ServiceProducer("fire"): run.ID}); err != nil {
 		t.Fatal(err)
 	}
-	entry, err := c.entry().PinNewestSnapshot(ctx)
+	entry, err := pinNewestSnapshot(ctx, c.entry())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +135,7 @@ func TestBuildHexMetrics_SourceStatesTheRunsTurnout(t *testing.T) {
 		if _, err := dbtest.Publish(ctx, c.root, c.id, hash, cfg.ResolvedHexEdge(&c.city), map[string]int64{"roads": roads.ID, db.ServiceProducer("fire"): run.ID}); err != nil {
 			t.Fatal(err)
 		}
-		entry, err := c.entry().PinNewestSnapshot(ctx)
+		entry, err := pinNewestSnapshot(ctx, c.entry())
 		if err != nil {
 			t.Fatal(err)
 		}

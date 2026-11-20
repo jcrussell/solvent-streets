@@ -4,6 +4,8 @@ import (
 	"errors"
 	"log/slog"
 	"testing"
+
+	"github.com/jcrussell/solvent-streets/internal/units"
 )
 
 func TestUnitSystem_Set(t *testing.T) {
@@ -14,8 +16,8 @@ func TestUnitSystem_Set(t *testing.T) {
 		wantErr bool
 	}{
 		{"empty falls back", "", "", false},
-		{"metric", "metric", UnitMetric, false},
-		{"imperial", "imperial", UnitImperial, false},
+		{"metric", "metric", UnitSystem(units.MetricName), false},
+		{"imperial", "imperial", UnitSystem(units.ImperialName), false},
 		{"invalid", "bogus", "", true},
 	}
 	for _, tt := range tests {

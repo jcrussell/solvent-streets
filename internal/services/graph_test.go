@@ -54,9 +54,9 @@ func TestBuildGraph_SharedVertexJoinsWays(t *testing.T) {
 	if g.NodeCount() != 4 {
 		t.Fatalf("shared vertex B must be one node: got %d nodes, want 4", g.NodeCount())
 	}
-	a, _ := g.NearestLonLat(lonA, latA, 1)
-	c, _ := g.NearestLonLat(lonC, latC, 1)
-	dist, src := g.ShortestFrom([]int{a})
+	a, _ := nearestLonLat(g, lonA, latA)
+	c, _ := nearestLonLat(g, lonC, latC)
+	dist, src := shortestFrom(g, []int{a})
 	want := (metres(p, [2]float64{lonA, latA}, [2]float64{lonB, latB}) + metres(p, [2]float64{lonB, latB}, [2]float64{lonC, latC})) / (40 / 3.6)
 	if math.Abs(dist[c]-want) > 1e-6 || src[c] != 0 {
 		t.Errorf("A→C = %v s via source %d, want %v s via 0", dist[c], src[c], want)
@@ -68,9 +68,9 @@ func TestBuildGraph_MaxspeedBeatsClass(t *testing.T) {
 	g := BuildGraph(context.Background(), []resource.Feature{
 		line(map[string]string{"highway": "residential", "maxspeed": "25 mph"}, [2]float64{lonA, latA}, [2]float64{lonB, latB}),
 	}, DefaultRoadSpeeds, p)
-	a, _ := g.NearestLonLat(lonA, latA, 1)
-	b, _ := g.NearestLonLat(lonB, latB, 1)
-	dist, _ := g.ShortestFrom([]int{a})
+	a, _ := nearestLonLat(g, lonA, latA)
+	b, _ := nearestLonLat(g, lonB, latB)
+	dist, _ := shortestFrom(g, []int{a})
 	want := metres(p, [2]float64{lonA, latA}, [2]float64{lonB, latB}) / (25 * mphToKmh / 3.6)
 	if math.Abs(dist[b]-want) > 1e-6 {
 		t.Errorf("cost = %v, want %v (25 mph, not the 40 km/h class default)", dist[b], want)
@@ -85,19 +85,19 @@ func TestBuildGraph_OnewayBlocksReverse(t *testing.T) {
 		"roundabout": {"highway": "residential", "junction": "roundabout"},
 	} {
 		g := BuildGraph(context.Background(), []resource.Feature{line(tags, [2]float64{lonA, latA}, [2]float64{lonB, latB})}, DefaultRoadSpeeds, p)
-		a, _ := g.NearestLonLat(lonA, latA, 1)
-		b, _ := g.NearestLonLat(lonB, latB, 1)
-		fwd, _ := g.ShortestFrom([]int{a})
-		back, _ := g.ShortestFrom([]int{b})
+		a, _ := nearestLonLat(g, lonA, latA)
+		b, _ := nearestLonLat(g, lonB, latB)
+		fwd, _ := shortestFrom(g, []int{a})
+		back, _ := shortestFrom(g, []int{b})
 		if math.IsInf(fwd[b], 1) || !math.IsInf(back[a], 1) {
 			t.Errorf("%s: forward reachable=%v, reverse reachable=%v; want true/false", name, !math.IsInf(fwd[b], 1), !math.IsInf(back[a], 1))
 		}
 	}
 	g := BuildGraph(context.Background(), []resource.Feature{line(map[string]string{"highway": "residential", "oneway": "-1"}, [2]float64{lonA, latA}, [2]float64{lonB, latB})}, DefaultRoadSpeeds, p)
-	a, _ := g.NearestLonLat(lonA, latA, 1)
-	b, _ := g.NearestLonLat(lonB, latB, 1)
-	fwd, _ := g.ShortestFrom([]int{a})
-	back, _ := g.ShortestFrom([]int{b})
+	a, _ := nearestLonLat(g, lonA, latA)
+	b, _ := nearestLonLat(g, lonB, latB)
+	fwd, _ := shortestFrom(g, []int{a})
+	back, _ := shortestFrom(g, []int{b})
 	if !math.IsInf(fwd[b], 1) || math.IsInf(back[a], 1) {
 		t.Error("oneway=-1 must allow only the reverse direction")
 	}
@@ -109,9 +109,9 @@ func TestBuildGraph_IslandUnreachableAndSnapRadius(t *testing.T) {
 		line(map[string]string{"highway": "residential"}, [2]float64{lonA, latA}, [2]float64{lonB, latB}),
 		line(map[string]string{"highway": "residential"}, [2]float64{lonC, latC}, [2]float64{lonD, latD}), // disjoint island
 	}, DefaultRoadSpeeds, p)
-	a, _ := g.NearestLonLat(lonA, latA, 1)
-	c, _ := g.NearestLonLat(lonC, latC, 1)
-	dist, src := g.ShortestFrom([]int{a})
+	a, _ := nearestLonLat(g, lonA, latA)
+	c, _ := nearestLonLat(g, lonC, latC)
+	dist, src := shortestFrom(g, []int{a})
 	if !math.IsInf(dist[c], 1) || src[c] != -1 {
 		t.Errorf("island must be unreachable: dist=%v src=%d", dist[c], src[c])
 	}
@@ -354,7 +354,7 @@ func TestSeedsAndArrival_AtVertexIgnoresDirection(t *testing.T) {
 		t.Fatalf("snap at B = %+v (ok=%v), want T=1", atB, ok)
 	}
 	seeds := g.SeedsAt(atB, 0)
-	b, _ := g.NearestLonLat(lonB, latB, 1)
+	b, _ := nearestLonLat(g, lonB, latB)
 	if len(seeds) != 1 || seeds[0].Node != b || seeds[0].Cost != 0 {
 		t.Errorf("seeds at B on A→B oneway = %+v, want only B at 0 s (A is upstream)", seeds)
 	}
@@ -363,12 +363,12 @@ func TestSeedsAndArrival_AtVertexIgnoresDirection(t *testing.T) {
 	// B cannot reach it (driving B→A is forbidden).
 	ax, ay := p.ToProjected(lonA, latA)
 	mid, _ := g.SnapWhere((ax+bx)/2, (ay+by)/2, 1, nil)
-	a, _ := g.NearestLonLat(lonA, latA, 1)
-	dist, src := g.ShortestFrom([]int{a})
+	a, _ := nearestLonLat(g, lonA, latA)
+	dist, src := shortestFrom(g, []int{a})
 	if secs, s := g.ArrivalAt(mid, dist, src); math.IsInf(secs, 1) || s != 0 {
 		t.Errorf("midpoint from A = (%v, %d), want reachable from source 0", secs, s)
 	}
-	dist, src = g.ShortestFrom([]int{b})
+	dist, src = shortestFrom(g, []int{b})
 	if secs, s := g.ArrivalAt(mid, dist, src); !math.IsInf(secs, 1) || s != -1 {
 		t.Errorf("midpoint from B = (%v, %d), want unreachable against the oneway", secs, s)
 	}
@@ -489,8 +489,8 @@ func TestBuildGraph_ClosedWaysLeftOut(t *testing.T) {
 				line(map[string]string{"highway": "residential"}, [2]float64{lonA, latA}, [2]float64{lonB, latB}),
 				line(gated, [2]float64{lonB, latB}, [2]float64{lonC, latC}),
 			}, DefaultRoadSpeeds, p)
-			a, _ := g.NearestLonLat(lonA, latA, 1)
-			c, onGraph := g.NearestLonLat(lonC, latC, 1)
+			a, _ := nearestLonLat(g, lonA, latA)
+			c, onGraph := nearestLonLat(g, lonC, latC)
 			if !tc.open {
 				if onGraph {
 					t.Errorf("%v: the closed way must not be in the graph", tc.tags)
@@ -500,7 +500,7 @@ func TestBuildGraph_ClosedWaysLeftOut(t *testing.T) {
 			if !onGraph {
 				t.Fatalf("%v: the way must be in the graph", tc.tags)
 			}
-			if dist, _ := g.ShortestFrom([]int{a}); math.IsInf(dist[c], 1) {
+			if dist, _ := shortestFrom(g, []int{a}); math.IsInf(dist[c], 1) {
 				t.Errorf("%v: C must be reachable through the way", tc.tags)
 			}
 		})
@@ -577,4 +577,20 @@ func TestWithRoutingRoads(t *testing.T) {
 	if got := WithRoutingRoads(city, "all", routing); len(got) != 1 {
 		t.Errorf("agency-centerline city: got %+v, want its own rows only", got)
 	}
+}
+
+// nearestLonLat is g.Nearest within 1 m of an unprojected position.
+func nearestLonLat(g *Graph, lon, lat float64) (int, bool) {
+	x, y := g.proj.ToProjected(lon, lat)
+	return g.Nearest(x, y, 1)
+}
+
+// shortestFrom runs g.ShortestFromSeeds with every source vertex starting at
+// zero, source i labelled i.
+func shortestFrom(g *Graph, sources []int) (dist []float64, src []int) {
+	seeds := make([]Seed, 0, len(sources))
+	for i, s := range sources {
+		seeds = append(seeds, Seed{Node: s, Source: i})
+	}
+	return g.ShortestFromSeeds(seeds)
 }

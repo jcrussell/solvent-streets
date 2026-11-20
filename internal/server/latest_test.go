@@ -40,7 +40,7 @@ func TestDataFile_SnapshotLatest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pinned, err := entry.PinNewestSnapshot(ctx)
+	pinned, err := pinNewestSnapshot(ctx, entry)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,4 +94,14 @@ func TestDataFile_SnapshotLatest(t *testing.T) {
 	if m := meta(unsnapped, ""); !m.LatestCompute || roads(m) != 300 {
 		t.Errorf("no-snapshot city default = latest %v roads %v, want its latest compute", m.LatestCompute, roads(m))
 	}
+}
+
+// pinNewestSnapshot returns entry pinned to its newest snapshot, or
+// unchanged when it has none.
+func pinNewestSnapshot(ctx context.Context, entry export.CityEntry) (export.CityEntry, error) {
+	snap, err := entry.NewestSnapshot(ctx)
+	if err != nil || snap == nil {
+		return entry, err
+	}
+	return entry.WithSnapshot(snap.ID), nil
 }

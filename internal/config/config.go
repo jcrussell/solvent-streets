@@ -323,11 +323,6 @@ type ForecastConfig struct {
 	growthRateSet bool
 }
 
-// GrowthRateSet reports whether growth_rate was explicitly present in the
-// source TOML. Callers that resolve forecast layers need this to tell an
-// explicit 0 from an absent field; see growthRateSet.
-func (fc *ForecastConfig) GrowthRateSet() bool { return fc != nil && fc.growthRateSet }
-
 // nonFinite reports whether v is NaN or either infinity.
 //
 // It exists because TOML accepts the `nan` and `inf` float literals

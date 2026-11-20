@@ -212,10 +212,10 @@ initial_pci = 70
 
 	stater := cityBySlug(t, cfg, "stater")
 	quiet := cityBySlug(t, cfg, "quiet")
-	if !stater.Forecast.GrowthRateSet() {
+	if !stater.Forecast.growthRateSet {
 		t.Error("stater: growth_rate presence not recorded")
 	}
-	if quiet.Forecast.GrowthRateSet() {
+	if quiet.Forecast.growthRateSet {
 		t.Error("quiet: growth_rate marked present, but this city never stated it")
 	}
 	if got := growthRateOf(t, cfg, "quiet"); got != 0.02 {

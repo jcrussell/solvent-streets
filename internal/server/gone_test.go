@@ -77,7 +77,7 @@ func TestDataFile_PinnedSnapshotDeletedIs410(t *testing.T) {
 	entry, store, commit := sqliteEntry(t, cfg, cfg.Cities[0])
 	commit(100)
 	newest := commit(200)
-	pinned, err := entry.PinNewestSnapshot(ctx)
+	pinned, err := pinNewestSnapshot(ctx, entry)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +169,7 @@ func TestDataFile_SnapshotAtAnotherEdgeRenders(t *testing.T) {
 		t.Fatal(err)
 	}
 	commitGrid(cfg)
-	pinned, err := entry.PinNewestSnapshot(ctx)
+	pinned, err := pinNewestSnapshot(ctx, entry)
 	if err != nil {
 		t.Fatal(err)
 	}

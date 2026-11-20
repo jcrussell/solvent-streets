@@ -122,7 +122,7 @@ func TestSnapshot_RendersOnItsOwnEdgeAndBoundary(t *testing.T) {
 			len(ids), covered, len(oldIDs))
 	}
 
-	latest, err := c.entry().PinNewestSnapshot(ctx)
+	latest, err := pinNewestSnapshot(ctx, c.entry())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,4 +159,14 @@ func TestSliverThresholdWarning(t *testing.T) {
 	if w := sliverThresholdWarning(entry, 50); !strings.Contains(w, "min_hex_area") || !strings.Contains(w, "Fine City") {
 		t.Errorf("50 m edge: warning = %q, want one naming the city and min_hex_area", w)
 	}
+}
+
+// pinNewestSnapshot returns entry pinned to its newest snapshot, or
+// unchanged when it has none.
+func pinNewestSnapshot(ctx context.Context, entry CityEntry) (CityEntry, error) {
+	snap, err := entry.NewestSnapshot(ctx)
+	if err != nil || snap == nil {
+		return entry, err
+	}
+	return entry.WithSnapshot(snap.ID), nil
 }
