@@ -126,11 +126,7 @@ func probeGeneration(ctx context.Context, path string) error {
 	if _, err := os.Stat(path); err != nil {
 		return nil
 	}
-	// A file: URI, so SQLite applies mode=ro. '%' and '#' are its escape and
-	// fragment characters; Open has already refused a path holding '?'.
-	uri := "file:" + strings.NewReplacer("%", "%25", "#", "%23").Replace(filepath.ToSlash(path)) +
-		"?mode=ro&_pragma=busy_timeout(5000)"
-	d, err := sql.Open("sqlite", uri)
+	d, err := sql.Open("sqlite", readOnlyURI(path, 5000))
 	if err != nil {
 		return nil
 	}
@@ -338,4 +334,38 @@ func applyMigration(ctx context.Context, d *sql.DB, name string, version int, da
 		return fmt.Errorf("commit migration %s: %w", name, err)
 	}
 	return nil
+}
+
+// readOnlyURI is a file: URI opening path read-only (SQLite applies mode=ro
+// only to a URI) with a busy timeout of busyMS. '%' and '#' are its escape
+// and fragment characters; Open has already refused a path holding '?'.
+func readOnlyURI(path string, busyMS int) string {
+	return "file:" + strings.NewReplacer("%", "%25", "#", "%23").Replace(filepath.ToSlash(path)) +
+		fmt.Sprintf("?mode=ro&_pragma=busy_timeout(%d)", busyMS)
+}
+
+// SnapshotNames lists the snapshot names in the database at path, newest
+// first, through a read-only connection that runs no migration and waits at
+// most a moment on a busy database: it serves shell completion, which must
+// neither write nor hang. A database that cannot be read lists nothing.
+func SnapshotNames(ctx context.Context, path string) ([]string, error) {
+	d, err := sql.Open("sqlite", readOnlyURI(path, 200))
+	if err != nil {
+		return nil, fmt.Errorf("open %s: %w", path, err)
+	}
+	defer func() { _ = d.Close() }()
+	rows, err := d.QueryContext(ctx, sqlListSnapshots)
+	if err != nil {
+		return nil, fmt.Errorf("list snapshots: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var out []string
+	for rows.Next() {
+		var s Snapshot
+		if err := rows.Scan(&s.ID, &s.Name, unixTime{&s.CreatedAt}, &s.ComputeEpoch, &s.CityCount); err != nil {
+			return nil, fmt.Errorf("scan snapshot: %w", err)
+		}
+		out = append(out, s.Name)
+	}
+	return out, rows.Err()
 }

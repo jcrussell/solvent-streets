@@ -72,9 +72,10 @@ func NewCmdShow(f *cmdutil.Factory, runF func(context.Context, *ShowOptions) err
 	}
 
 	cmd := &cobra.Command{
-		Use:   "show <name>",
-		Args:  snapshotNameArgs(1),
-		Short: "Show each city in a snapshot",
+		Use:               "show <name>",
+		Args:              snapshotNameArgs(1),
+		ValidArgsFunction: cmdutil.SnapshotNameCompletion(f, 1),
+		Short:             "Show each city in a snapshot",
 		Long: `Show a snapshot: when it was created and by which compute epoch, then one
 row per city it covers, with the config hash the city was computed under,
 its hex edge, and the run filling each part ("roads#12" is run 12). Use

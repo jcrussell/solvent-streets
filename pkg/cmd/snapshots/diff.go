@@ -136,9 +136,10 @@ func NewCmdDiff(f *cmdutil.Factory, runF func(context.Context, *DiffOptions) err
 	}
 
 	cmd := &cobra.Command{
-		Use:   "diff <a> <b>",
-		Args:  snapshotNameArgs(2),
-		Short: "Compare two snapshots city by city",
+		Use:               "diff <a> <b>",
+		Args:              snapshotNameArgs(2),
+		ValidArgsFunction: cmdutil.SnapshotNameCompletion(f, 2),
+		Short:             "Compare two snapshots city by city",
 		Long: `Compare the computed results of two snapshots, one row per city: the paved
 area, feature count and parking spaces of each resource and the combined
 pass, every jurisdiction and city-maintained; census population and housing

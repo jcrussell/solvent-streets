@@ -52,7 +52,8 @@ snapshot, so deleting that one rolls every city back to the one before.
 
   # Replace it with the current latest compute
   pvmt snapshots delete 2026-11 --yes && pvmt snapshots create 2026-11`,
-		Args: snapshotNameArgs(1),
+		Args:              snapshotNameArgs(1),
+		ValidArgsFunction: cmdutil.SnapshotNameCompletion(f, 1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := rejectCity(opts.CityFlagSet, "delete"); err != nil {
 				return err

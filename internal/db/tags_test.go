@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 )
@@ -274,5 +275,26 @@ func TestRootListSnapshots(t *testing.T) {
 	}
 	if _, err := root.ForCity(b).ResolveSnapshot(ctx, "v1"); !errors.Is(err, ErrSnapshotNotFound) {
 		t.Errorf("b resolving v1 (without it): err = %v, want ErrSnapshotNotFound", err)
+	}
+}
+
+// TestSnapshotNames lists the names newest first through a read-only
+// connection, and nothing for a path with no database.
+func TestSnapshotNames(t *testing.T) {
+	path := filepath.Join(t.TempDir(), FileName)
+	root, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+	ctx := context.Background()
+	for i, name := range []string{"2026-10", "2026-11"} {
+		if _, err := root.db.ExecContext(ctx, `INSERT INTO snapshots (name, created_at, compute_epoch) VALUES (?, ?, 1)`, name, 1000+i); err != nil {
+			t.Fatal(err)
+		}
+	}
+	names, err := SnapshotNames(ctx, path)
+	if err != nil || len(names) != 2 || names[0] != "2026-11" || names[1] != "2026-10" {
+		t.Errorf("SnapshotNames = %v, %v; want [2026-11 2026-10]", names, err)
 	}
 }

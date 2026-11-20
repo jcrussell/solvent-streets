@@ -75,6 +75,7 @@ must cover every configured city; the page's snapshot picker shows any other.`,
 	cmd.Flags().StringVar(&opts.Host, "host", "127.0.0.1", "Host interface to bind")
 	cmd.Flags().IntVar(&opts.Port, "port", 8080, "Port to listen on")
 	cmd.Flags().StringVar(&opts.Snapshot, "snapshot", "", "Publish the snapshot with this name instead of each city's newest (pvmt snapshots list)")
+	_ = cmd.RegisterFlagCompletionFunc("snapshot", cmdutil.SnapshotNameCompletion(f, -1))
 	cmd.Flags().StringVar(&opts.ReadyFile, "ready-file", "",
 		"Write the listening URL to this file once the listener is bound (for orchestration)")
 

@@ -397,6 +397,9 @@ type RootStore struct {
 
 var _ RootStorer = (*RootStore)(nil)
 
+// FileName is the shared database's file name inside the data directory.
+const FileName = "pvmt.db"
+
 func DefaultPath() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -406,7 +409,7 @@ func DefaultPath() (string, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "pvmt.db"), nil
+	return filepath.Join(dir, FileName), nil
 }
 
 // openBusyBudget bounds how long Open's migrate retries while another

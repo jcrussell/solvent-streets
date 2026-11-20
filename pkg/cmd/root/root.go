@@ -143,6 +143,7 @@ func NewCmdRoot(f *cmdutil.Factory) *cobra.Command {
 
 	addCommandGroups(cmd)
 	addSubcommands(cmd, f)
+	cmdutil.DefaultNoFileCompletion(cmd)
 	refuseUnknownHelpTopics(cmd)
 
 	return cmd

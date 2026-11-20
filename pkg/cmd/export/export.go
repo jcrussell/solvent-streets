@@ -86,8 +86,10 @@ exported with a warning. Deploy to GitHub Pages or any static host.`,
 	}
 
 	cmd.Flags().StringVarP(&opts.OutputDir, "output", "o", "site", "Output directory")
+	_ = cmd.MarkFlagDirname("output")
 	cmd.Flags().BoolVar(&opts.Clean, "clean", false, "Remove output directory before exporting")
 	cmd.Flags().StringVar(&opts.Snapshot, "snapshot", "", "Publish the snapshot with this name instead of each city's newest (pvmt snapshots list)")
+	_ = cmd.RegisterFlagCompletionFunc("snapshot", cmdutil.SnapshotNameCompletion(f, -1))
 	cmdutil.AddDocumentJSONFlags(cmd, &opts.JSON, "Emit a JSON manifest of written files to stdout instead of human chatter")
 
 	return cmd

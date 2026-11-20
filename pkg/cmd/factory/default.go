@@ -391,7 +391,7 @@ func rootDBFactory(f *cmdutil.Factory, path string) func() (*db.RootStore, error
 				}
 				return nil, err
 			}
-			resolved = filepath.Join(p.Data, "pvmt.db")
+			resolved = filepath.Join(p.Data, db.FileName)
 		}
 		store, err := db.Open(resolved)
 		if err != nil && errors.Is(err, fs.ErrPermission) {

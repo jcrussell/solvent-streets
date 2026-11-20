@@ -106,6 +106,12 @@ Exits non-zero if any check FAILs. With --strict, warnings fail too.`,
   # Treat warnings as failures (CI gate)
   pvmt check-site --strict`,
 		Args: cobra.MaximumNArgs(1),
+		ValidArgsFunction: func(_ *cobra.Command, args []string, _ string) ([]cobra.Completion, cobra.ShellCompDirective) {
+			if len(args) > 0 {
+				return nil, cobra.ShellCompDirectiveNoFileComp
+			}
+			return nil, cobra.ShellCompDirectiveFilterDirs
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.Dir = "site"
 			if len(args) == 1 {
