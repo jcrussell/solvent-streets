@@ -39,7 +39,7 @@ func BuildMultiCityMeta(ctx context.Context, entries []CityEntry, title string) 
 	}
 
 	meta := MetaJSON{
-		ProjectName:  title,
+		Name:         title,
 		BBox:         geoJSONBBox(bbox),
 		Center:       [2]float64{centerLon, centerLat},
 		SnapshotDate: time.Now().Format(time.DateOnly),
@@ -63,7 +63,7 @@ func BuildMultiCityMeta(ctx context.Context, entries []CityEntry, title string) 
 	return meta, nil
 }
 
-// aggregatePerResourceStats sums TotalArea and EstimatedSpaces per resource
+// aggregatePerResourceStats sums Area and EstimatedSpaces per resource
 // type across all entries, returning the per-resource cards in resource.All
 // order. Resources with no rows in any entry are omitted.
 //

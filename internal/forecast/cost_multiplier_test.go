@@ -20,11 +20,11 @@ func TestCostMultiplier_ScalesLinearlyAndExactlyOnce(t *testing.T) {
 
 	for _, pci := range []float64{15, 45, 55, 85, 100} {
 		bare := (&TieredCostProjector{Tiers: tiers, Multiplier: 1}).ProjectCost(area, pci)
-		for _, oh := range []float64{1.5, 2, 2.5} {
-			got := (&TieredCostProjector{Tiers: tiers, Multiplier: oh}).ProjectCost(area, pci)
-			want := bare * oh
+		for _, mult := range []float64{1.5, 2, 2.5} {
+			got := (&TieredCostProjector{Tiers: tiers, Multiplier: mult}).ProjectCost(area, pci)
+			want := bare * mult
 			if math.Abs(got-want) > 1e-6*math.Abs(want) {
-				t.Errorf("PCI %g multiplier %g: cost = %g, want %g (bare %g x %g)", pci, oh, got, want, bare, oh)
+				t.Errorf("PCI %g multiplier %g: cost = %g, want %g (bare %g x %g)", pci, mult, got, want, bare, mult)
 			}
 		}
 	}
@@ -46,10 +46,10 @@ func TestCostMultiplier_NonPositiveMeansBareNotDefault(t *testing.T) {
 	tiers := []CostTier{{MinPCI: 0, MaxPCI: 101, CostPerSqM: 10, Label: "flat"}}
 	want := (&TieredCostProjector{Tiers: tiers, Multiplier: 1}).ProjectCost(1000, 50)
 
-	for _, oh := range []float64{0, -1, math.NaN(), math.Inf(1), math.Inf(-1)} {
-		got := (&TieredCostProjector{Tiers: tiers, Multiplier: oh}).ProjectCost(1000, 50)
+	for _, mult := range []float64{0, -1, math.NaN(), math.Inf(1), math.Inf(-1)} {
+		got := (&TieredCostProjector{Tiers: tiers, Multiplier: mult}).ProjectCost(1000, 50)
 		if got != want {
-			t.Errorf("multiplier %v: cost = %g, want %g (bare)", oh, got, want)
+			t.Errorf("multiplier %v: cost = %g, want %g (bare)", mult, got, want)
 		}
 	}
 }
@@ -60,10 +60,10 @@ func TestCostMultiplier_NonPositiveMeansBareNotDefault(t *testing.T) {
 // order the two are applied in must not matter.
 func TestCostMultiplier_ComposesWithSidewalkRatio(t *testing.T) {
 	tiers := []CostTier{{MinPCI: 0, MaxPCI: 101, CostPerSqM: 100, Label: "flat"}}
-	const oh = 1.5
+	const mult = 1.5
 
-	road := NewParams(0, tiers, 12, oh)
-	walk := NewParamsForResource("sidewalks", 0, tiers, 12, oh)
+	road := NewParams(0, tiers, 12, mult)
+	walk := NewParamsForResource("sidewalks", 0, tiers, 12, mult)
 
 	roadCost := road.Cost.ProjectCost(1000, 50)
 	walkCost := walk.Cost.ProjectCost(1000, 50)
@@ -75,8 +75,8 @@ func TestCostMultiplier_ComposesWithSidewalkRatio(t *testing.T) {
 	// And it is loaded, not bare — a sidewalk path that dropped the multiplier
 	// would still satisfy the ratio above against a bare road cost.
 	bareWalk := NewParamsForResource("sidewalks", 0, tiers, 12, 1).Cost.ProjectCost(1000, 50)
-	if math.Abs(walkCost-bareWalk*oh) > 1e-9*walkCost {
-		t.Errorf("sidewalk cost = %g, want %g (bare sidewalk %g x %g)", walkCost, bareWalk*oh, bareWalk, oh)
+	if math.Abs(walkCost-bareWalk*mult) > 1e-9*walkCost {
+		t.Errorf("sidewalk cost = %g, want %g (bare sidewalk %g x %g)", walkCost, bareWalk*mult, bareWalk, mult)
 	}
 }
 

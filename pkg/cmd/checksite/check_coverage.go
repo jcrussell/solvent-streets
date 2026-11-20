@@ -71,8 +71,8 @@ func (r *runner) perResidentByResource(s *site) map[string][]cityCoverage {
 		}
 		for _, st := range meta.Stats {
 			_, partial := meta.FailingSources[st.ResourceType]
-			if st.TotalArea > 0 && !partial && !slices.Contains(meta.MissingResources, st.ResourceType) {
-				byRes[st.ResourceType] = append(byRes[st.ResourceType], cityCoverage{d.label, st.TotalArea / *pop.Total})
+			if st.Area > 0 && !partial && !slices.Contains(meta.MissingResources, st.ResourceType) {
+				byRes[st.ResourceType] = append(byRes[st.ResourceType], cityCoverage{d.label, st.Area / *pop.Total})
 			}
 		}
 	}

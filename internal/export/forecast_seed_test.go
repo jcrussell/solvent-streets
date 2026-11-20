@@ -242,7 +242,7 @@ func TestMergeCohortSeeds_CityScopeReadsCityLabels(t *testing.T) {
 // share, measured at 1.4% (alameda-ca) to 8.9% (austin-tx) in a real export.
 //
 // The share must be computed on the COHORT area basis, because that is what
-// scenario.years[].area sums; the combined compute rows behind total_area are
+// scenario.years[].area sums; the combined compute rows behind area are
 // deduped union geometry and would give a slightly different, wrong answer.
 func TestForecastSeed_AsphaltShareNetsOutSidewalks(t *testing.T) {
 	ctx := context.Background()

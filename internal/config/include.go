@@ -250,7 +250,7 @@ func checkIncludedHorizon(parent, child *Config) error {
 	return errors.Join(ErrInvalidConfig, fmt.Errorf(
 		"forecast.horizon_years is %d there but %d in the including file; a config has one forecast horizon, "+
 			"so set the same top-level forecast.horizon_years in both (or leave both unset for the default %d)",
-		cy, py, DefaultForecastYears))
+		cy, py, DefaultHorizonYears))
 }
 
 // fileHorizon is the horizon a file states, with unset read as the default.

@@ -15,7 +15,7 @@ func TestForecastDefaults_GoConstantsWithoutASeed(t *testing.T) {
 	got := TemplateData{}.ForecastDefaults()
 	want := ForecastDefaults{
 		InitialPCI:          config.DefaultInitialPCI,
-		HorizonYears:        config.DefaultForecastYears,
+		HorizonYears:        config.DefaultHorizonYears,
 		TreatmentCycleYears: forecast.DefaultTreatmentCycleYears,
 		BarrelsPerTonBinder: forecast.BarrelsPerTonBinder,
 		PCIDecimals:         forecast.EmitPCIDecimals,
@@ -45,7 +45,7 @@ func TestForecastDefaults_FollowTheSeed(t *testing.T) {
 }
 
 func TestGameHorizons(t *testing.T) {
-	def := config.DefaultForecastYears
+	def := config.DefaultHorizonYears
 	if got := (TemplateData{}).GameHorizons(); !slices.Contains(got, def) || !slices.IsSorted(got) || len(got) != len(gameHorizonAlternatives)+1 {
 		t.Errorf("GameHorizons() = %v; want the default horizon %d among the alternatives %v", got, def, gameHorizonAlternatives)
 	}

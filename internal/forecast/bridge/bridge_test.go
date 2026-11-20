@@ -350,10 +350,9 @@ func jsonTags(typ reflect.Type) map[string]string {
 // (budget 0, default decay) — wrong numbers, no error. This test fails on such
 // a rename so the contract can't drift unnoticed.
 //
-// Scope: only the genuinely seed-supplied keys are asserted. bridge-only keys
-// (area, growth_rate, years, annual_budget, strategy) are template-supplied,
-// not seed-supplied, so they have no ForecastSeedJSON counterpart and are
-// intentionally excluded.
+// Scope: only the seed-supplied keys are asserted. The bridge-only keys (area,
+// annual_budget, strategy, solvency, scenarios) are supplied by the page, not
+// the seed, so they have no ForecastSeedJSON counterpart and are excluded.
 func TestJSONKeyContract(t *testing.T) {
 	seedTags := jsonTags(reflect.TypeFor[export.ForecastSeedJSON]())
 	cohortSeedTags := jsonTags(reflect.TypeFor[export.CohortSeed]())
@@ -403,8 +402,7 @@ func TestJSONKeyContract(t *testing.T) {
 // a new pvmt.wasm with an old per-city forecast_seed.json that has no
 // cost_multiplier field at all, which decodes to 0.0. A bare multiply would then
 // price every figure on the page at $0 — and $0 renders as a plausible-looking
-// "fully funded" rather than as an error. Bare figures are wrong by ~1.5x;
-// blank ones are wrong by everything.
+// "fully funded" rather than as an error.
 func TestRun_MissingCostMultiplierPricesBareNotZero(t *testing.T) {
 	base := `{"area":1000000,"initial_pci":70,"decay_rate":0.04,"horizon_years":3,
 	          "treatment_cycle_years":12,"annual_budget":0,"strategy":"do_nothing"}`

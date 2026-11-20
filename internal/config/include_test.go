@@ -1940,7 +1940,7 @@ func TestInclude_OneHorizon(t *testing.T) {
 		}
 		reno := cityBySlug(t, cfg, "reno-nv")
 		if got := cfg.ResolvedForecast(&reno).HorizonYears; got != 30 {
-			t.Errorf("Years = %d, want the default 30", got)
+			t.Errorf("HorizonYears = %d, want the default 30", got)
 		}
 	})
 	t.Run("agreeing horizons load", func(t *testing.T) {
@@ -1953,7 +1953,7 @@ func TestInclude_OneHorizon(t *testing.T) {
 		}
 		reno := cityBySlug(t, cfg, "reno-nv")
 		if got := cfg.ResolvedForecast(&reno).HorizonYears; got != 25 {
-			t.Errorf("Years = %d, want 25", got)
+			t.Errorf("HorizonYears = %d, want 25", got)
 		}
 	})
 	for name, files := range map[string][2]string{

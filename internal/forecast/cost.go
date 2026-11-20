@@ -159,9 +159,9 @@ func (p *TieredCostProjector) resolvedAnchors() []costAnchor {
 			tiers = DefaultCostTiers
 		}
 		anchors := buildAnchors(tiers)
-		if oh := p.resolvedMultiplier(); oh != 1 {
+		if mult := p.resolvedMultiplier(); mult != 1 {
 			for i := range anchors {
-				anchors[i].cost *= oh
+				anchors[i].cost *= mult
 			}
 		}
 		p.anchors = anchors

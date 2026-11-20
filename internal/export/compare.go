@@ -54,7 +54,7 @@ type compareMeta struct {
 
 type compareStat struct {
 	ResourceType    string  `json:"resource_type"`
-	TotalArea       float64 `json:"area"`
+	Area            float64 `json:"area"`
 	EstimatedSpaces int     `json:"estimated_spaces,omitempty"`
 }
 

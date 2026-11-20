@@ -16,7 +16,7 @@ var gameHorizonAlternatives = []int{20, 50}
 // ascending: the page's forecast horizon (which the game opens on), the
 // default horizon, and gameHorizonAlternatives.
 func (d TemplateData) GameHorizons() []int {
-	out := append([]int{d.ForecastDefaults().HorizonYears, config.DefaultForecastYears}, gameHorizonAlternatives...)
+	out := append([]int{d.ForecastDefaults().HorizonYears, config.DefaultHorizonYears}, gameHorizonAlternatives...)
 	slices.Sort(out)
 	return slices.Compact(out)
 }

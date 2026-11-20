@@ -174,13 +174,13 @@ func TestNormalizeForecast(t *testing.T) {
 		wantPCI   float64
 		wantYears int
 	}{
-		{"zeros become defaults", ForecastConfig{}, DefaultInitialPCI, DefaultForecastYears},
+		{"zeros become defaults", ForecastConfig{}, DefaultInitialPCI, DefaultHorizonYears},
 		{"explicit in-range preserved", ForecastConfig{InitialPCI: 77, HorizonYears: 30}, 77, 30},
 		{"negative PCI becomes default", ForecastConfig{InitialPCI: -10, HorizonYears: 15}, DefaultInitialPCI, 15},
 		{"over-100 PCI becomes default", ForecastConfig{InitialPCI: 150, HorizonYears: 15}, DefaultInitialPCI, 15},
 		{"PCI boundary 100 preserved", ForecastConfig{InitialPCI: 100, HorizonYears: 5}, 100, 5},
 		{"small positive PCI preserved", ForecastConfig{InitialPCI: 0.5, HorizonYears: 5}, 0.5, 5},
-		{"negative Years becomes default", ForecastConfig{InitialPCI: 77, HorizonYears: -3}, 77, DefaultForecastYears},
+		{"negative HorizonYears becomes default", ForecastConfig{InitialPCI: 77, HorizonYears: -3}, 77, DefaultHorizonYears},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -190,7 +190,7 @@ func TestNormalizeForecast(t *testing.T) {
 				t.Errorf("InitialPCI = %v, want %v", fc.InitialPCI, tt.wantPCI)
 			}
 			if fc.HorizonYears != tt.wantYears {
-				t.Errorf("Years = %v, want %v", fc.HorizonYears, tt.wantYears)
+				t.Errorf("HorizonYears = %v, want %v", fc.HorizonYears, tt.wantYears)
 			}
 		})
 	}
@@ -329,7 +329,7 @@ func TestResolvedForecast_EnvBeatsCity(t *testing.T) {
 // TestResolvedForecast_DefaultsApplied confirms ResolvedForecast returns
 // fully-normalized fields even when file and city leave everything zero, or
 // there is no city.
-// This is the invariant that lets callers read fc.InitialPCI / fc.Years
+// This is the invariant that lets callers read fc.InitialPCI / fc.HorizonYears
 // directly without re-checking.
 func TestResolvedForecast_DefaultsApplied(t *testing.T) {
 	cfg := &Config{Forecast: ForecastConfig{}} // all zeros
@@ -338,8 +338,8 @@ func TestResolvedForecast_DefaultsApplied(t *testing.T) {
 		if fc.InitialPCI != DefaultInitialPCI {
 			t.Errorf("%s: InitialPCI = %v, want %v", name, fc.InitialPCI, DefaultInitialPCI)
 		}
-		if fc.HorizonYears != DefaultForecastYears {
-			t.Errorf("%s: Years = %v, want %v", name, fc.HorizonYears, DefaultForecastYears)
+		if fc.HorizonYears != DefaultHorizonYears {
+			t.Errorf("%s: HorizonYears = %v, want %v", name, fc.HorizonYears, DefaultHorizonYears)
 		}
 	}
 }
@@ -483,7 +483,7 @@ func TestResolvedForecast_NilCity(t *testing.T) {
 	cfg := &Config{Forecast: ForecastConfig{HorizonYears: 15, InitialPCI: 70}}
 	fc := cfg.ResolvedForecast(nil)
 	if fc.HorizonYears != 15 {
-		t.Errorf("Years = %d, want 15 (top-level preserved)", fc.HorizonYears)
+		t.Errorf("HorizonYears = %d, want 15 (top-level preserved)", fc.HorizonYears)
 	}
 	if fc.InitialPCI != 70 {
 		t.Errorf("InitialPCI = %v, want 70 (top-level preserved)", fc.InitialPCI)

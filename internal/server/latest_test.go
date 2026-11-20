@@ -67,7 +67,7 @@ func TestDataFile_SnapshotLatest(t *testing.T) {
 	roads := func(m export.MetaJSON) float64 {
 		for _, s := range m.Stats {
 			if s.ResourceType == "roads" {
-				return s.TotalArea
+				return s.Area
 			}
 		}
 		return -1

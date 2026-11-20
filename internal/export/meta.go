@@ -184,7 +184,7 @@ func bboxAttr(b [4]float64) string {
 
 // HeadingName is the name the page title and panel heading show before any
 // script runs: in multi-city mode the city the selector opens on (CitySelect's
-// selected option), else ProjectName. The pages then keep it in step with the
+// selected option), else Name. The pages then keep it in step with the
 // selected city.
 func (d TemplateData) HeadingName() string {
 	if opt, ok := d.selectedCity(); ok {
@@ -193,7 +193,7 @@ func (d TemplateData) HeadingName() string {
 	if len(d.Cities) > 0 {
 		return d.Cities[0].Name
 	}
-	return d.ProjectName
+	return d.Name
 }
 
 // selectedCity is the option CitySelect marks selected.
@@ -253,7 +253,7 @@ func (f ForecastDefaults) PCISlider() int { return int(math.Floor(f.InitialPCI +
 func (d TemplateData) ForecastDefaults() ForecastDefaults {
 	out := ForecastDefaults{
 		InitialPCI:          config.DefaultInitialPCI,
-		HorizonYears:        config.DefaultForecastYears,
+		HorizonYears:        config.DefaultHorizonYears,
 		TreatmentCycleYears: forecast.DefaultTreatmentCycleYears,
 		BarrelsPerTonBinder: forecast.BarrelsPerTonBinder,
 		PCIDecimals:         forecast.EmitPCIDecimals,
@@ -449,9 +449,9 @@ func (d TemplateData) GameConfigJSON() template.JS {
 }
 
 type MetaJSON struct {
-	// ProjectName is the display name: the city's, or the multi-city
+	// Name is the display name: the city's, or the multi-city
 	// page's title.
-	ProjectName string `json:"name"`
+	Name string `json:"name"`
 	// City is the city's slug; omitted on a multi-city page's own meta.
 	City         string     `json:"city,omitempty"`
 	BBox         [4]float64 `json:"bbox"`   // [west, south, east, north]
@@ -502,7 +502,7 @@ type MetaJSON struct {
 type StatJSON struct {
 	ResourceType string  `json:"resource_type"`
 	Color        string  `json:"color"`
-	TotalArea    float64 `json:"area"`
+	Area         float64 `json:"area"`
 	// EstimatedSpaces is the parking resource's estimated vehicle capacity
 	// (OSM capacity tags, else footprint area over a per-space constant; see
 	// resource.EstimateParkingSpaces). Omitted for other resources.
@@ -666,7 +666,7 @@ func BuildMetaOn(ctx context.Context, entry CityEntry, snapshotID int64, grid *D
 		return MetaJSON{}, fmt.Errorf("city %s snapshot date: %w", entry.City.Name, err)
 	}
 	meta := MetaJSON{
-		ProjectName:   entry.City.Name,
+		Name:          entry.City.Name,
 		City:          entry.Slug,
 		BBox:          geoJSONBBox(bbox),
 		Center:        [2]float64{lon, lat},
@@ -850,7 +850,7 @@ func statsFromTotals(totals map[resource.Type]results.Totals) []StatJSON {
 		out = append(out, StatJSON{
 			ResourceType:    name,
 			Color:           ResourceColors[name],
-			TotalArea:       result.Area,
+			Area:            result.Area,
 			EstimatedSpaces: result.Spaces,
 		})
 	}

@@ -66,11 +66,11 @@ func TestHandleDataMetaJSON(t *testing.T) {
 	if len(meta.Stats) != 1 {
 		t.Fatalf("expected 1 stat, got %d", len(meta.Stats))
 	}
-	if meta.Stats[0].TotalArea != 46452 {
-		t.Errorf("expected 46452 sqm, got %f", meta.Stats[0].TotalArea)
+	if meta.Stats[0].Area != 46452 {
+		t.Errorf("expected 46452 sqm, got %f", meta.Stats[0].Area)
 	}
-	if meta.ProjectName != "Test City" {
-		t.Errorf("expected project name 'Test City', got %q", meta.ProjectName)
+	if meta.Name != "Test City" {
+		t.Errorf("expected project name 'Test City', got %q", meta.Name)
 	}
 }
 
@@ -342,7 +342,7 @@ func TestParseIndexTemplate_StaticExport(t *testing.T) {
 		t.Fatal(err)
 	}
 	td := export.TemplateData{
-		ProjectName: "Test",
+		Name:        "Test",
 		UnitSystem:  "metric",
 		LayerColors: export.ResourceColorsJS(),
 		// IsLiveServer left zero → static export
@@ -578,20 +578,20 @@ func TestDataFile_SnapshotParam(t *testing.T) {
 
 	// Absent param → latest (the root store returns 999000).
 	_, latest := hit(t, "/data/meta.json")
-	if latest == nil || latest.Stats[0].TotalArea != 999000 {
+	if latest == nil || latest.Stats[0].Area != 999000 {
 		t.Errorf("absent ?snapshot=: expected latest area 999000, got %+v", latest)
 	}
 
 	// snapshot=v1 → root.WithSnapshot(1) is invoked; pinned response, and
 	// meta.json names it.
 	_, s1 := hit(t, "/data/meta.json?snapshot=v1")
-	if s1 == nil || s1.Stats[0].TotalArea != 1000 || s1.Snapshot != "v1" || s1.SnapshotDate != "2026-03-01" {
+	if s1 == nil || s1.Stats[0].Area != 1000 || s1.Snapshot != "v1" || s1.SnapshotDate != "2026-03-01" {
 		t.Errorf("snapshot=v1: expected area 1000 from snapshot v1 of 2026-03-01, got %+v", s1)
 	}
 
 	// snapshot=v2 → different cached body. Also confirms cache key isolates.
 	_, s2 := hit(t, "/data/meta.json?snapshot=v2")
-	if s2 == nil || s2.Stats[0].TotalArea != 2000 {
+	if s2 == nil || s2.Stats[0].Area != 2000 {
 		t.Errorf("snapshot=v2: expected area 2000, got %+v", s2)
 	}
 
@@ -1445,8 +1445,8 @@ func TestRenderIndex_MultiCityUsesConfigWideTotals(t *testing.T) {
 	if td.Center != wantMeta.Center || td.Center[0] != -120.5 {
 		t.Errorf("index center = %v, want the region's %v", td.Center, wantMeta.Center)
 	}
-	if td.ProjectName != "Two Cities" {
-		t.Errorf("index project name = %q, want the [export] title", td.ProjectName)
+	if td.Name != "Two Cities" {
+		t.Errorf("index project name = %q, want the [export] title", td.Name)
 	}
 	if td.ForecastSeed != wantSeed {
 		t.Errorf("index forecast seed is not the config-wide seed:\n got %s\nwant %s", td.ForecastSeed, wantSeed)

@@ -184,7 +184,6 @@ type Game struct {
 // inputNames is what the game's JSON calls the inputs forecast.Inputs
 // validates, where the key differs from the forecast package's name.
 var inputNames = map[string]string{
-	forecast.FieldYears:  "horizon_years",
 	forecast.FieldBudget: "annual_budget",
 }
 

@@ -10,7 +10,7 @@ import (
 )
 
 // The fixture city's forecast seed, sent to the bridge the way the dashboard
-// sends it (app.js forecastInput: the seed's settings, its cohorts and a
+// sends it (app.js financialScenarios: the seed's settings, its cohorts and a
 // budget), simulates. A fixture setting outside the bounds the bridge
 // validates against would leave every JS spec running a seed the real WASM
 // refuses.

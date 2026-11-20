@@ -70,7 +70,7 @@ func TestBuildMeta_PrefersCombinedOverSum(t *testing.T) {
 	}
 	statByType := map[string]float64{}
 	for _, s := range meta.Stats {
-		statByType[s.ResourceType] = s.TotalArea
+		statByType[s.ResourceType] = s.Area
 	}
 	want := map[string]float64{"roads": 1000, "parking": 500, "sidewalks": 300}
 	if diff := cmp.Diff(want, statByType); diff != "" {
@@ -104,15 +104,15 @@ func TestBuildMultiCityMeta_AggregatesAcrossEntries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildMultiCityMeta: %v", err)
 	}
-	if meta.ProjectName != "Test Region" {
-		t.Errorf("name = %q; want %q", meta.ProjectName, "Test Region")
+	if meta.Name != "Test Region" {
+		t.Errorf("name = %q; want %q", meta.Name, "Test Region")
 	}
 
 	// Per-resource totals sum across cities.
 	if len(meta.Stats) != 1 {
 		t.Fatalf("expected 1 resource stat, got %d", len(meta.Stats))
 	}
-	if meta.Stats[0].ResourceType != "roads" || meta.Stats[0].TotalArea != 3000 {
+	if meta.Stats[0].ResourceType != "roads" || meta.Stats[0].Area != 3000 {
 		t.Errorf("aggregated roads stat = %+v; want type=roads, area=3000", meta.Stats[0])
 	}
 
@@ -146,7 +146,7 @@ func TestAggregatePerResourceStats_ReadErrorFails(t *testing.T) {
 		t.Errorf("err = %v, want the read error", err)
 	}
 	stats, err := aggregatePerResourceStats(t.Context(), []CityEntry{ok})
-	if err != nil || len(stats) != 1 || stats[0].TotalArea != 1000 {
+	if err != nil || len(stats) != 1 || stats[0].Area != 1000 {
 		t.Errorf("stats = %+v, %v; want one roads card of 1000", stats, err)
 	}
 }
@@ -391,13 +391,13 @@ func TestBuildMeta_CarriesEstimatedSpaces(t *testing.T) {
 // multi-city page names the city its selector opens on (the first city of
 // the first tag group), not the config's first city.
 func TestHeadingName(t *testing.T) {
-	single := TemplateData{ProjectName: "Livermore, CA"}
+	single := TemplateData{Name: "Livermore, CA"}
 	if got := single.HeadingName(); got != "Livermore, CA" {
 		t.Errorf("single-city HeadingName = %q, want the project name", got)
 	}
 	multi := TemplateData{
-		ProjectName: "Livermore, CA",
-		Cities:      []CityInfo{{Name: "Livermore, CA"}, {Name: "Piedmont, CA"}},
+		Name:   "Livermore, CA",
+		Cities: []CityInfo{{Name: "Livermore, CA"}, {Name: "Piedmont, CA"}},
 		TagDimensions: []TagDimension{{Groups: []CityGroup{
 			{Tag: "East Bay", Cities: []CityInfo{{Name: "Piedmont, CA"}}},
 			{Tag: "Tri-Valley", Cities: []CityInfo{{Name: "Livermore, CA"}}},

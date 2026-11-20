@@ -237,7 +237,7 @@ func TestCheckSite_NearZeroPavedShare(t *testing.T) {
 // release build has a re-ingest list.
 func TestCheckSite_MissingResourcesWarns(t *testing.T) {
 	dir := buildValidSite(t)
-	m := export.MetaJSON{ProjectName: "Demo", PavedShare: 0.2, TotalPaved: 20000, CityArea: 100000, MissingResources: []string{"sidewalks"}}
+	m := export.MetaJSON{Name: "Demo", PavedShare: 0.2, TotalPaved: 20000, CityArea: 100000, MissingResources: []string{"sidewalks"}}
 	writeJSONFile(t, filepath.Join(dir, "demo-ca", "data", "meta.json"), m)
 	out, err := run(t, dir, false)
 	if err != nil {
@@ -253,7 +253,7 @@ func TestCheckSite_MissingResourcesWarns(t *testing.T) {
 // it that was never ingested still is.
 func TestCheckSite_EmptyUpstreamDoesNotAskForReingest(t *testing.T) {
 	dir := buildValidSite(t)
-	m := export.MetaJSON{ProjectName: "Demo", PavedShare: 0.2, TotalPaved: 20000, CityArea: 100000,
+	m := export.MetaJSON{Name: "Demo", PavedShare: 0.2, TotalPaved: 20000, CityArea: 100000,
 		MissingResources: []string{"parking", "sidewalks"},
 		EmptySources:     map[string][]string{"sidewalks": {"overpass"}}}
 	writeJSONFile(t, filepath.Join(dir, "demo-ca", "data", "meta.json"), m)
@@ -276,7 +276,7 @@ func TestCheckSite_EmptyUpstreamDoesNotAskForReingest(t *testing.T) {
 // is also missing gets only the missing warning.
 func TestCheckSite_PartialResourcesWarn(t *testing.T) {
 	dir := buildValidSite(t)
-	m := export.MetaJSON{ProjectName: "Demo", PavedShare: 0.2, TotalPaved: 20000, CityArea: 100000,
+	m := export.MetaJSON{Name: "Demo", PavedShare: 0.2, TotalPaved: 20000, CityArea: 100000,
 		MissingResources: []string{"sidewalks"},
 		FailingSources:   map[string][]string{"roads": {"overpass"}, "sidewalks": {"overpass"}}}
 	writeJSONFile(t, filepath.Join(dir, "demo-ca", "data", "meta.json"), m)
@@ -482,7 +482,7 @@ func writeFile(t *testing.T, path, content string) {
 
 func writeMeta(t *testing.T, path string, pavedShare, totalPaved float64) {
 	t.Helper()
-	m := export.MetaJSON{ProjectName: "Demo", PavedShare: pavedShare, TotalPaved: totalPaved, CityArea: 100000}
+	m := export.MetaJSON{Name: "Demo", PavedShare: pavedShare, TotalPaved: totalPaved, CityArea: 100000}
 	writeJSONFile(t, path, m)
 }
 
@@ -798,11 +798,11 @@ func TestCheckSite_MissingRootFileFails(t *testing.T) {
 // resource, for the coverage check.
 func writeCoverageMeta(t *testing.T, path string, pop float64, areas map[string]float64) {
 	t.Helper()
-	m := export.MetaJSON{ProjectName: "Demo", PavedShare: 0.2, TotalPaved: 20000, CityArea: 100000,
+	m := export.MetaJSON{Name: "Demo", PavedShare: 0.2, TotalPaved: 20000, CityArea: 100000,
 		Metrics: map[string]export.MetricSummaryJSON{"population": {Label: "Population", Total: &pop}}}
 	for _, rt := range []string{"roads", "parking", "sidewalks"} {
 		if a, ok := areas[rt]; ok {
-			m.Stats = append(m.Stats, export.StatJSON{ResourceType: rt, TotalArea: a})
+			m.Stats = append(m.Stats, export.StatJSON{ResourceType: rt, Area: a})
 		}
 	}
 	writeJSONFile(t, path, m)
@@ -859,11 +859,11 @@ func TestCheckSite_LowCoverageSkipsExplainedLayers(t *testing.T) {
 		case "city-00":
 			areas["parking"] = 500
 			pop := 1000.0
-			m := export.MetaJSON{ProjectName: "Demo", PavedShare: 0.2, TotalPaved: 20000, CityArea: 100000,
+			m := export.MetaJSON{Name: "Demo", PavedShare: 0.2, TotalPaved: 20000, CityArea: 100000,
 				Metrics:        map[string]export.MetricSummaryJSON{"population": {Total: &pop}},
 				FailingSources: map[string][]string{"parking": {"overpass"}}}
 			for _, rt := range []string{"roads", "parking", "sidewalks"} {
-				m.Stats = append(m.Stats, export.StatJSON{ResourceType: rt, TotalArea: areas[rt]})
+				m.Stats = append(m.Stats, export.StatJSON{ResourceType: rt, Area: areas[rt]})
 			}
 			writeJSONFile(t, path, m)
 			continue
@@ -935,7 +935,7 @@ func TestCheckSite_DecayDrift(t *testing.T) {
 // no pavement per resident, it still FAILs.
 func TestCheckSite_LowPavedShareRuralWarns(t *testing.T) {
 	meta := func(pop float64) export.MetaJSON {
-		m := export.MetaJSON{ProjectName: "Demo", PavedShare: 0.005, TotalPaved: 50000, CityArea: 1e7}
+		m := export.MetaJSON{Name: "Demo", PavedShare: 0.005, TotalPaved: 50000, CityArea: 1e7}
 		if pop > 0 {
 			m.Metrics = map[string]export.MetricSummaryJSON{"population": {Total: &pop}}
 		}

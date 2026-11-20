@@ -74,9 +74,9 @@ var boundCases = []boundCase{
 
 	{"years 1", func(in *forecast.Inputs) { in.Years = 1 }, ""},
 	{"years at the maximum", func(in *forecast.Inputs) { in.Years = forecast.MaxHorizonYears }, ""},
-	{"years over the maximum", func(in *forecast.Inputs) { in.Years = forecast.MaxHorizonYears + 1 }, forecast.FieldYears},
-	{"years 1000", func(in *forecast.Inputs) { in.Years = 1000 }, forecast.FieldYears},
-	{"years negative", func(in *forecast.Inputs) { in.Years = -5 }, forecast.FieldYears},
+	{"years over the maximum", func(in *forecast.Inputs) { in.Years = forecast.MaxHorizonYears + 1 }, forecast.FieldHorizonYears},
+	{"years 1000", func(in *forecast.Inputs) { in.Years = 1000 }, forecast.FieldHorizonYears},
+	{"years negative", func(in *forecast.Inputs) { in.Years = -5 }, forecast.FieldHorizonYears},
 
 	{"budget 0", func(in *forecast.Inputs) { in.Budget = 0 }, ""},
 	{"budget negative", func(in *forecast.Inputs) { in.Budget = -1 }, forecast.FieldBudget},

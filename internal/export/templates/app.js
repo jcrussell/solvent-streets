@@ -3490,15 +3490,15 @@
         // forecast.json was priced at.
         function costRegimeText() {
             const seeded = FORECAST_SEED && Number(FORECAST_SEED.cost_multiplier);
-            const oh = liveSolvency ? currentMultiplier() : seeded;
-            if (!Number.isFinite(oh) || oh <= 1) {
+            const mult = liveSolvency ? currentMultiplier() : seeded;
+            if (!Number.isFinite(mult) || mult <= 1) {
                 return 'Figures are calibrated against real municipal hold-steady spending, so they are '
                     + 'comparable to a published pavement budget. See Methodology for the cost basis.';
             }
-            const where = (Number.isFinite(seeded) && Math.abs(oh - seeded) < 1e-9)
+            const where = (Number.isFinite(seeded) && Math.abs(mult - seeded) < 1e-9)
                 ? 'set for this city in <code>forecast.cost_multiplier</code>'
                 : 'set on the Cost multiplier slider';
-            return 'Figures carry a <strong>' + oh.toFixed(2).replace(/0$/, '')
+            return 'Figures carry a <strong>' + mult.toFixed(2).replace(/0$/, '')
                 + '\u00d7 cost multiplier</strong> over the calibrated default \u2014 ' + where + '.';
         }
 

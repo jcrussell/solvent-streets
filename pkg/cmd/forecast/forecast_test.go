@@ -166,7 +166,7 @@ func TestRenderBaselineTable_AreaPctSumsTo100UnderGrowth(t *testing.T) {
 		{Classification: "secondary", Area: 500_000, DecayRate: 0.04, InitialPCI: 75},
 		{Classification: "residential", Area: 750_000, DecayRate: 0.03, InitialPCI: 65},
 	}
-	// year0Area is what the caller passes as `area` (result.TotalArea): the
+	// year0Area is what the caller passes as `area` (result.Area): the
 	// un-grown network area. The grown cohort areas exceed it by 1+r*N = 1.20.
 	var year0Area float64
 	for _, c := range cohorts {

@@ -293,7 +293,7 @@ func applyDefaultForecastProv(fc *ForecastConfig, p *forecastProvenance) {
 	if d.InitialPCI {
 		p.InitialPCI = Source{Kind: SourceDefault}
 	}
-	if d.Years {
+	if d.HorizonYears {
 		p.HorizonYears = Source{Kind: SourceDefault}
 	}
 	if (p.DecayRate == Source{}) {

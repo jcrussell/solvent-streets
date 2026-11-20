@@ -42,11 +42,11 @@ const (
 	// ~1.5e6 cells -- slow but survivable.
 	MinHexEdgeM       = 10.0
 	DefaultInitialPCI = 85.0
-	// DefaultForecastYears is the forecast horizon when forecast.horizon_years is
+	// DefaultHorizonYears is the forecast horizon when forecast.horizon_years is
 	// unset. One config has one horizon: forecast.horizon_years is top-level only, and
 	// [[include]]d files must agree with the file that includes them, so
 	// cities compared side by side are always forecast over the same years.
-	DefaultForecastYears = 30
+	DefaultHorizonYears = 30
 	// DefaultMinHexArea is the minimum projected hex area (in square
 	// meters) below which a clipped boundary sliver is dropped from the
 	// heatmap. A single feature inside a tiny clipped hex would render as
@@ -312,7 +312,7 @@ type ForecastConfig struct {
 	// TOML, as opposed to being absent and decoding to 0. GrowthRate is the one
 	// field here where 0 is a legitimate value a user might mean — "this city
 	// does not grow" — rather than an unset sentinel: initial_pci, decay_rate,
-	// years, treatment_cycle_years and current_budget all have no real 0 case,
+	// horizon_years, treatment_cycle_years and current_budget all have no real 0 case,
 	// so zero-as-unset is correct for them and they need no presence bit.
 	//
 	// It tells a per-city `growth_rate = 0` from an absent one, so a city can
@@ -343,13 +343,12 @@ func nonFinite(v float64) bool { return math.IsNaN(v) || math.IsInf(v, 0) }
 // forecastInputNames is what pvmt.toml calls the inputs forecast.Inputs
 // validates, where the key differs from the forecast package's name.
 var forecastInputNames = map[string]string{
-	forecast.FieldYears:  "horizon_years",
 	forecast.FieldBudget: "current_budget",
 }
 
 // Validate rejects forecast settings outside the bounds the forecast package
 // states (forecast.Inputs.Validate), naming the TOML key. Zero is allowed for
-// the fields where it means "use the default" (initial_pci, decay_rate, years,
+// the fields where it means "use the default" (initial_pci, decay_rate, horizon_years,
 // treatment_cycle_years, cost_multiplier); growth_rate has no such sentinel, so
 // its 0 is a legitimate "no growth".
 //
@@ -373,7 +372,7 @@ func (fc *ForecastConfig) Validate() error {
 	}
 	// An unset horizon is the default one; a negative one stays out of range.
 	if fc.HorizonYears == 0 {
-		in.Years = DefaultForecastYears
+		in.Years = DefaultHorizonYears
 	}
 	if err := in.Validate(forecastInputNames); err != nil {
 		return fmt.Errorf("forecast.%w", err)
@@ -563,7 +562,7 @@ func (c *Config) CityConfigID(city *CityConfig) string {
 
 // ResolvedForecast returns the forecast config for city with all layers
 // merged (env > per-city > top-level) and defaults applied. Every field
-// that NormalizeForecast owns (InitialPCI, Years) is guaranteed valid on
+// that NormalizeForecast owns (InitialPCI, HorizonYears) is guaranteed valid on
 // the returned value — callers read them directly. A nil city is treated
 // as "no per-city overrides."
 //
@@ -580,22 +579,22 @@ func (c *Config) ResolvedForecast(city *CityConfig) ForecastConfig {
 // overrides the layer below it.
 func validInitialPCI(v float64) bool { return v > 0 && v <= forecast.MaxPCI }
 
-// horizonOrDefault is the forecast horizon a years setting stands for:
-// DefaultForecastYears when it is unset (<= 0).
+// horizonOrDefault is the forecast horizon a horizon_years setting stands for:
+// DefaultHorizonYears when it is unset (<= 0).
 func horizonOrDefault(years int) int {
 	if years <= 0 {
-		return DefaultForecastYears
+		return DefaultHorizonYears
 	}
 	return years
 }
 
 // forecastDefaulted names the fields applyForecastDefaults filled.
 type forecastDefaulted struct {
-	InitialPCI, Years, CostMultiplier bool
+	InitialPCI, HorizonYears, CostMultiplier bool
 }
 
 // applyForecastDefaults is the one default step for a forecast config: it
-// fills an unset or out-of-range InitialPCI, Years and CostMultiplier with the
+// fills an unset or out-of-range InitialPCI, HorizonYears and CostMultiplier with the
 // package defaults and reports which it filled. DecayRate, GrowthRate,
 // CostTiers and TreatmentCycleYears take their defaults in the forecast
 // package and are left alone. Idempotent.
@@ -605,10 +604,10 @@ func applyForecastDefaults(fc *ForecastConfig) forecastDefaulted {
 		fc.InitialPCI, d.InitialPCI = DefaultInitialPCI, true
 	}
 	if y := horizonOrDefault(fc.HorizonYears); y != fc.HorizonYears {
-		fc.HorizonYears, d.Years = y, true
+		fc.HorizonYears, d.HorizonYears = y, true
 	}
-	if oh := fc.ResolvedCostMultiplier(); oh != fc.CostMultiplier {
-		fc.CostMultiplier, d.CostMultiplier = oh, true
+	if mult := fc.ResolvedCostMultiplier(); mult != fc.CostMultiplier {
+		fc.CostMultiplier, d.CostMultiplier = mult, true
 	}
 	return d
 }

@@ -6,8 +6,8 @@ import assert from 'node:assert/strict';
 import { load } from './harness.mjs';
 import { fullData, seedJSON } from './fixtures.mjs';
 
-function withSeedMultiplier(oh) {
-  return { ...fullData, 'forecast_seed.json': { ...seedJSON, cost_multiplier: oh } };
+function withSeedMultiplier(mult) {
+  return { ...fullData, 'forecast_seed.json': { ...seedJSON, cost_multiplier: mult } };
 }
 
 // assertReachable pins the property that keeps a browser from moving the seeded

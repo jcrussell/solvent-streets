@@ -176,10 +176,10 @@ func TestResolveForecast_Precedence(t *testing.T) {
 		city := &CityConfig{Name: "Test", Forecast: &ForecastConfig{DecayRate: 0.05}}
 		fc, prov := cfg.resolveForecast(city)
 		if fc.HorizonYears != 7 {
-			t.Errorf("Years = %d, want 7", fc.HorizonYears)
+			t.Errorf("HorizonYears = %d, want 7", fc.HorizonYears)
 		}
 		if prov.HorizonYears != (Source{Kind: SourceEnv, Detail: "PVMT_FORECAST_HORIZON_YEARS"}) {
-			t.Errorf("Years source = %v, want env", prov.HorizonYears)
+			t.Errorf("HorizonYears source = %v, want env", prov.HorizonYears)
 		}
 	})
 
@@ -190,10 +190,10 @@ func TestResolveForecast_Precedence(t *testing.T) {
 		city := &CityConfig{Name: "Test", Forecast: &ForecastConfig{HorizonYears: 15}}
 		fc, prov := cfg.resolveForecast(city)
 		if fc.HorizonYears != 20 {
-			t.Errorf("Years = %d, want the top-level 20", fc.HorizonYears)
+			t.Errorf("HorizonYears = %d, want the top-level 20", fc.HorizonYears)
 		}
 		if prov.HorizonYears != (Source{Kind: SourceFile, Detail: "forecast.horizon_years"}) {
-			t.Errorf("Years source = %v, want the top-level file source", prov.HorizonYears)
+			t.Errorf("HorizonYears source = %v, want the top-level file source", prov.HorizonYears)
 		}
 	})
 
@@ -213,21 +213,21 @@ func TestResolveForecast_Precedence(t *testing.T) {
 		cfg := &Config{Forecast: ForecastConfig{HorizonYears: 25, InitialPCI: 90}}
 		fc, prov := cfg.resolveForecast(nil)
 		if fc.HorizonYears != 25 {
-			t.Errorf("Years = %d, want 25", fc.HorizonYears)
+			t.Errorf("HorizonYears = %d, want 25", fc.HorizonYears)
 		}
 		if prov.HorizonYears != (Source{Kind: SourceFile, Detail: "forecast.horizon_years"}) {
-			t.Errorf("Years source = %v, want file source", prov.HorizonYears)
+			t.Errorf("HorizonYears source = %v, want file source", prov.HorizonYears)
 		}
 	})
 
 	t.Run("default when nothing set", func(t *testing.T) {
 		cfg := &Config{}
 		fc, prov := cfg.resolveForecast(nil)
-		if fc.HorizonYears != DefaultForecastYears {
-			t.Errorf("Years = %d, want %d", fc.HorizonYears, DefaultForecastYears)
+		if fc.HorizonYears != DefaultHorizonYears {
+			t.Errorf("HorizonYears = %d, want %d", fc.HorizonYears, DefaultHorizonYears)
 		}
 		if prov.HorizonYears != (Source{Kind: SourceDefault}) {
-			t.Errorf("Years source = %v, want default", prov.HorizonYears)
+			t.Errorf("HorizonYears source = %v, want default", prov.HorizonYears)
 		}
 		if prov.InitialPCI != (Source{Kind: SourceDefault}) {
 			t.Errorf("InitialPCI source = %v, want default", prov.InitialPCI)
@@ -721,7 +721,7 @@ func TestResolve_EveryFieldHasNonEmptySource(t *testing.T) {
 
 // TestResolveForecast_InitialPCIEnvSource is the symmetry guard for
 // the InitialPCI env layer: TestResolveForecast_Precedence already
-// asserts that env beats the file layer for Years; this pins the same
+// asserts that env beats the file layer for HorizonYears; this pins the same
 // provenance for the InitialPCI knob so a future refactor that
 // silently drops the env-source label only on InitialPCI fails here.
 func TestResolveForecast_InitialPCIEnvSource(t *testing.T) {

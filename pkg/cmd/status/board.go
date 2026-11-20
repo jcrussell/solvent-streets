@@ -24,12 +24,12 @@ var boardFields = []string{"city", "layer", "feature_count", "last_success_at", 
 // boardRow is one city's layer on the status board: what is stored, how its
 // sources last answered, and the state of the part computed from it.
 type boardRow struct {
-	City          string   `json:"city"`
-	Layer         string   `json:"layer"`
-	FeatureCount  int      `json:"feature_count"`
-	LastSuccessAt string   `json:"last_success_at,omitempty"`
-	Failing       []string `json:"failing_sources,omitempty"`
-	Error         string   `json:"error,omitempty"`
+	City           string   `json:"city"`
+	Layer          string   `json:"layer"`
+	FeatureCount   int      `json:"feature_count"`
+	LastSuccessAt  string   `json:"last_success_at,omitempty"`
+	FailingSources []string `json:"failing_sources,omitempty"`
+	Error          string   `json:"error,omitempty"`
 	// EmptyUpstream marks a layer with no rows because every configured
 	// source answered with none (a small town with no sidewalks mapped): not
 	// a gap a retry can fill, so not incomplete.
@@ -59,7 +59,7 @@ func (r boardRow) ExportData(fields []string) map[string]any {
 		case "last_success_at":
 			v, ok = r.LastSuccessAt, r.LastSuccessAt != ""
 		case "failing_sources":
-			v, ok = r.Failing, len(r.Failing) > 0
+			v, ok = r.FailingSources, len(r.FailingSources) > 0
 		case "error":
 			v, ok = r.Error, r.Error != ""
 		case "empty_upstream":
@@ -145,16 +145,16 @@ func cityBoard(ctx context.Context, c boardCity, hash string) ([]boardRow, error
 			return nil, err
 		}
 		row := boardRow{City: slug, Layer: resource.Type(l.name).PublicName(), FeatureCount: count}
-		row.Failing = db.FailingSources(history, l.input, l.sources)
-		row.LastSuccessAt, row.Error = lastAnswers(history, l.input, row.Failing)
-		row.EmptyUpstream = count == 0 && len(row.Failing) == 0 && db.AnsweredEmpty(history, l.input, l.sources)
-		row.Incomplete = len(row.Failing) > 0 || (l.needsRows && count == 0 && !row.EmptyUpstream)
+		row.FailingSources = db.FailingSources(history, l.input, l.sources)
+		row.LastSuccessAt, row.Error = lastAnswers(history, l.input, row.FailingSources)
+		row.EmptyUpstream = count == 0 && len(row.FailingSources) == 0 && db.AnsweredEmpty(history, l.input, l.sources)
+		row.Incomplete = len(row.FailingSources) > 0 || (l.needsRows && count == 0 && !row.EmptyUpstream)
 		if st, ok := states[l.part]; ok {
 			row.State, row.stateText = st.State, st.String()
 		}
 		switch {
 		case row.Incomplete:
-			row.Hint = retryIngest(slug, l, row.Failing)
+			row.Hint = retryIngest(slug, l, row.FailingSources)
 		case row.State != "" && row.State != coherence.StateCurrent:
 			row.Hint = fmt.Sprintf("pvmt --city %s all compute", slug)
 		}
@@ -263,8 +263,8 @@ func printBoard(ios *iostreams.IOStreams, rows []boardRow) error {
 	for _, r := range rows {
 		failing := "-"
 		switch {
-		case len(r.Failing) > 0:
-			failing = strings.Join(r.Failing, ",")
+		case len(r.FailingSources) > 0:
+			failing = strings.Join(r.FailingSources, ",")
 			if r.Error != "" {
 				failing += " (" + truncateCell(r.Error, 60) + ")"
 			}

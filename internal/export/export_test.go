@@ -147,8 +147,8 @@ func TestRunSingleCity_ReusesExportedMetaAndSeed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read index.html: %v", err)
 	}
-	if !strings.Contains(string(indexHTML), wantMeta.ProjectName) {
-		t.Errorf("index.html does not contain the reused project name %q", wantMeta.ProjectName)
+	if !strings.Contains(string(indexHTML), wantMeta.Name) {
+		t.Errorf("index.html does not contain the reused project name %q", wantMeta.Name)
 	}
 }
 
@@ -685,7 +685,7 @@ func TestRunMultiCity_WritesCompareRollup(t *testing.T) {
 		if ok, err := readDataFileIn(dataDir, "meta.json", &meta); err != nil || !ok {
 			t.Fatal(err)
 		}
-		if c.Meta.TotalPaved != meta.TotalPaved || c.Meta.Stats[0].TotalArea != meta.Stats[0].TotalArea {
+		if c.Meta.TotalPaved != meta.TotalPaved || c.Meta.Stats[0].Area != meta.Stats[0].Area {
 			t.Errorf("%s: rollup meta %+v differs from meta.json", c.Slug, c.Meta)
 		}
 		if c.Forecast[0].ResourceType != "roads" {

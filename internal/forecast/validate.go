@@ -46,7 +46,7 @@ const (
 	FieldInitialPCI     = "initial_pci"
 	FieldDecayRate      = "decay_rate"
 	FieldGrowthRate     = "growth_rate"
-	FieldYears          = "years"
+	FieldHorizonYears   = "horizon_years"
 	FieldBudget         = "budget"
 	FieldCycleYears     = "treatment_cycle_years"
 	FieldCostMultiplier = "cost_multiplier"
@@ -136,7 +136,7 @@ func (in Inputs) validate() *InputError {
 			fmt.Sprintf("%g out of range (0-%g)", in.DecayRate, MaxDecayRate)},
 		{FieldGrowthRate, between(in.GrowthRate, MinGrowthRate, MaxGrowthRate),
 			fmt.Sprintf("%g out of range (%g to %g)", in.GrowthRate, MinGrowthRate, MaxGrowthRate)},
-		{FieldYears, between(in.Years, 1, MaxHorizonYears),
+		{FieldHorizonYears, between(in.Years, 1, MaxHorizonYears),
 			fmt.Sprintf("%g out of range (1-%d)", in.Years, MaxHorizonYears)},
 		{FieldBudget, nonNegative(in.Budget),
 			fmt.Sprintf("%g must be a non-negative finite number", in.Budget)},

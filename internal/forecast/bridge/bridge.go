@@ -88,7 +88,6 @@ type Cohort struct {
 // inputNames is what the browser payload calls the inputs forecast.Inputs
 // validates, where the JSON key differs from the forecast package's name.
 var inputNames = map[string]string{
-	forecast.FieldYears:  "horizon_years",
 	forecast.FieldBudget: "annual_budget",
 }
 
@@ -166,9 +165,8 @@ func Translate(in Input) (forecast.Scenario, []forecast.Cohort, int, *forecast.P
 }
 
 // Run decodes a raw browser payload, translates it, runs the forecast, and
-// marshals the result. main.go's syscall/js shim wraps the returned error as
-// the same `{"error": ...}` JSON it always has, so the output for any input is
-// byte-identical to the pre-extraction code.
+// marshals the result. main.go's syscall/js shim wraps a returned error as
+// `{"error": ...}` JSON.
 func Run(raw []byte) ([]byte, error) {
 	var in Input
 	if err := json.Unmarshal(raw, &in); err != nil {

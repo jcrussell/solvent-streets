@@ -32,14 +32,14 @@ var referenceJSON []byte
 // derived — notably PavedAreaSqM is derived from the tool's own output and is
 // therefore NOT independent evidence about geometry.
 type referenceCity struct {
-	Slug             string   `json:"slug"`
-	Name             string   `json:"name"`
-	PCI              float64  `json:"pci"`
-	DecayRate        float64  `json:"decay_rate"`
-	PavedAreaSqM     float64  `json:"paved_area_sqm"`
-	CurrentBudget    float64  `json:"current_budget"`
-	HoldSteadyBudget float64  `json:"hold_steady_budget,omitempty"`
-	Sources          []string `json:"sources"`
+	Slug                     string   `json:"slug"`
+	Name                     string   `json:"name"`
+	PCI                      float64  `json:"pci"`
+	DecayRate                float64  `json:"decay_rate"`
+	PavedAreaSqM             float64  `json:"paved_area_sqm"`
+	CurrentBudget            float64  `json:"current_budget"`
+	PublishedBreakEvenBudget float64  `json:"published_break_even_budget,omitempty"`
+	Sources                  []string `json:"sources"`
 }
 
 type yardstick struct {
@@ -253,26 +253,26 @@ func evaluateCity(c referenceCity, tolerance float64) Result {
 		Name:                     c.Name,
 		BreakEvenBudget:          breakEven,
 		CurrentBudget:            c.CurrentBudget,
-		PublishedBreakEvenBudget: c.HoldSteadyBudget,
+		PublishedBreakEvenBudget: c.PublishedBreakEvenBudget,
 	}
 	if c.PavedAreaSqM > 0 {
 		res.BreakEvenPerSqM = breakEven / c.PavedAreaSqM
 	}
 
-	if c.HoldSteadyBudget <= 0 {
+	if c.PublishedBreakEvenBudget <= 0 {
 		res.Status = statusContext
 		res.Note = "no published hold-steady budget; not gated"
 		return res
 	}
 
-	residual := (breakEven - c.HoldSteadyBudget) / c.HoldSteadyBudget
+	residual := (breakEven - c.PublishedBreakEvenBudget) / c.PublishedBreakEvenBudget
 	res.Residual = &residual
 	if math.Abs(residual) <= tolerance {
 		res.Status = statusPass
 	} else {
 		res.Status = statusFail
 		res.Note = fmt.Sprintf("modelled %s vs published %s",
-			fmtDollars(breakEven), fmtDollars(c.HoldSteadyBudget))
+			fmtDollars(breakEven), fmtDollars(c.PublishedBreakEvenBudget))
 	}
 	return res
 }
