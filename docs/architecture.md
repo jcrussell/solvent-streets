@@ -652,7 +652,8 @@ files, `window.PVMT_CONFIG`, and the game and WASM payloads.
   - durations in seconds, suffixed `_s`;
   - rates carry their unit (`cost_per_sqm`).
 - Proportions are fractions in 0..1. A part-of-whole proportion ends in
-  `_share`. Signed ratios (`funding_gap`) keep plain names.
+  `_share`. Signed ratios (`funding_gap`, `snapshots diff`'s
+  `relative_change`) keep plain names.
 - Metric keys come from the metric catalog (`internal/metric`), which
   enforces these rules when a key is declared (see
   [Per-hex metrics](#per-hex-metrics)).

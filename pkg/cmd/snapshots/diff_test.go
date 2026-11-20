@@ -173,7 +173,7 @@ func TestDiff_Table(t *testing.T) {
 	}
 }
 
-// TestDiff_JSON: every measure with a, b, delta and delta_share; the
+// TestDiff_JSON: every measure with a, b, delta and relative_change; the
 // headline and flags; and nothing to compare for an added city.
 func TestDiff_JSON(t *testing.T) {
 	fx := newDiffFixture(t)
@@ -190,7 +190,7 @@ func TestDiff_JSON(t *testing.T) {
 	}
 	a := rows[0]
 	if a["city"] != "alpha" || a["total_paved_a"] != 100.0 || a["total_paved_b"] != 150.0 || a["total_paved_delta"] != 50.0 ||
-		a["total_paved_delta_share"] != 0.5 || a["hex_edge_changed"] != true || a["boundary_changed"] != false ||
+		a["total_paved_relative_change"] != 0.5 || a["hex_edge_changed"] != true || a["boundary_changed"] != false ||
 		a["config_hash_changed"] != false || a["hex_edge_m_a"] != 100.0 || a["hex_edge_m_b"] != 150.0 {
 		t.Errorf("alpha = %v", a)
 	}

@@ -46,15 +46,15 @@ const (
 // measureRow is one computed result of a city in both snapshots, keyed like
 // the stored results: metric over subject (city_metrics' keys for pavement,
 // the per-hex metric key for census and services). A and B are omitted where
-// the snapshot holds no such result; Delta and DeltaShare (Delta as a
+// the snapshot holds no such result; Delta and RelativeChange (Delta as a
 // fraction of A) where either is missing or A is 0.
 type measureRow struct {
-	Metric     string   `json:"metric"`
-	Subject    string   `json:"subject"`
-	A          *float64 `json:"a,omitempty"`
-	B          *float64 `json:"b,omitempty"`
-	Delta      *float64 `json:"delta,omitempty"`
-	DeltaShare *float64 `json:"delta_share,omitempty"`
+	Metric         string   `json:"metric"`
+	Subject        string   `json:"subject"`
+	A              *float64 `json:"a,omitempty"`
+	B              *float64 `json:"b,omitempty"`
+	Delta          *float64 `json:"delta,omitempty"`
+	RelativeChange *float64 `json:"relative_change,omitempty"`
 }
 
 // diffRow is one city's comparison.
@@ -80,7 +80,7 @@ type diffRow struct {
 var _ cmdutil.RowExporter = diffRow{}
 
 var diffFields = []string{
-	fieldCity, "status", "total_paved_a", "total_paved_b", "total_paved_delta", "total_paved_delta_share",
+	fieldCity, "status", "total_paved_a", "total_paved_b", "total_paved_delta", "total_paved_relative_change",
 	"hex_edge_m_a", "hex_edge_m_b", "hex_edge_changed", "boundary_changed", "config_hash_changed",
 	"compute_epoch_a", "compute_epoch_b", "measures",
 }
@@ -108,7 +108,7 @@ func (r diffRow) values() map[string]any {
 	put("total_paved_a", r.Paved.A)
 	put("total_paved_b", r.Paved.B)
 	put("total_paved_delta", r.Paved.Delta)
-	put("total_paved_delta_share", r.Paved.DeltaShare)
+	put("total_paved_relative_change", r.Paved.RelativeChange)
 	if r.Status != statusAdded {
 		out["hex_edge_m_a"], out["compute_epoch_a"] = r.HexEdgeA, r.ComputeEpochA
 	}
@@ -470,19 +470,19 @@ func compare(k measureKey, a, b measures) measureRow {
 		d := vb - va
 		m.Delta = &d
 		if va != 0 {
-			share := d / va
-			m.DeltaShare = &share
+			rel := d / va
+			m.RelativeChange = &rel
 		}
 	}
 	return m
 }
 
-// change is how far a measure moved, for sorting: |delta_share|, +Inf for a
+// change is how far a measure moved, for sorting: |relative_change|, +Inf for a
 // value that appeared from 0 or from nothing, -1 when it cannot be compared.
 func change(m measureRow) float64 {
 	switch {
-	case m.DeltaShare != nil:
-		return math.Abs(*m.DeltaShare)
+	case m.RelativeChange != nil:
+		return math.Abs(*m.RelativeChange)
 	case m.Delta != nil && *m.Delta != 0, (m.A == nil) != (m.B == nil):
 		return math.Inf(1)
 	case m.Delta != nil:
@@ -544,8 +544,8 @@ func changeCell(m measureRow, sys units.System) string {
 		sign = "+"
 	}
 	out := sign + units.FormatAreaLarge(*m.Delta, sys)
-	if m.DeltaShare != nil {
-		out += fmt.Sprintf(" (%+.1f%%)", 100**m.DeltaShare)
+	if m.RelativeChange != nil {
+		out += fmt.Sprintf(" (%+.1f%%)", 100**m.RelativeChange)
 	}
 	return out
 }
