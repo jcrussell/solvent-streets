@@ -186,7 +186,8 @@ type CacheConfig struct {
 	// validators, so a stale entry is re-downloaded in full: a shorter TTL
 	// picks up OpenStreetMap edits sooner at the cost of more upstream load.
 	// It is read from the loaded config only; an [[include]]d file's [cache]
-	// is ignored. Negative values are rejected at load.
+	// is ignored. A file value must be a duration string of at least
+	// MinCacheTTL (checkCacheTTL); negative values are rejected by Validate.
 	TTL time.Duration `toml:"ttl"`
 }
 
@@ -745,6 +746,9 @@ func parseConfig(data []byte) (*Config, error) {
 		return nil, errors.Join(ErrInvalidConfig,
 			fmt.Errorf("unknown config key(s): %s", strings.Join(keys, ", ")))
 	}
+	if err := checkCacheTTL(md, cfg.Cache.TTL); err != nil {
+		return nil, err
+	}
 	// A file that declares [[include]] may legitimately have no [[cities]] of
 	// its own — the cities arrive from the merge in Load. Defer the ≥1-city
 	// requirement to the post-merge Validate then; still validate every other
@@ -799,6 +803,30 @@ func applyForecastPresence(cfg *Config, data []byte) {
 		pc := p.Cities[i].Forecast
 		cfg.Cities[i].Forecast.growthRateSet = pc != nil && pc.GrowthRate != nil
 	}
+}
+
+// MinCacheTTL is the shortest [cache] ttl a config may set. Anything shorter
+// is almost certainly a unit slip, and it re-fetches every upstream response
+// on every run.
+const MinCacheTTL = time.Minute
+
+// checkCacheTTL rejects a [cache] ttl that is not a duration string, or is
+// shorter than MinCacheTTL. It reads the decode metadata because the decoder
+// accepts a bare integer as nanoseconds: `ttl = 86400` would load as 86.4µs.
+func checkCacheTTL(md toml.MetaData, ttl time.Duration) error {
+	if !md.IsDefined("cache", "ttl") {
+		return nil
+	}
+	if typ := md.Type("cache", "ttl"); typ != "String" {
+		return errors.Join(ErrInvalidConfig, fmt.Errorf(
+			"cache.ttl must be a duration string such as \"24h\" or \"168h\", not a bare %s", strings.ToLower(typ)))
+	}
+	if ttl < MinCacheTTL {
+		return errors.Join(ErrInvalidConfig, fmt.Errorf(
+			"cache.ttl %s is shorter than the one-minute minimum (omit it for the one-week default; use --force to bypass the cache for one run)",
+			ttl))
+	}
+	return nil
 }
 
 // FindAndLoad searches for pvmt.toml starting from dir, walking up to root.

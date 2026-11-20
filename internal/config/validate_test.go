@@ -388,7 +388,8 @@ func TestConfig_Validate_Tags_AcceptsLabels(t *testing.T) {
 
 // TestLoad_CacheTTL pins the [cache] ttl surface: a Go duration string decodes
 // into CacheConfig.TTL, an omitted table leaves it zero (the factory then uses
-// cache.DefaultTTL), and a negative duration is rejected at load.
+// cache.DefaultTTL), and a bare number (which the decoder would read as
+// nanoseconds) or a duration under MinCacheTTL is rejected at load.
 func TestLoad_CacheTTL(t *testing.T) {
 	const city = "\n[[cities]]\nname = \"Oakland, CA\"\noverpass = true\n"
 	tests := map[string]struct {
@@ -399,6 +400,10 @@ func TestLoad_CacheTTL(t *testing.T) {
 		"set":      {toml: "[cache]\nttl = \"48h\"\n" + city, want: 48 * time.Hour},
 		"omitted":  {toml: city, want: 0},
 		"negative": {toml: "[cache]\nttl = \"-1h\"\n" + city, wantErr: true},
+		"zero":     {toml: "[cache]\nttl = \"0s\"\n" + city, wantErr: true},
+		"sub-min":  {toml: "[cache]\nttl = \"30s\"\n" + city, wantErr: true},
+		"minimum":  {toml: "[cache]\nttl = \"1m\"\n" + city, want: time.Minute},
+		"integer":  {toml: "[cache]\nttl = 86400\n" + city, wantErr: true},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {

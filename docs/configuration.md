@@ -262,7 +262,9 @@ presentation only.
 ## HTTP cache (`[cache]`)
 
 **`ttl`** is how long a cached upstream response is served before pvmt asks
-again, as a Go duration such as `"24h"`. The default is a week. Overpass and
+again. It is a quoted Go duration string such as `"24h"` (hours are the
+largest unit, so a month is `"720h"`), at least `"1m"`; a bare number fails to
+load. The default is a week. Overpass and
 Nominatim send no `ETag` or `Last-Modified`, so a stale entry is downloaded in
 full again; the long default keeps a retry of a failed city on the same data as
 the rest of the run. Shorten it to pick up OpenStreetMap edits sooner, or pass
