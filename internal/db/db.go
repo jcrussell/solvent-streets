@@ -481,10 +481,15 @@ func (r *RootStore) EnsureCity(ctx context.Context, slug, name, configID string)
 	if configID == "" {
 		return 0, errors.New("ensure city: config_id is required")
 	}
-	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO cities (slug, name, config_id) VALUES (?, ?, ?)
-		 ON CONFLICT(slug, config_id) DO UPDATE SET name = excluded.name`,
-		slug, name, configID)
+	// An idempotent upsert, so it retries while another process holds the
+	// write lock, like every write transaction (withTx).
+	err := retryBusy(ctx, func() error {
+		_, err := r.db.ExecContext(ctx,
+			`INSERT INTO cities (slug, name, config_id) VALUES (?, ?, ?)
+			 ON CONFLICT(slug, config_id) DO UPDATE SET name = excluded.name`,
+			slug, name, configID)
+		return err
+	})
 	if err != nil {
 		return 0, fmt.Errorf("ensure city: %w", err)
 	}

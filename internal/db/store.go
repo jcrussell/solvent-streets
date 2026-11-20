@@ -236,8 +236,21 @@ func (s *sqliteStore) withTx(ctx context.Context, fn func(*sql.Tx) error) error 
 
 // withTx runs fn in one transaction on d (IMMEDIATE, per dsnPragmas),
 // committing when it returns nil and rolling back otherwise.
+//
+// The write lock is taken at BEGIN, so BEGIN is where another process's
+// write transaction makes this one wait. busy_timeout alone gives up after
+// five seconds, shorter than an ingest's feature upsert or a gc sweep holds
+// the lock, and the write that gives up is often a compute's save after its
+// geometry work. So BEGIN is retried (retryBusy) for up to
+// commitBusyBudget. Once BEGIN holds the lock nothing else can take it, so
+// fn runs once and never sees a busy database.
 func withTx(ctx context.Context, d *sql.DB, fn func(*sql.Tx) error) error {
-	tx, err := d.BeginTx(ctx, nil)
+	var tx *sql.Tx
+	err := retryBusy(ctx, func() error {
+		var err error
+		tx, err = d.BeginTx(ctx, nil)
+		return err
+	})
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}

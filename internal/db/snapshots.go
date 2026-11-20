@@ -22,10 +22,11 @@ import (
 // compute, and an orphan only costs disk until then.
 const OrphanRunGrace = 24 * time.Hour
 
-// commitBusyBudget bounds how long CommitLatest and CreateSnapshot keep
-// retrying (retryBusy) while another process holds the write lock past
-// busy_timeout. A compute that gives up discards its runs, possibly hours of
-// work, so it waits generously.
+// commitBusyBudget bounds how long a write keeps retrying (retryBusy) while
+// another process holds the write lock past busy_timeout: every write
+// transaction's BEGIN (withTx), and CommitLatest and CreateSnapshot whole. A
+// compute that gives up discards its runs, possibly hours of work, so it
+// waits generously.
 const commitBusyBudget = 2 * time.Minute
 
 // ErrSnapshotGone is returned by every snapshot-scoped read (city and hex

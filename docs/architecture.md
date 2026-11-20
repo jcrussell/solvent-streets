@@ -578,12 +578,11 @@ compute row records the `config.ComputeEpoch` that committed it. gc drops rows
 from an older epoch, whose hash no config can produce again, and their runs
 become orphans in the same pass. Another config's latest compute, from the
 same epoch, is kept. Write
-transactions take the lock up front (`_txlock=immediate`) and wait out SQLite's
-busy timeout. A commit then keeps retrying for up to two minutes
-(`commitBusyBudget`). Only the commit retries: other writes (creating a run,
-saving its results, an ingest's feature upsert) give up after the busy timeout,
-so pvmt supports one command writing to a database at a time, and a compute
-beside a long ingest or `gc --sweep` can fail after its geometry work. No
+transactions take the lock up front (`_txlock=immediate`), and one that finds
+another process holding it keeps retrying for up to two minutes
+(`commitBusyBudget`), well past SQLite's five-second busy timeout. So two
+commands writing at once wait for each other: a compute beside a long ingest
+or `gc --sweep` saves its results once the other's transaction ends. No
 producer reads
 another's results, so two commands committing in either order each swap in
 only their own parts. `pvmt snapshots prune --keep N` keeps the newest N
