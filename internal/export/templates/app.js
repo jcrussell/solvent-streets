@@ -4787,11 +4787,18 @@
                 m.cityPct = city.seed.city_maintained_area / city.seed.maintained_area * 100;
             }
 
-            // Blended decay from cohorts (area-weighted)
+            // Blended decay (area-weighted) over the active scope's cohorts:
+            // city_cohorts under the city scope, the all-jurisdiction cohorts
+            // otherwise or when the city has none (seedCohortsFor's rule).
             m.blendedDecay = 0;
-            if (city.seed && city.seed.cohorts) {
+            var decayCohorts = city.seed
+                ? ((currentScope === 'city' && city.seed.city_cohorts && city.seed.city_cohorts.length > 0)
+                    ? city.seed.city_cohorts
+                    : city.seed.cohorts)
+                : null;
+            if (decayCohorts) {
                 var totalArea = 0, weightedDecay = 0;
-                city.seed.cohorts.forEach(function(c) {
+                decayCohorts.forEach(function(c) {
                     totalArea += c.area;
                     weightedDecay += c.area * c.decay_rate;
                 });

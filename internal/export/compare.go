@@ -74,6 +74,7 @@ type compareSeed struct {
 	MaintainedArea      float64         `json:"maintained_area,omitempty"`
 	CityMaintainedArea  float64         `json:"city_maintained_area,omitempty"`
 	Cohorts             []CohortSeed    `json:"cohorts,omitempty"`
+	CityCohorts         []CohortSeed    `json:"city_cohorts,omitempty"`
 }
 
 // compareScenario is the baseline (first) scenario of a scope, with only the
