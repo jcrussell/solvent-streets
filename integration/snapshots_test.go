@@ -199,7 +199,7 @@ func TestSnapshotsCreate_RefusesStale(t *testing.T) {
 	err := cmd.ExecuteContext(ctx)
 	out := stdout.String() + stderr.String()
 	if !errors.Is(err, cmdutil.ErrSilent) || !strings.Contains(out, "grid-city: refused:") ||
-		!strings.Contains(out, "combined") || !strings.Contains(out, "hint: pvmt --city grid-city all compute") {
+		!strings.Contains(out, "combined") || !strings.Contains(out, "hint: run 'pvmt --city grid-city all compute'") {
 		t.Fatalf("create after a roads-only recompute = (%v)\n%s\nwant refused, naming the combined pass and all compute", err, out)
 	}
 	if snaps := listSnapshots(t, store); len(snaps) != 1 {

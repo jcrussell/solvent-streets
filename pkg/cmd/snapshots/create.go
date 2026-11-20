@@ -209,13 +209,16 @@ func runCreate(ctx context.Context, opts *CreateOptions) error {
 }
 
 // reportRefused writes one refused row per refused city (in config order)
-// and exits non-zero: nothing was created.
+// and exits non-zero: nothing was created. When every refused city has
+// nothing computed, the error is a missing prerequisite (exit 3) whose hint
+// names the compute to run first; any other refusal exits 1.
 func reportRefused(ctx context.Context, opts *CreateOptions, cfg *config.Config, cities []*createCity, refused *db.SnapshotRefusedError) error {
 	byID := make(map[int64]error, len(refused.Refusals))
 	for _, r := range refused.Refusals {
 		byID[r.CityID] = r.Err
 	}
 	var rows []createRow
+	onlyUncomputed := true
 	for _, c := range cities {
 		err, ok := byID[c.id]
 		if !ok {
@@ -237,20 +240,50 @@ func reportRefused(ctx context.Context, opts *CreateOptions, cfg *config.Config,
 		default:
 			row.Reasons = []string{err.Error()}
 		}
+		onlyUncomputed = onlyUncomputed && errors.Is(err, db.ErrNothingComputed)
 		rows = append(rows, row)
 	}
+	first, result := refusalError(refused.Name, rows, len(cities), onlyUncomputed)
 	if opts.Exporter != nil {
 		if err := cmdutil.WriteRows(opts.IO, opts.Exporter, rows); err != nil {
 			return err
 		}
-		return cmdutil.ErrSilent
+		return result
 	}
 	for _, r := range rows {
+		if r.Hint == first {
+			// The returned error's hint names this command already.
+			r.Hint = ""
+		}
 		printCreateRow(opts.IO, r)
 	}
 	fmt.Fprintf(opts.IO.Out, "refused %q: %d of %d %s refused; nothing was created\n",
 		refused.Name, len(rows), len(cities), cityNoun(len(cities)))
-	return cmdutil.ErrSilent
+	return result
+}
+
+// refusalError is a refused create's error: ErrSilent (exit 1), or when
+// every refused row has nothing computed, a missing prerequisite (exit 3)
+// whose hint names first, the compute to run.
+func refusalError(name string, rows []createRow, cityCount int, onlyUncomputed bool) (first string, err error) {
+	if !onlyUncomputed || len(rows) == 0 {
+		return "", cmdutil.ErrSilent
+	}
+	first = "pvmt all compute"
+	if len(rows) == 1 {
+		first = "pvmt --city " + rows[0].City + " all compute"
+	}
+	return first, cmdutil.NeedsFirst(fmt.Errorf("snapshot %q refused: nothing computed under the current settings in %d of %d %s",
+		name, len(rows), cityCount, cityNoun(cityCount)), first)
+}
+
+// hintSentence is a row's hint as printed: a bare command (the --json hint
+// value) becomes "run '<command>'"; prose is printed as it is.
+func hintSentence(h string) string {
+	if strings.HasPrefix(h, "pvmt ") {
+		return "run '" + h + "'"
+	}
+	return h
 }
 
 func cityNoun(n int) string {
@@ -267,7 +300,7 @@ func printCreateRow(ios *iostreams.IOStreams, r createRow) {
 	if r.Status == statusRefused {
 		fmt.Fprintf(ios.Out, "%s: refused: %s\n", r.City, strings.Join(r.Reasons, "; "))
 		if r.Hint != "" {
-			fmt.Fprintf(ios.ErrOut, "hint: %s\n", r.Hint)
+			fmt.Fprintf(ios.ErrOut, "hint: %s\n", hintSentence(r.Hint))
 		}
 	}
 	for _, w := range r.Warnings {

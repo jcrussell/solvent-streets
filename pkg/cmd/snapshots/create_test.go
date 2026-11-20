@@ -80,8 +80,37 @@ refused "v1": 1 of 2 cities refused; nothing was created
 	if got := stdout.String(); got != want {
 		t.Errorf("output:\n%s\nwant:\n%s", got, want)
 	}
-	if got := stderr.String(); got != "hint: pvmt --city alpha all compute\n" {
+	if got := stderr.String(); got != "hint: run 'pvmt --city alpha all compute'\n" {
 		t.Errorf("stderr = %q, want the refusal's hint", got)
+	}
+}
+
+// TestRunCreate_NothingComputedNeedsACompute: when every refusal is a city
+// with nothing computed, create exits 3 with a hint naming the compute to run
+// first (and no second copy of it on the row); a refusal of any other kind
+// beside it exits 1.
+func TestRunCreate_NothingComputedNeedsACompute(t *testing.T) {
+	ios, _, stdout, stderr := iostreams.Test()
+	opts := createOpts(ios, map[string]db.Store{"alpha": &dbtest.MockStore{}, "beta": coherentCity("r1")})
+	err := runCreate(context.Background(), opts)
+	var h *hint.ErrHint
+	if !cmdutil.OnlyPrereqs(err) || !errors.As(err, &h) || h.Hint != "run 'pvmt --city alpha all compute' first" {
+		t.Fatalf("err = %v, want a missing prerequisite naming alpha's compute", err)
+	}
+	if !strings.HasPrefix(stdout.String(), "alpha: refused: nothing computed") || stderr.Len() != 0 {
+		t.Errorf("stdout = %q, stderr = %q; want the refusal, and its hint only on the error", stdout, stderr)
+	}
+
+	ios, _, _, _ = iostreams.Test()
+	opts = createOpts(ios, map[string]db.Store{"alpha": &dbtest.MockStore{}, "beta": &dbtest.MockStore{}})
+	if err := runCreate(context.Background(), opts); !errors.As(err, &h) || h.Hint != "run 'pvmt all compute' first" {
+		t.Errorf("two uncomputed cities: err = %v, want the hint naming 'pvmt all compute'", err)
+	}
+
+	ios, _, _, _ = iostreams.Test()
+	opts = createOpts(ios, map[string]db.Store{"alpha": &dbtest.MockStore{}, "beta": coherentCity("r2")})
+	if err := runCreate(context.Background(), opts); !errors.Is(err, cmdutil.ErrSilent) || cmdutil.OnlyPrereqs(err) {
+		t.Errorf("mixed refusals: err = %v, want ErrSilent (exit 1)", err)
 	}
 }
 
@@ -153,8 +182,8 @@ func TestCreate_JSON(t *testing.T) {
 	})
 	cmd.SetArgs([]string{"v1", "--json", "city,status,snapshot,hex_edge_m,reasons,hint"})
 	cmd.SilenceErrors, cmd.SilenceUsage = true, true
-	if err := cmd.Execute(); !errors.Is(err, cmdutil.ErrSilent) {
-		t.Fatalf("err = %v, want ErrSilent (alpha has nothing computed)", err)
+	if err := cmd.Execute(); !cmdutil.OnlyPrereqs(err) {
+		t.Fatalf("err = %v, want a missing prerequisite (alpha has nothing computed)", err)
 	}
 	var rows []map[string]any
 	if err := json.Unmarshal(stdout.Bytes(), &rows); err != nil {
@@ -258,7 +287,7 @@ func TestRunCreate_RealStore(t *testing.T) {
 	roads(`{"type":"LineString","coordinates":[[0,0],[2,2]]}`)
 	out, err = run("v2")
 	if !errors.Is(err, cmdutil.ErrSilent) || !strings.HasPrefix(out, "alpha: refused: roads re-ingested ") ||
-		!strings.Contains(out, "after the combined and roads computes\n") || !strings.Contains(out, "hint: pvmt --city alpha all compute\n") {
+		!strings.Contains(out, "after the combined and roads computes\n") || !strings.Contains(out, "hint: run 'pvmt --city alpha all compute'\n") {
 		t.Errorf("after a roads re-ingest: (%q, %v), want refused with the all compute hint", out, err)
 	}
 	snaps, err = store.ListSnapshots(ctx)
@@ -271,7 +300,7 @@ func TestRunCreate_RealStore(t *testing.T) {
 	// every ingested resource never computed.
 	cfg.Grid.HexEdgeM = 150
 	out, err = run("v2")
-	if !errors.Is(err, cmdutil.ErrSilent) || !strings.HasPrefix(out, "alpha: refused: nothing computed under the current settings") ||
+	if !cmdutil.OnlyPrereqs(err) || !strings.HasPrefix(out, "alpha: refused: nothing computed under the current settings") ||
 		!strings.Contains(out, "was computed, but not under the current settings") || strings.Contains(out, "never computed") {
 		t.Errorf("after a settings change: (%q, %v), want the nothing-computed refusal with the stale-settings hint", out, err)
 	}

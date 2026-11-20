@@ -192,7 +192,7 @@ exits 1:
 
 ```
 oakland-ca: refused: roads re-ingested 2026-11-14 10:02 UTC after the combined, roads and fire coverage computes
-  hint: pvmt --city oakland-ca all compute
+  hint: run 'pvmt --city oakland-ca all compute'
 refused 2026-11: 1 of 2 cities refused; nothing was created
 ```
 
@@ -206,23 +206,28 @@ times. `pvmt status` shows the same verdict before you create, as each part's
 *State* (`stale: roads re-ingested …`). Run the hinted command, then create
 again with the same name. The hint is one of the following.
 
+When every refused city simply has nothing computed under the current
+settings, create exits 3 instead, a missing first step, and the error's
+hint names the compute to run first: `run 'pvmt --city <slug> all compute'
+first` for one city, `run 'pvmt all compute' first` for several.
+
 `snapshot <name> already exists` is a refusal too: snapshots never change.
 Delete it with `pvmt snapshots delete <name>` and create it again (cities that
 were not recomputed keep their runs, so this is cheap), or choose another
 name.
 
-### `hint: pvmt --city <slug> all compute`
+### `hint: run 'pvmt --city <slug> all compute'`
 
 The boundary changed (every part is clipped to it), the combined pass is
 stale or missing, there is no pavement compute, or two or more parts are
 stale. One `all compute` recomputes them together.
 
-### `hint: pvmt --city <slug> services compute`
+### `hint: run 'pvmt --city <slug> services compute'`
 
 Only the service coverage is stale: its facilities were re-ingested after it
 was computed. `pvmt services compute` routes from them again.
 
-### `hint: pvmt --city <slug> census compute`
+### `hint: run 'pvmt --city <slug> census compute'`
 
 Only the population is stale: the census blocks were re-ingested after it was
 computed.
