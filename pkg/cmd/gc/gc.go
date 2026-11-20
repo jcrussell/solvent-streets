@@ -243,7 +243,7 @@ func printRetained(w *iostreams.IOStreams, retained int) {
 // what lets --dry-run and a declined prompt both stop here with the DB
 // untouched.
 func scanCities(ctx context.Context, opts *Options, root db.RootStorer,
-	cities []config.CityConfig, multi bool) ([]gcRow, int, error) {
+	cities []config.CityConfig) ([]gcRow, int, error) {
 	var total int
 	var rows []gcRow
 	for _, city := range cities {
@@ -271,9 +271,9 @@ func scanCities(ctx context.Context, opts *Options, root db.RootStorer,
 		if opts.Exporter != nil {
 			continue
 		}
-		if multi {
-			fmt.Fprintf(opts.IO.Out, "\n=== %s ===\n", city.Name)
-		}
+		// The header names the city even when it is the only one: the
+		// report lines below it do not.
+		fmt.Fprintf(opts.IO.Out, "\n=== %s ===\n", city.Slug())
 		printReport(opts.IO, report)
 		printRetained(opts.IO, retained)
 	}
@@ -294,7 +294,7 @@ func runGC(ctx context.Context, opts *Options) error {
 	// Scan pass: count orphans per city without writing anything, so the
 	// confirmation prompt can quote a real total and a declined prompt
 	// leaves the DB untouched.
-	scanned, total, err := scanCities(ctx, opts, root, cities, multi)
+	scanned, total, err := scanCities(ctx, opts, root, cities)
 	if err != nil {
 		return err
 	}
@@ -356,7 +356,7 @@ func sweepCities(ctx context.Context, opts *Options, root db.RootStorer, cities 
 			continue
 		}
 		if multi {
-			fmt.Fprintf(opts.IO.Out, "\n=== %s ===\n", city.Name)
+			fmt.Fprintf(opts.IO.Out, "\n=== %s ===\n", city.Slug())
 		}
 		fmt.Fprintf(opts.IO.Out, "Collected %d orphaned row(s) from %s.\n", report.Total(), city.Slug())
 		printReport(opts.IO, report)

@@ -342,7 +342,7 @@ func runStatus(ctx context.Context, opts *Options) error {
 	if ios.IsTTY() {
 		printCitySummary(ctx, ios, store, rows, sys, allResources, view)
 		if view.snapsErr == nil {
-			printSnapshotHistory(ios, view.snaps, view.hash)
+			printSnapshotHistory(ios, view.snaps, view.hash, view.slug())
 		}
 	}
 
@@ -489,6 +489,25 @@ func (v latestView) slug() string {
 	return v.city.Slug()
 }
 
+// section is the header of one of the sections after the table, naming the
+// city: they share stdout with the table, while ForEachCity's per-city
+// header goes to stderr, so 'pvmt status > out.txt' still says whose
+// section each is.
+func section(slug, title string) string {
+	if slug == "" {
+		return "\n=== " + title + " ===\n"
+	}
+	return "\n=== " + slug + ": " + title + " ===\n"
+}
+
+// cityPrefix is "<slug>: " for a line after the table ("" without a city).
+func cityPrefix(slug string) string {
+	if slug == "" {
+		return ""
+	}
+	return slug + ": "
+}
+
 // state is part's state in the latest compute; ok is false without a view.
 func (v latestView) state(part string) (coherence.PartState, bool) {
 	if !v.ok {
@@ -529,7 +548,7 @@ func (v latestView) printOtherParts(ios *iostreams.IOStreams) {
 	if !v.ok {
 		return
 	}
-	fmt.Fprintf(ios.Out, "\n=== Other parts ===\n")
+	fmt.Fprint(ios.Out, section(v.slug(), "Other parts"))
 	for _, st := range coherence.PartStates(v.otherParts(), v.latest, v.inputs) {
 		fmt.Fprintf(ios.Out, "  %-14s %s\n", st.Part, st)
 	}
@@ -553,8 +572,8 @@ func (v latestView) printUnsnapshotted(ios *iostreams.IOStreams) {
 	if len(parts) > 1 {
 		noun = "parts"
 	}
-	fmt.Fprintf(ios.Out, "\n%d %s not yet snapshotted (%s); run 'pvmt snapshots create <name>' to publish\n",
-		len(parts), noun, strings.Join(parts, ", "))
+	fmt.Fprintf(ios.Out, "\n%s%d %s not yet snapshotted (%s); run 'pvmt snapshots create <name>' to publish\n",
+		cityPrefix(v.slug()), len(parts), noun, strings.Join(parts, ", "))
 }
 
 // noteStale prints the shared stale-settings hint when the city has
@@ -600,7 +619,7 @@ func printCitySummary(ctx context.Context, ios *iostreams.IOStreams, store db.St
 	if st, ok := view.state(string(resource.CombinedAll)); allResources && accurate && ok && st.State == coherence.StateStale {
 		staleCombined, accurate = strings.Join(st.Stale, ", "), false
 	}
-	fmt.Fprintf(ios.Out, "\n=== City Summary ===\n")
+	fmt.Fprint(ios.Out, section(view.slug(), "City Summary"))
 	fmt.Fprintf(ios.Out, "  City Area:    %s (%s)\n", units.FormatAreaLarge(cityArea, sys), units.FormatAreaVeryLarge(cityArea, sys))
 	pavedLabel := "  Paved Area:   "
 	if !accurate {
@@ -653,14 +672,14 @@ func totalPavedArea(ctx context.Context, store db.Store, rows []statusRow, allRe
 	return sum, !allResources
 }
 
-// printSnapshotHistory lists the newest snapshots with their config hash,
-// marking the newest, which export and serve publish, and the ones created
-// under the current settings (hash; "" marks none).
-func printSnapshotHistory(ios *iostreams.IOStreams, snapshots []db.SnapshotCity, hash string) {
+// printSnapshotHistory lists the newest snapshots of the city slug with
+// their config hash, marking the newest, which export and serve publish, and
+// the ones created under the current settings (hash; "" marks none).
+func printSnapshotHistory(ios *iostreams.IOStreams, snapshots []db.SnapshotCity, hash, slug string) {
 	if len(snapshots) == 0 {
 		return
 	}
-	fmt.Fprintf(ios.Out, "\n=== Snapshots ===\n")
+	fmt.Fprint(ios.Out, section(slug, "Snapshots"))
 	limit := min(len(snapshots), 5)
 	for i, s := range snapshots[:limit] {
 		var marks []string

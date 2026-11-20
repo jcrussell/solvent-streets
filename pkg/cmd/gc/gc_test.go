@@ -320,7 +320,7 @@ func TestRunGC_DryRunScansButDoesNotSweep(t *testing.T) {
 		t.Errorf("stderr should be empty; got: %q", got)
 	}
 	out := stdout.String()
-	for _, want := range []string{"stale features:        3", "city=6", "Dry run", "nothing deleted"} {
+	for _, want := range []string{"=== alpha ===", "stale features:        3", "city=6", "Dry run", "nothing deleted"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("expected %q in output, got: %s", want, out)
 		}

@@ -545,10 +545,14 @@ func TestRunStatus_PartStates(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
-		"=== Other parts ===",
+		// Every section after the table names the city: they share stdout
+		// with it, apart from the stderr city header.
+		"=== test-city: Other parts ===",
 		"combined       stale: roads re-ingested 2026-11-14 10:02 UTC",
 		"census         not computed",
-		"1 part not yet snapshotted (roads); run 'pvmt snapshots create <name>' to publish",
+		"test-city: 1 part not yet snapshotted (roads); run 'pvmt snapshots create <name>' to publish",
+		"=== test-city: City Summary ===",
+		"=== test-city: Snapshots ===",
 		"Paved Area*:",
 		"* the combined total is stale (roads re-ingested 2026-11-14 10:02 UTC since it was computed)",
 		"  v4  ",
