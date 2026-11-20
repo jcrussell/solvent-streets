@@ -110,7 +110,7 @@ release-dry-run:
 
 clean:
 	rm -f $(BINARY) coverage.out
-	rm -rf dist/
+	rm -rf dist/ bin/
 
 help:
 	@echo "Targets:"
