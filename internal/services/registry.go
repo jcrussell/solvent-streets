@@ -111,10 +111,10 @@ func Resolve(s Spec, overrides []config.ServiceOverride) Spec {
 // loading the config for every command. Errors are joined under
 // config.ErrInvalidConfig, the invalid-config exit code.
 func ValidateConfig(cfg *config.Config) error {
-	for i, o := range cfg.Services {
+	for _, o := range cfg.Services {
 		if _, ok := Registry[o.Name]; !ok {
 			return errors.Join(config.ErrInvalidConfig, fmt.Errorf(
-				"services[%d]: name %q is not a registered service (registered: %s)", i, o.Name, strings.Join(Names(), ", ")))
+				"[[services]] name %q is not a registered service (registered: %s)", o.Name, strings.Join(Names(), ", ")))
 		}
 	}
 	for i := range cfg.Cities {
@@ -125,11 +125,11 @@ func ValidateConfig(cfg *config.Config) error {
 		// A city reached through [[include]] runs under its declaring file's
 		// [[services]] (config.ResolvedServices), which the loop above never
 		// sees.
-		for j, o := range cfg.ResolvedServices(city) {
+		for _, o := range cfg.ResolvedServices(city) {
 			if _, ok := Registry[o.Name]; !ok {
 				return errors.Join(config.ErrInvalidConfig, fmt.Errorf(
-					"cities[%d] (%s): services[%d] from its own config: name %q is not a registered service (registered: %s)",
-					i, city.Name, j, o.Name, strings.Join(Names(), ", ")))
+					"%s: [[services]] name %q in its own config is not a registered service (registered: %s)",
+					config.CityPath(i, city), o.Name, strings.Join(Names(), ", ")))
 			}
 		}
 	}
@@ -137,8 +137,8 @@ func ValidateConfig(cfg *config.Config) error {
 		for j, f := range city.Facilities {
 			if _, ok := Registry[f.Service]; !ok {
 				return errors.Join(config.ErrInvalidConfig, fmt.Errorf(
-					"cities[%d] (%s): facilities[%d].service %q is not a registered service (registered: %s)",
-					i, city.Name, j, f.Service, strings.Join(Names(), ", ")))
+					"%s.facilities[%d].service %q is not a registered service (registered: %s)",
+					config.CityPath(i, &city), j, f.Service, strings.Join(Names(), ", ")))
 			}
 		}
 	}

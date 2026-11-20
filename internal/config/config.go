@@ -742,12 +742,7 @@ func parseConfig(data []byte) (*Config, error) {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
 	if undecoded := md.Undecoded(); len(undecoded) > 0 {
-		keys := make([]string, len(undecoded))
-		for i, k := range undecoded {
-			keys[i] = k.String()
-		}
-		return nil, errors.Join(ErrInvalidConfig,
-			fmt.Errorf("unknown config key(s): %s", strings.Join(keys, ", ")))
+		return nil, unknownKeysError(undecoded, data)
 	}
 	if err := checkCacheTTL(md, cfg.Cache.TTL); err != nil {
 		return nil, err
@@ -1018,14 +1013,14 @@ func (c *Config) validateServices() error {
 			return errors.Join(ErrInvalidConfig, fmt.Errorf("services[%d].name is required", i))
 		}
 		if seen[s.Name] {
-			return errors.Join(ErrInvalidConfig, fmt.Errorf("services[%d]: duplicate service %q", i, s.Name))
+			return errors.Join(ErrInvalidConfig, fmt.Errorf("services[%s] is listed twice", s.Name))
 		}
 		seen[s.Name] = true
 		if v := s.TurnoutS; v != nil && (nonFinite(*v) || *v < 0) {
-			return errors.Join(ErrInvalidConfig, fmt.Errorf("services[%d] (%s): turnout_s %g must be a non-negative finite number", i, s.Name, *v))
+			return errors.Join(ErrInvalidConfig, fmt.Errorf("%s.turnout_s %g must be a non-negative finite number", serviceOverridePath(i, s), *v))
 		}
 		if v := s.TravelThresholdS; v != nil && (nonFinite(*v) || *v < 0) {
-			return errors.Join(ErrInvalidConfig, fmt.Errorf("services[%d] (%s): travel_threshold_s %g must be a non-negative finite number", i, s.Name, *v))
+			return errors.Join(ErrInvalidConfig, fmt.Errorf("%s.travel_threshold_s %g must be a non-negative finite number", serviceOverridePath(i, s), *v))
 		}
 	}
 	return nil
@@ -1039,10 +1034,10 @@ func (c *Config) validateServices() error {
 func validateFacilities(i int, city CityConfig) error {
 	for j, f := range city.Facilities {
 		if strings.TrimSpace(f.Service) == "" {
-			return errors.Join(ErrInvalidConfig, fmt.Errorf("cities[%d] (%s): facilities[%d].service is required", i, city.Name, j))
+			return errors.Join(ErrInvalidConfig, fmt.Errorf("%s.facilities[%d].service is required", CityPath(i, &city), j))
 		}
 		if nonFinite(f.Lat) || f.Lat < -90 || f.Lat > 90 || nonFinite(f.Lon) || f.Lon < -180 || f.Lon > 180 {
-			return errors.Join(ErrInvalidConfig, fmt.Errorf("cities[%d] (%s): facilities[%d] (%s) lat/lon %g,%g out of range", i, city.Name, j, f.Service, f.Lat, f.Lon))
+			return errors.Join(ErrInvalidConfig, fmt.Errorf("%s.facilities[%d] (%s) lat/lon %g,%g out of range", CityPath(i, &city), j, f.Service, f.Lat, f.Lon))
 		}
 	}
 	return nil
@@ -1055,7 +1050,7 @@ func validateTags(i int, city CityConfig) error {
 	for j, tag := range city.Tags {
 		if err := validateTag(tag); err != nil {
 			return errors.Join(ErrInvalidConfig,
-				fmt.Errorf("cities[%d] (%s): tags[%d] %w", i, city.Name, j, err))
+				fmt.Errorf("%s.tags[%d] %w", CityPath(i, &city), j, err))
 		}
 	}
 	return nil
@@ -1091,15 +1086,16 @@ func (c *Config) validateCities() error {
 // Split from validateCities, which keeps the name/slug/uniqueness loop, to hold each
 // function's cognitive complexity in bounds.
 func validateCityFields(i int, city CityConfig) error {
+	at := CityPath(i, &city)
 	if nonFinite(city.HexEdgeM) || city.HexEdgeM < 0 {
 		return errors.Join(ErrInvalidConfig,
-			fmt.Errorf("cities[%d] (%s): hex_edge_m %g must be a non-negative finite number", i, city.Name, city.HexEdgeM))
+			fmt.Errorf("%s.hex_edge_m %g must be a non-negative finite number", at, city.HexEdgeM))
 	}
 	// Mirrors the top-level floor in validate; 0 means "inherit" and stays legal.
 	if city.HexEdgeM > 0 && city.HexEdgeM < MinHexEdgeM {
 		return errors.Join(ErrInvalidConfig, fmt.Errorf(
-			"cities[%d] (%s): hex_edge_m %g is below the %g m floor; hex count grows as 1/edge² and a grid "+
-				"this fine will exhaust memory on a city-sized bbox", i, city.Name, city.HexEdgeM, MinHexEdgeM))
+			"%s.hex_edge_m %g is below the %g m floor; hex count grows as 1/edge² and a grid "+
+				"this fine will exhaust memory on a city-sized bbox", at, city.HexEdgeM, MinHexEdgeM))
 	}
 	// Mirrors the top-level display.min_hex_area check in validate: a negative
 	// literal would fall through ResolvedMinHexArea's `> 0` guard to the
@@ -1107,11 +1103,11 @@ func validateCityFields(i int, city CityConfig) error {
 	// threshold the author meant to set. 0 is allowed (means "inherit").
 	if nonFinite(city.MinHexArea) || city.MinHexArea < 0 {
 		return errors.Join(ErrInvalidConfig,
-			fmt.Errorf("cities[%d] (%s): min_hex_area %g must be a non-negative finite number", i, city.Name, city.MinHexArea))
+			fmt.Errorf("%s.min_hex_area %g must be a non-negative finite number", at, city.MinHexArea))
 	}
 	if city.BoundaryRelationID < 0 {
 		return errors.Join(ErrInvalidConfig,
-			fmt.Errorf("cities[%d] (%s): boundary_relation_id %d must be non-negative", i, city.Name, city.BoundaryRelationID))
+			fmt.Errorf("%s.boundary_relation_id %d must be non-negative", at, city.BoundaryRelationID))
 	}
 	// A city with neither Overpass nor an ArcGIS URL has no data source.
 	// ingest.AllSources includes OverpassSource only when overpass = true and
@@ -1124,7 +1120,7 @@ func validateCityFields(i int, city CityConfig) error {
 	// it explicitly. Empty/whitespace arcgis_url counts as unset.
 	if !city.Overpass && strings.TrimSpace(city.ArcGISURL) == "" {
 		return errors.Join(ErrInvalidConfig,
-			fmt.Errorf("cities[%d] (%s): no data source; set overpass = true or provide arcgis_url", i, city.Name))
+			fmt.Errorf("%s has no data source; set overpass = true or provide arcgis_url", at))
 	}
 	if err := validateTags(i, city); err != nil {
 		return err
@@ -1135,13 +1131,13 @@ func validateCityFields(i int, city CityConfig) error {
 	if city.Forecast != nil {
 		if city.Forecast.Years != 0 {
 			return errors.Join(ErrInvalidConfig, fmt.Errorf(
-				"cities[%d] (%s): forecast.years is set per config, not per city; "+
+				"%s.forecast.years is set per config, not per city; "+
 					"move it to the top-level [forecast] (every city in a config shares one horizon)",
-				i, city.Name))
+				at))
 		}
 		if err := city.Forecast.Validate(); err != nil {
 			return errors.Join(ErrInvalidConfig,
-				fmt.Errorf("cities[%d] (%s): %w", i, city.Name, err))
+				fmt.Errorf("%s.%w", at, err))
 		}
 	}
 	return nil

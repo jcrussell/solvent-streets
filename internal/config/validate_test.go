@@ -665,14 +665,14 @@ initialpci = 85
 [[cities]]
 name = "Oakland, CA"
 `,
-			wantKey: "forecast.initialpci",
+			wantKey: "forecast.initialpci (did you mean initial_pci?)",
 		},
 		"typo in city field": {
 			toml: `[[cities]]
 name = "Oakland, CA"
 overpas = true
 `,
-			wantKey: "cities.overpas",
+			wantKey: "cities[oakland-ca].overpas (did you mean overpass?)",
 		},
 		"typo in cost tier": {
 			toml: `[[forecast.cost_tiers]]
@@ -684,7 +684,15 @@ label = "Reconstruct"
 [[cities]]
 name = "Oakland, CA"
 `,
-			wantKey: "forecast.cost_tiers.cost_per_smq",
+			wantKey: "forecast.cost_tiers.cost_per_smq (did you mean cost_per_sqm?)",
+		},
+		"word missing from a key": {
+			toml:    "[[cities]]\nname = \"Oakland, CA\"\noverpass = true\n[cities.forecast]\nbudget = 5\n",
+			wantKey: "cities[oakland-ca].forecast.budget (did you mean current_budget?)",
+		},
+		"service key": {
+			toml:    "[[services]]\nname = \"fire\"\nturnout = 60\n[[cities]]\nname = \"Oakland, CA\"\noverpass = true\n",
+			wantKey: "services[fire].turnout (did you mean turnout_s?)",
 		},
 		// The removed [[layers]] config (solvent-streets 2a7n.15) must now be
 		// caught by the unknown-key guard instead of silently no-op'ing.
@@ -957,5 +965,42 @@ func TestLoad_TopLevelOverpassFlag(t *testing.T) {
 		if msg := err.Error(); !strings.Contains(msg, "overpass = "+v+" belongs inside [[cities]]") || strings.Contains(msg, "OverpassConfig") {
 			t.Errorf("overpass = %s: Load err = %q; want the misplaced-key message, echoing the value, without the Go type", v, msg)
 		}
+	}
+}
+
+// TestUnknownKeys_TableReportedOnce pins that an unknown table is named once,
+// not once more for every key inside it, and that a key far from every known
+// one gets no suggestion.
+func TestUnknownKeys_TableReportedOnce(t *testing.T) {
+	_, err := Load(writeTOML(t, t.TempDir(), "pvmt.toml",
+		"[layers]\nname = \"x\"\npath = \"y\"\n\n[[cities]]\nname = \"Oakland, CA\"\noverpass = true\n"))
+	if !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("Load err = %v; want ErrInvalidConfig", err)
+	}
+	if msg := err.Error(); !strings.HasSuffix(msg, "unknown config key(s): layers") {
+		t.Errorf("Load err = %q; want only the table named, with no suggestion", msg)
+	}
+}
+
+// TestUnknownKeys_EveryCityNamed pins that an unknown per-city key is
+// addressed at each city that sets it.
+func TestUnknownKeys_EveryCityNamed(t *testing.T) {
+	_, err := Load(writeTOML(t, t.TempDir(), "pvmt.toml",
+		"[[cities]]\nname = \"Oakland, CA\"\noverpass = true\nhex_edge = 50\n"+
+			"[[cities]]\nname = \"Alameda, CA\"\noverpass = true\n"+
+			"[[cities]]\nname = \"Berkeley, CA\"\noverpass = true\nhex_edge = 60\n"))
+	want := "unknown config key(s): cities[oakland-ca].hex_edge (did you mean hex_edge_m?), cities[berkeley-ca].hex_edge (did you mean hex_edge_m?)"
+	if err == nil || !strings.HasSuffix(err.Error(), want) {
+		t.Errorf("Load err = %v; want it to end with exactly %q", err, want)
+	}
+}
+
+// TestUnknownKeys_AmbiguousSuggestsNothing pins that a key equally near two
+// known keys gets no suggestion rather than the alphabetically first one.
+func TestUnknownKeys_AmbiguousSuggestsNothing(t *testing.T) {
+	_, err := Load(writeTOML(t, t.TempDir(), "pvmt.toml",
+		"[forecast]\nrate = 0.01\n[[cities]]\nname = \"Oakland, CA\"\noverpass = true\n"))
+	if err == nil || !strings.HasSuffix(err.Error(), "unknown config key(s): forecast.rate") {
+		t.Errorf("Load err = %v; want forecast.rate named with no suggestion", err)
 	}
 }
