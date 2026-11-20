@@ -2,7 +2,6 @@ package db
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"maps"
@@ -672,8 +671,8 @@ func TestResolveSnapshot(t *testing.T) {
 		"another city": func() (int64, error) { return root.ForCity(idB).ResolveSnapshot(ctx, "v1") },
 		"unknown name": func() (int64, error) { return storeA.ResolveSnapshot(ctx, "v2") },
 	} {
-		if _, err := s(); !errors.Is(err, sql.ErrNoRows) {
-			t.Errorf("%s: err = %v, want sql.ErrNoRows", name, err)
+		if _, err := s(); !errors.Is(err, ErrSnapshotNotFound) {
+			t.Errorf("%s: err = %v, want ErrSnapshotNotFound", name, err)
 		}
 	}
 }

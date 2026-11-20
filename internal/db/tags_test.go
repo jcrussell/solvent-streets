@@ -272,7 +272,7 @@ func TestRootListSnapshots(t *testing.T) {
 	if err != nil || len(cityB) != 1 || cityB[0].Name != "v2" {
 		t.Errorf("b's snapshots = (%+v, %v), want just v2", cityB, err)
 	}
-	if _, err := root.ForCity(b).ResolveSnapshot(ctx, "v1"); !errors.Is(err, sql.ErrNoRows) {
-		t.Errorf("b resolving v1 (without it): err = %v, want sql.ErrNoRows", err)
+	if _, err := root.ForCity(b).ResolveSnapshot(ctx, "v1"); !errors.Is(err, ErrSnapshotNotFound) {
+		t.Errorf("b resolving v1 (without it): err = %v, want ErrSnapshotNotFound", err)
 	}
 }

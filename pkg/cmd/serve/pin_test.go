@@ -2,7 +2,6 @@ package serve
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"strings"
 	"testing"
@@ -138,7 +137,7 @@ func TestPinNamed(t *testing.T) {
 				if s, ok := has[snap]; ok {
 					return s.ID, nil
 				}
-				return 0, sql.ErrNoRows
+				return 0, db.ErrSnapshotNotFound
 			},
 		}
 		store.WithSnapshotFunc = func(id int64) db.Store {

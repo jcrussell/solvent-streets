@@ -3,7 +3,6 @@ package server
 import (
 	"bytes"
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -542,7 +541,7 @@ func TestDataFile_SnapshotParam(t *testing.T) {
 			case "v2":
 				return 2, nil
 			}
-			return 0, sql.ErrNoRows
+			return 0, db.ErrSnapshotNotFound
 		},
 		WithSnapshotFunc: func(id int64) db.Store {
 			cp := *pinnedStore

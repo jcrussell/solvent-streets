@@ -2,7 +2,6 @@ package export
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -246,7 +245,7 @@ func notCovered(name string, missing []string, total int) error {
 // snapshot does not cover it.
 func (entry CityEntry) namedSnapshot(ctx context.Context, name string) (*db.SnapshotCity, error) {
 	id, err := entry.Store.ResolveSnapshot(ctx, name)
-	if errors.Is(err, sql.ErrNoRows) {
+	if errors.Is(err, db.ErrSnapshotNotFound) {
 		return nil, nil //nolint:nilnil // nil snapshot = not covered
 	}
 	if err != nil {

@@ -544,12 +544,15 @@ func (s *sqliteStore) ViewSnapshot(ctx context.Context) (*SnapshotCity, error) {
 }
 
 // ResolveSnapshot returns the id of the snapshot named name when it covers
-// this city, and sql.ErrNoRows otherwise. The server uses it to turn an
+// this city, and ErrSnapshotNotFound otherwise. The server uses it to turn an
 // unknown ?snapshot=<name> into a 404 rather than an empty response.
 func (s *sqliteStore) ResolveSnapshot(ctx context.Context, name string) (int64, error) {
 	var id int64
-	if err := s.db.QueryRowContext(ctx, sqlResolveSnapshotName, s.cityID, name).Scan(&id); err != nil {
-		return 0, err
+	switch err := s.db.QueryRowContext(ctx, sqlResolveSnapshotName, s.cityID, name).Scan(&id); {
+	case errors.Is(err, sql.ErrNoRows):
+		return 0, fmt.Errorf("snapshot %s: %w", name, ErrSnapshotNotFound)
+	case err != nil:
+		return 0, fmt.Errorf("resolve snapshot %s: %w", name, err)
 	}
 	return id, nil
 }

@@ -283,7 +283,7 @@ type Store interface {
 	// first, each with the city's manifest.
 	ListSnapshots(ctx context.Context) ([]SnapshotCity, error)
 	// ResolveSnapshot returns the id of the snapshot named name when it
-	// covers this city, and sql.ErrNoRows otherwise (an unknown name, or a
+	// covers this city, and ErrSnapshotNotFound otherwise (an unknown name, or a
 	// snapshot without this city).
 	ResolveSnapshot(ctx context.Context, name string) (int64, error)
 	// ViewSnapshot returns the city's state in the snapshot this view reads,

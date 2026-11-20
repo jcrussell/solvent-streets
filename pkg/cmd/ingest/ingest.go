@@ -710,7 +710,7 @@ func replaceScope(requested cmdutil.Source, resolved int, succeeded []string) []
 }
 
 // resolveBoundary returns the cached city boundary or fetches a fresh
-// one. GetBoundary returns ("", nil) on sql.ErrNoRows — any returned
+// one. GetBoundary returns ("", nil) when none is stored — any returned
 // error is a real DB problem and must surface.
 //
 // The second return is non-nil exactly when a fresh fetch happened

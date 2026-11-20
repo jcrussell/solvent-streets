@@ -2,9 +2,7 @@ package export
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"html/template"
 
@@ -197,12 +195,10 @@ func (a *areaSplit) add(area float64, asphalt bool) {
 }
 
 // collectCohortSeeds iterates over all resource types and collects cohort seed
-// data for both the main and city-scoped cohort stats. sql.ErrNoRows for a
-// given type is the normal "no cohorts computed for this resource" state and is
-// tolerated (that type contributes nothing); any other cohort-read error is
-// a real DB failure and is returned so the server's scenarios/seed cache evicts
-// and retries instead of locking in a synthetic-cohort payload for the server's
-// lifetime.
+// data for both the main and city-scoped cohort stats. A type with no cohorts
+// computed contributes nothing; a cohort-read error is a real DB failure and
+// is returned so the server's scenarios/seed cache evicts and retries instead
+// of locking in a synthetic-cohort payload for the server's lifetime.
 //
 // The asphalt shares are accumulated in this same loop, and deliberately so:
 // they have to be computed on the COHORT area basis, because that is what
@@ -216,7 +212,7 @@ func collectCohortSeeds(ctx context.Context, store db.Store, fc *config.Forecast
 		t := rt.Type()
 		asphalt := rt.AsphaltSurfaced()
 		stats, err := results.LoadCohorts(ctx, store, t)
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		if err != nil {
 			return cohortSet{}, fmt.Errorf("list cohort stats for %s: %w", t, err)
 		}
 		for _, st := range stats {
@@ -229,7 +225,7 @@ func collectCohortSeeds(ctx context.Context, store db.Store, fc *config.Forecast
 			})
 		}
 		cityStats, err := results.LoadCohorts(ctx, store, t.With(resource.ScopeCity))
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		if err != nil {
 			return cohortSet{}, fmt.Errorf("list cohort stats for %s: %w", t.With(resource.ScopeCity), err)
 		}
 		for _, st := range cityStats {

@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -492,7 +491,7 @@ func (s *Server) parseSnapshotParam(ctx context.Context, w http.ResponseWriter, 
 	}
 	id, err := store.ResolveSnapshot(ctx, raw)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, db.ErrSnapshotNotFound) {
 			http.NotFound(w, r)
 			return 0, false
 		}
@@ -660,10 +659,9 @@ func (s *Server) serveHexMetrics(w http.ResponseWriter, _ *http.Request, entry e
 func (s *Server) serveScenariosJSON(w http.ResponseWriter, _ *http.Request, entry export.CityEntry, snapshotID int64) {
 	s.serveJSONCached(w, cacheKey("scenarios", entry.Slug, snapshotID), func() (any, error) {
 		fc := entry.Config.ResolvedForecast(&entry.City)
-		// BuildScenariosData distinguishes sql.ErrNoRows (tolerated → empty
-		// scenarios) from real DB errors (surfaced so serveJSONCached evicts
+		// BuildScenariosData returns real DB errors, so serveJSONCached evicts
 		// and the next request retries instead of locking in a zero-area
-		// payload for the server's lifetime), mirroring serveBoundaryGeoJSON.
+		// payload for the server's lifetime; nothing computed is just empty.
 		data, err := export.BuildScenariosData(context.Background(), entry, &fc)
 		if err != nil {
 			return nil, err

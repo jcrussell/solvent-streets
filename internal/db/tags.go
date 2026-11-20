@@ -14,7 +14,8 @@ import (
 // Snapshots are immutable: replacing one is delete, then create.
 var ErrSnapshotExists = errors.New("snapshot already exists")
 
-// ErrSnapshotNotFound is returned by RootStorer.Snapshot for an unknown name.
+// ErrSnapshotNotFound is returned by RootStorer.Snapshot for an unknown name,
+// and by Store.ResolveSnapshot for a name that does not cover the city.
 var ErrSnapshotNotFound = errors.New("snapshot not found")
 
 // snapshotNameRE is the one statement of what a snapshot name may be: like a
