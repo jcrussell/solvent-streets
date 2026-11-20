@@ -139,7 +139,8 @@ test('area labels name the maintained area and the per-area denominator', async 
   assert.ok(!card(/Total Network/), 'the old Total Network Area label is still shown');
   const need = card(/^Year-1 Maintenance Need$/);
   assert.doesNotMatch(need.querySelector('.sub').textContent, /hold the whole network steady/);
-  assert.match(need.querySelector('.sub').textContent, /backlog included/);
+  assert.doesNotMatch(need.querySelector('.sub').textContent, /backlog included/);
+  assert.match(need.querySelector('.sub').textContent, /before any deferred backlog/);
   assert.match(card(/^Year-1 Need per acre$/).querySelector('.sub').textContent, /maintained area \((city-maintained|all owners)\)/);
 
   win.renderCompare([city('Alpha'), city('Beta'), city('Gamma')]);

@@ -5330,7 +5330,7 @@
                 // baselineYears[0] is year 1, after one year's decay from the
                 // configured starting PCI, so say so.
                 aggCard('Area-Weighted PCI', weightedPCI === null ? '—' : weightedPCI.toFixed(0), 'Year-1 condition, after one year of decay with no spend'),
-                aggCard('Year-1 Maintenance Need', hasFc ? fmtMoney(regionYear1) : '—', 'Treating what is due in year 1, backlog included; the hold-steady budget is on Financials'),
+                aggCard('Year-1 Maintenance Need', hasFc ? fmtMoney(regionYear1) : '—', 'Year 1\'s share of the treatment cycle, before any deferred backlog; the hold-steady budget is on Financials'),
                 aggCard(horizon + 'Deferred Backlog', hasFc ? fmtMoney(regionBacklog) : '—', hasFc ? 'Unfunded need accumulated by year ' + horizonYears : 'No forecast data in this region'),
                 aggCard('Year-1 Need per ' + areaLargeUnitSingular(), perArea === null ? '—' : fmtMoney(perArea, { full: true }), 'Year-1 need ÷ ' + fmtNum(fcArea) + ' ' + unit + ' of maintained area (' + scopeName() + ')'),
                 aggCard('Est. Parking Spaces', totalSpaces > 0 ? fmtNum(totalSpaces) : '—', 'Lots and garages: OSM capacity, else footprint ÷ 30 m²/space')
