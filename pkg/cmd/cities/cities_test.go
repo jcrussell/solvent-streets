@@ -38,7 +38,7 @@ func TestRunCities_ListsCitiesWithStats(t *testing.T) {
 	statsFor := func(slug string) func(context.Context, resource.Type) (*db.StatusInfo, error) {
 		return func(_ context.Context, rt resource.Type) (*db.StatusInfo, error) {
 			if slug == "austin-tx" && rt == rtRoads {
-				return &db.StatusInfo{ResourceType: rt, FeatureCount: 42, TotalArea: 1000}, nil
+				return &db.StatusInfo{ResourceType: rt, FeatureCount: 42}, nil
 			}
 			return &db.StatusInfo{ResourceType: rt}, nil
 		}
@@ -90,10 +90,11 @@ func TestRunCities_PrefersCombinedArea(t *testing.T) {
 		ForCityFunc: func(int64) db.Store {
 			return &dbtest.MockStore{
 				// Per-resource areas sum to 300; combined row says 210.
-				StatsFunc: func(_ context.Context, rt resource.Type) (*db.StatusInfo, error) {
-					return &db.StatusInfo{ResourceType: rt, TotalArea: 100}, nil
-				},
-				CityMetrics: results.TotalRows(resource.CombinedAll, results.Totals{Area: 210}),
+				CityMetrics: append(append(append(
+					results.TotalRows(resource.TypeRoads, results.Totals{Area: 100}),
+					results.TotalRows(resource.TypeParking, results.Totals{Area: 100})...),
+					results.TotalRows(resource.TypeSidewalks, results.Totals{Area: 100})...),
+					results.TotalRows(resource.CombinedAll, results.Totals{Area: 210})...),
 			}
 		},
 	}

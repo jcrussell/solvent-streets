@@ -21,6 +21,16 @@ import (
 
 var rtRoads = resource.TypeRoads
 
+// eachResourceTotals is a city-total fixture giving every pavement resource
+// 30000 m².
+func eachResourceTotals() []db.CityMetric {
+	var rows []db.CityMetric
+	for _, t := range resource.AllTypes(resource.ScopeAll) {
+		rows = append(rows, results.TotalRows(t, results.Totals{Area: 30000})...)
+	}
+	return rows
+}
+
 func TestNewCmdStatus_RunFInjection(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
 	f := &cmdutil.Factory{IOStreams: ios, UnitSystem: func() units.System { return units.Imperial }}
@@ -121,14 +131,11 @@ func TestRunStatus_CitySummary(t *testing.T) {
 	store := &dbtest.MockStore{
 		StatsFunc: func(_ context.Context, rt resource.Type) (*db.StatusInfo, error) {
 			if rt == rtRoads {
-				return &db.StatusInfo{
-					ResourceType: rtRoads,
-					FeatureCount: 100,
-					TotalArea:    46452,
-				}, nil
+				return &db.StatusInfo{ResourceType: rtRoads, FeatureCount: 100}, nil
 			}
 			return &db.StatusInfo{ResourceType: rt}, nil
 		},
+		CityMetrics: results.TotalRows(rtRoads, results.Totals{Area: 46452, Features: 100}),
 		GetBoundaryFunc: func(_ context.Context) (string, error) {
 			return boundaryGJSON, nil
 		},
@@ -165,18 +172,38 @@ func TestRunStatus_CitySummary(t *testing.T) {
 	}
 }
 
+// TestRunStatus_ComputeReadErrorFails: a failed read of the compute totals
+// fails the command instead of printing rows that look never computed.
+func TestRunStatus_ComputeReadErrorFails(t *testing.T) {
+	locked := errors.New("database is locked")
+	store := &dbtest.MockStore{
+		ListCityMetricsFunc: func(context.Context, []string) ([]db.CityMetric, error) { return nil, locked },
+	}
+	ios, _, stdout, _ := iostreams.Test()
+	f := &cmdutil.Factory{
+		IOStreams:  ios,
+		UnitSystem: func() units.System { return units.Metric },
+		CityDB:     func() (db.Store, error) { return store, nil },
+	}
+	cmd := NewCmdStatus(f, nil, nil)
+	cmd.SetArgs([]string{"--json", "resource_type,area"})
+	if err := cmd.Execute(); !errors.Is(err, locked) {
+		t.Errorf("err = %v, want the compute read error", err)
+	}
+	if stdout.Len() != 0 {
+		t.Errorf("stdout = %q, want no rows", stdout.String())
+	}
+}
+
 // TestRunStatus_CitySummary_PrefersCombined pins yvlv.37: when the combined
 // (de-duplicated) compute row is present, the City Summary paved figure comes
 // from it — NOT the per-resource sum, which double-counts buffer overlap.
 func TestRunStatus_CitySummary_PrefersCombined(t *testing.T) {
 	boundaryGJSON := `{"type":"Polygon","coordinates":[[[-97.745,30.265],[-97.7346,30.265],[-97.7346,30.274],[-97.745,30.274],[-97.745,30.265]]]}`
 	store := &dbtest.MockStore{
-		StatsFunc: func(_ context.Context, rt resource.Type) (*db.StatusInfo, error) {
-			// Per-resource areas sum to 90000; the combined row says 60000.
-			return &db.StatusInfo{ResourceType: rt, TotalArea: 30000}, nil
-		},
 		GetBoundaryFunc: func(_ context.Context) (string, error) { return boundaryGJSON, nil },
-		CityMetrics:     results.TotalRows(resource.CombinedAll, results.Totals{Area: 60000}),
+		// Per-resource areas sum to 90000; the combined row says 60000.
+		CityMetrics: append(eachResourceTotals(), results.TotalRows(resource.CombinedAll, results.Totals{Area: 60000})...),
 	}
 	ios, _, _, stderr := iostreams.Test()
 	ios.SetTTY(true)
@@ -207,11 +234,9 @@ func TestRunStatus_CitySummary_PrefersCombined(t *testing.T) {
 func TestRunStatus_CitySummary_FallsBackToSum(t *testing.T) {
 	boundaryGJSON := `{"type":"Polygon","coordinates":[[[-97.745,30.265],[-97.7346,30.265],[-97.7346,30.274],[-97.745,30.274],[-97.745,30.265]]]}`
 	store := &dbtest.MockStore{
-		StatsFunc: func(_ context.Context, rt resource.Type) (*db.StatusInfo, error) {
-			return &db.StatusInfo{ResourceType: rt, TotalArea: 30000}, nil
-		},
 		GetBoundaryFunc: func(_ context.Context) (string, error) { return boundaryGJSON, nil },
 		// No combined rows in the mock → fallback.
+		CityMetrics: eachResourceTotals(),
 	}
 	ios, _, _, stderr := iostreams.Test()
 	ios.SetTTY(true)
@@ -239,12 +264,9 @@ func TestRunStatus_CitySummary_FallsBackToSum(t *testing.T) {
 func TestRunStatus_CitySummary_SingleResourceIgnoresCombined(t *testing.T) {
 	boundaryGJSON := `{"type":"Polygon","coordinates":[[[-97.745,30.265],[-97.7346,30.265],[-97.7346,30.274],[-97.745,30.274],[-97.745,30.265]]]}`
 	store := &dbtest.MockStore{
-		StatsFunc: func(_ context.Context, rt resource.Type) (*db.StatusInfo, error) {
-			return &db.StatusInfo{ResourceType: rt, TotalArea: 30000}, nil
-		},
 		GetBoundaryFunc: func(_ context.Context) (string, error) { return boundaryGJSON, nil },
 		// A combined row exists but must be ignored in single-resource mode.
-		CityMetrics: results.TotalRows(resource.CombinedAll, results.Totals{Area: 999999}),
+		CityMetrics: append(eachResourceTotals(), results.TotalRows(resource.CombinedAll, results.Totals{Area: 999999})...),
 	}
 	ios, _, _, stderr := iostreams.Test()
 	ios.SetTTY(true)
@@ -478,11 +500,8 @@ func TestRunStatus_PartStates(t *testing.T) {
 		{Part: "combined", RunID: 3, Inputs: map[string]string{db.InputBoundary: "b", "roads": "r1", "parking": "p", "sidewalks": ""}},
 	}
 	store := &dbtest.MockStore{
-		StatsFunc: func(_ context.Context, rt resource.Type) (*db.StatusInfo, error) {
-			return &db.StatusInfo{ResourceType: rt, TotalArea: 30000}, nil
-		},
 		GetBoundaryFunc:   func(context.Context) (string, error) { return boundaryGJSON, nil },
-		CityMetrics:       results.TotalRows(resource.CombinedAll, results.Totals{Area: 60000}),
+		CityMetrics:       append(eachResourceTotals(), results.TotalRows(resource.CombinedAll, results.Totals{Area: 60000})...),
 		LatestComputeFunc: func(context.Context, string) ([]db.LatestPart, error) { return latest, nil },
 		InputStatesFunc: func(context.Context) ([]db.InputState, error) {
 			return []db.InputState{

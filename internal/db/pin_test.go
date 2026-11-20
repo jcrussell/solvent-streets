@@ -42,7 +42,6 @@ func TestWithSnapshot_GoneFailsEveryRead(t *testing.T) {
 			"ListHexMetrics":  func() error { _, err := v.ListHexMetrics(ctx, "paved_area_m2", "roads"); return err },
 			"HasHexMetric":    func() error { _, err := v.HasHexMetric(ctx, "paved_area_m2", []string{"roads"}); return err },
 			"GetBoundary":     func() error { _, err := v.GetBoundary(ctx); return err },
-			"Stats":           func() error { _, err := v.Stats(ctx, "roads"); return err },
 		}
 		for read, fn := range reads {
 			if err := fn(); !errors.Is(err, ErrSnapshotGone) {

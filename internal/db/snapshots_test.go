@@ -884,10 +884,6 @@ func TestCityMetrics_RoundTrip(t *testing.T) {
 	if want := []string{"parking//parking_spaces", "parking//paved_area_m2", "parking/parking/paved_area_m2"}; !slices.Equal(got, want) {
 		t.Errorf("rows = %v, want %v", got, want)
 	}
-	info, err := store.Stats(ctx, rtParking)
-	if err != nil || info.EstimatedSpaces != 31 || info.TotalArea != 900 || info.LastComputeAt == nil {
-		t.Errorf("Stats(parking) = (%+v, %v), want 900 m² and 31 spaces", info, err)
-	}
 }
 
 // TestCommitLatest_ConcurrentProcesses: two pvmt processes (two handles on

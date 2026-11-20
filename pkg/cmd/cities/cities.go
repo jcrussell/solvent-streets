@@ -147,7 +147,6 @@ func buildCityRow(ctx context.Context, store db.Store, c db.City, ios *iostreams
 		FeatureCounts: make(map[string]int, len(resource.All)),
 	}
 	var latestIngest, latestCompute time.Time
-	var perResourceSum float64
 	for _, rt := range resource.All {
 		t := rt.Type()
 		info, err := store.Stats(ctx, t)
@@ -156,12 +155,17 @@ func buildCityRow(ctx context.Context, store db.Store, c db.City, ios *iostreams
 			continue
 		}
 		row.FeatureCounts[string(t)] = info.FeatureCount
-		perResourceSum += info.TotalArea
 		if info.LastIngestAt != nil && info.LastIngestAt.After(latestIngest) {
 			latestIngest = *info.LastIngestAt
 		}
-		if info.LastComputeAt != nil && info.LastComputeAt.After(latestCompute) {
-			latestCompute = *info.LastComputeAt
+	}
+	if totals, err := results.LoadTotals(ctx, store, resource.AllTypes(resource.ScopeAll)); err != nil {
+		cmdutil.Warnf(ios, "%s: compute results: %v", c.Slug, err)
+	} else {
+		for _, tot := range totals {
+			if tot.ComputedAt.After(latestCompute) {
+				latestCompute = tot.ComputedAt
+			}
 		}
 	}
 	// The figure meta.json publishes as total_paved (results.PavedArea).

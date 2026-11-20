@@ -214,28 +214,6 @@ func (s *sqliteStore) Stats(ctx context.Context, resourceType resource.Type) (*S
 		t := fromUnix(fetched.Int64)
 		info.LastIngestAt = &t
 	}
-
-	// The resource's city totals (class ""), read from its metric rows. No
-	// rows means "never computed" (LastComputeAt stays nil); a genuine query
-	// failure must propagate rather than silently report TotalArea=0.
-	rows, err := s.ListCityMetrics(ctx, []string{resource.Subject(resourceType)})
-	if err != nil {
-		return nil, fmt.Errorf("latest compute result: %w", err)
-	}
-	for _, m := range rows {
-		if m.Class != "" {
-			continue
-		}
-		at := m.ComputedAt
-		info.LastComputeAt = &at
-		switch m.Metric {
-		case resource.MetricPavedArea:
-			info.TotalArea = m.Value
-		case resource.MetricParkingSpaces:
-			info.EstimatedSpaces = int(m.Value)
-		}
-	}
-
 	return info, nil
 }
 

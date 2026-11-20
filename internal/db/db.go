@@ -59,13 +59,12 @@ func ResourceFeatures(rows []Feature) []resource.Feature {
 	return out
 }
 
+// StatusInfo is a resource's stored ingest state: its feature count and
+// newest fetch time. Its compute totals are results.LoadTotals'.
 type StatusInfo struct {
-	ResourceType    resource.Type
-	FeatureCount    int
-	LastIngestAt    *time.Time
-	LastComputeAt   *time.Time
-	TotalArea       float64
-	EstimatedSpaces int // parking only; resource.MetricParkingSpaces
+	ResourceType resource.Type
+	FeatureCount int
+	LastIngestAt *time.Time
 }
 
 // CityMetric is one city-wide measure written by a run (city_metrics in

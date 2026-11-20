@@ -254,38 +254,6 @@ func TestStoreStats(t *testing.T) {
 	}
 }
 
-// TestStoreStatsPropagatesComputeError ensures a genuine DB failure from the
-// compute-result lookup propagates rather than being folded into the silent
-// "never computed" branch (which previously masked it as TotalArea=0).
-func TestStoreStatsPropagatesComputeError(t *testing.T) {
-	ctx := context.Background()
-	store := openTestStore(t)
-
-	// Feature queries must succeed so Stats reaches the compute-result lookup.
-	if err := store.UpsertFeatures(ctx, rtParking, []Feature{
-		{ID: "1", Tags: map[string]string{}, GeometryJSON: testPoint, FetchedAt: time.Now()},
-	}, nil); err != nil {
-		t.Fatal(err)
-	}
-
-	// A committed parking compute, so the lookup really queries the table
-	// (with no snapshot it short-circuits to "never computed").
-	commitRun(t, store, "hash", "parking", func(run int64) {
-		if err := store.SaveCityMetrics(ctx, run, []CityMetric{{Metric: "paved_area_m2", Subject: "parking", Value: 1}}); err != nil {
-			t.Fatal(err)
-		}
-	})
-	// Break only the city_metrics table so the totals read errors with
-	// "no such table" while the feature count/fetched_at queries still work.
-	if _, err := store.(*sqliteStore).db.ExecContext(ctx, `DROP TABLE city_metrics`); err != nil {
-		t.Fatal(err)
-	}
-
-	if _, err := store.Stats(ctx, rtParking); err == nil {
-		t.Fatal("expected Stats to propagate the compute-result query error, got nil")
-	}
-}
-
 func TestBoundaryRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)

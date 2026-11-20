@@ -251,7 +251,10 @@ func runStatus(ctx context.Context, opts *Options) error {
 	sys := opts.UnitSystem()
 	view := opts.loadLatest(ctx, store)
 
-	rows := buildRows(ctx, ios, store, sources, view)
+	rows, err := buildRows(ctx, ios, store, sources, view)
+	if err != nil {
+		return err
+	}
 	// JSON output
 	if opts.Exporter != nil {
 		return cmdutil.WriteRows(ios, opts.Exporter, rows)
@@ -278,9 +281,21 @@ func runStatus(ctx context.Context, opts *Options) error {
 	return nil
 }
 
-// buildRows reads each source's row: its ingest and compute stats from store
-// and, with a view, its part's state.
-func buildRows(ctx context.Context, ios *iostreams.IOStreams, store db.Store, sources []resource.Source, view latestView) []statusRow {
+// buildRows reads each source's row: its ingest stats and compute totals
+// from store and, with a view, its part's state. A failed read of the compute
+// totals fails the status, since rows without them would read as never
+// computed.
+func buildRows(ctx context.Context, ios *iostreams.IOStreams, store db.Store, sources []resource.Source, view latestView) ([]statusRow, error) {
+	types := make([]resource.Type, len(sources))
+	for i, rt := range sources {
+		types[i] = rt.Type()
+	}
+	// One read of every source's totals. A type never computed is absent and
+	// leaves its compute columns empty.
+	totals, err := results.LoadTotals(ctx, store, types)
+	if err != nil {
+		return nil, fmt.Errorf("compute results: %w", err)
+	}
 	var rows []statusRow
 	for _, rt := range sources {
 		rtVal := rt.Type()
@@ -290,23 +305,22 @@ func buildRows(ctx context.Context, ios *iostreams.IOStreams, store db.Store, so
 			continue
 		}
 		row := statusRow{
-			ResourceType:    string(rt.Type()),
-			FeatureCount:    info.FeatureCount,
-			Area:            info.TotalArea,
-			EstimatedSpaces: info.EstimatedSpaces,
+			ResourceType: string(rt.Type()),
+			FeatureCount: info.FeatureCount,
 		}
 		if info.LastIngestAt != nil {
 			row.LastIngestAt = info.LastIngestAt.UTC().Format(time.RFC3339)
 		}
-		if info.LastComputeAt != nil {
-			row.LastComputeAt = info.LastComputeAt.UTC().Format(time.RFC3339)
+		if tot, ok := totals[rtVal]; ok {
+			row.Area, row.EstimatedSpaces = tot.Area, tot.Spaces
+			row.LastComputeAt = tot.ComputedAt.UTC().Format(time.RFC3339)
 		}
 		if st, ok := view.state(partOf(rtVal)); ok {
 			row.State, row.StaleInputs, row.stateText = st.State, st.StaleInputs, st.String()
 		}
 		rows = append(rows, row)
 	}
-	return rows
+	return rows, nil
 }
 
 // partOf is the latest-compute part computed from t's features: the
