@@ -226,3 +226,31 @@ test('the Financials charts are built without the entry animation', async () => 
     assert.equal(c.options.animation, false, 'a Financials chart animates its first draw');
   }
 });
+
+// Financials renders once scenarios.json, forecast_seed.json and forecast.json
+// have all landed. They are fetched at once, so a slow scenarios.json does not
+// hold back the other two requests, and the tab still renders only when the
+// last one arrives.
+test('the Financials files are fetched together and render once all land', async () => {
+  const { win, $$, flush, hold, release, fetches } = load({ data: fullData });
+  await flush();
+  win.selectTab('financials-tab');
+  await flush();
+
+  // Clear the first load's charts, so what is drawn below is this load's.
+  win.document.getElementById('charts').innerHTML = '';
+  hold('scenarios.json');
+  const before = fetches().length;
+  const loading = win.loadFinancials();
+  await flush();
+  const asked = fetches().slice(before);
+  for (const f of ['scenarios.json', 'forecast_seed.json', 'forecast.json']) {
+    assert.ok(asked.some((p) => p.endsWith(f)), `${f} was not requested while scenarios.json was in flight: ${asked}`);
+  }
+  assert.equal($$('#charts h3').length, 0, 'Financials rendered before scenarios.json landed');
+
+  release('scenarios.json');
+  await loading;
+  await flush();
+  assert.equal($$('#charts h3').length, 4, 'Financials did not render once every file landed');
+});

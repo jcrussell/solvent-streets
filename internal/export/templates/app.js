@@ -2896,7 +2896,14 @@
             // fetches are in flight; the render pass below relabels off this
             // city's seed once it lands.
             applyHorizonLabels();
-            const loadedScenarios = await loadJSON(dataURL(prefix, 'scenarios.json'));
+            // The three files are independent, so fetch them at once: the tab
+            // waits for the slowest, not the sum. They are applied in order
+            // below, and nothing renders until all three have landed.
+            const [loadedScenarios, seed, loadedForecast] = await Promise.all([
+                loadJSON(dataURL(prefix, 'scenarios.json')),
+                loadJSON(dataURL(prefix, 'forecast_seed.json')),
+                loadJSON(dataURL(prefix, 'forecast.json')),
+            ]);
             if (gen !== financialsLoadGen) return; // a newer load superseded us
             scenarioData = loadedScenarios;
             if (!scenarioData) {
@@ -2918,10 +2925,8 @@
                 return;
             }
 
-            // Fetch per-city forecast seed for WASM interactive controls
+            // The per-city forecast seed, for the WASM interactive controls.
             {
-                const seed = await loadJSON(dataURL(prefix, 'forecast_seed.json'));
-                if (gen !== financialsLoadGen) return; // a newer load superseded us
                 if (seed) {
                     FORECAST_SEED = seed;
                     // Reset the interactive controls to the new city's seed, then
@@ -2941,13 +2946,9 @@
                 }
             }
 
-            // Fetch forecast.json (the static, WASM-free source for the cohort
-            // table and the solvency headline; also used by the scope toggle)
-            {
-                const f = await loadJSON(dataURL(prefix, 'forecast.json'));
-                if (gen !== financialsLoadGen) return; // a newer load superseded us
-                if (f) forecastData = f;
-            }
+            // forecast.json: the static, WASM-free source for the cohort table
+            // and the solvency headline; also used by the scope toggle.
+            if (loadedForecast) forecastData = loadedForecast;
 
             // Single render pass once everything above has landed: charts,
             // headline tiles, solvency headline, and the cohort table. Rendering
