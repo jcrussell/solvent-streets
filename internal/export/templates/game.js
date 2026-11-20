@@ -830,7 +830,6 @@
             gameConfig = {
                 hexes: gameHexes,
                 initial_pci: seed.initial_pci != null ? seed.initial_pci : FORECAST_DEFAULTS.initial_pci,
-                pci_jitter: PVMT_CONFIG.pci_jitter,
                 cost_tiers: seed.cost_tiers || [],
                 // The loaded-cost multiplier the forecast priced the budget
                 // at; a seed without one is bare (0 reads as 1.0).

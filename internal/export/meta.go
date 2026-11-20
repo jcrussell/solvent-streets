@@ -400,9 +400,9 @@ func (d TemplateData) IndexConfigJSON() template.JS {
 // client resolves the city itself); map_href is the back-to-map link, relative
 // on a static host. cities/tag_dimensions carry the same payload the index page
 // gets so the play page's tag filters can rebuild its city selector
-// client-side from the same data. pci_jitter is the board's starting-PCI
-// spread (GamePCIJitter). hexgrid_version is the hexgrid.geojson "v" the
-// board reads (HexGridFileVersion), as on the index page.
+// client-side from the same data. hexgrid_version is the hexgrid.geojson
+// "v" the board reads (HexGridFileVersion), as on the index page. The
+// board's starting-PCI spread is the engine's own (game.DefaultPCIJitter).
 func (d TemplateData) GameConfigJSON() template.JS {
 	dataPrefix := ""
 	if d.ActiveSlug != "" {
@@ -421,7 +421,6 @@ func (d TemplateData) GameConfigJSON() template.JS {
 		DataPrefix    string           `json:"data_prefix"`
 		MapHref       string           `json:"map_href"`
 		BandCount     int              `json:"band_count"`
-		PCIJitter     float64          `json:"pci_jitter"`
 		HexGridV      int              `json:"hexgrid_version"`
 	}{
 		Cities:        citiesOrEmpty(d.Cities),
@@ -432,7 +431,6 @@ func (d TemplateData) GameConfigJSON() template.JS {
 		DataPrefix:    dataPrefix,
 		MapHref:       mapHref,
 		BandCount:     d.BandCount(),
-		PCIJitter:     GamePCIJitter,
 		HexGridV:      HexGridFileVersion,
 	}
 	data, _ := json.Marshal(cfg)

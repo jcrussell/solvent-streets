@@ -62,8 +62,8 @@ func TestGameHorizons(t *testing.T) {
 }
 
 // TestPageConfigCarriesGoDefaults pins that both pages' PVMT_CONFIG carry the
-// forecast defaults and the hexgrid version they read, and the play page the
-// board's PCI jitter.
+// forecast defaults and the hexgrid version they read. The board's PCI jitter
+// is the engine's default, so the play page carries none.
 func TestPageConfigCarriesGoDefaults(t *testing.T) {
 	td := TemplateData{ForecastSeed: `{"horizon_years":25}`}
 	for name, payload := range map[string]template.JS{"index": td.IndexConfigJSON(), "play": td.GameConfigJSON()} {
@@ -81,8 +81,8 @@ func TestPageConfigCarriesGoDefaults(t *testing.T) {
 		if cfg.HexGridV != HexGridFileVersion {
 			t.Errorf("%s hexgrid_version = %d; want %d", name, cfg.HexGridV, HexGridFileVersion)
 		}
-		if name == "play" && (cfg.PCIJitter == nil || *cfg.PCIJitter != GamePCIJitter) {
-			t.Errorf("play pci_jitter = %v; want %v", cfg.PCIJitter, GamePCIJitter)
+		if cfg.PCIJitter != nil {
+			t.Errorf("%s pci_jitter = %v; the engine owns the jitter", name, *cfg.PCIJitter)
 		}
 	}
 }

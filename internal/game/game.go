@@ -47,6 +47,11 @@ const (
 	// target the brush rarely means to treat. The out-of-funds test leaves
 	// slivers out, or a city whose board holds one would never be out of funds.
 	SliverAreaShare = 0.05
+
+	// DefaultPCIJitter is how far a hex's starting PCI may sit above or below
+	// the initial PCI when a Config leaves pci_jitter out, so the board opens
+	// as a patchwork instead of one flat colour.
+	DefaultPCIJitter = 8.0
 )
 
 // --- Config: the JSON contract decoded from the browser at gameInit ---
@@ -75,7 +80,8 @@ type Config struct {
 	InitialPCI float64 `json:"initial_pci"`
 	// PCIJitter spreads the starting PCI deterministically per hex (see New) so
 	// the board is not a flat color while staying reproducible across runs/tests.
-	PCIJitter float64 `json:"pci_jitter"`
+	// Omitted (nil) it is DefaultPCIJitter; 0 starts every hex at InitialPCI.
+	PCIJitter *float64 `json:"pci_jitter,omitempty"`
 
 	CostTiers []forecast.CostTier `json:"cost_tiers"`
 
@@ -221,6 +227,14 @@ func loadedTiers(tiers []forecast.CostTier, overhead float64) []forecast.CostTie
 	return out
 }
 
+// pciJitter is cfg's starting-PCI spread, DefaultPCIJitter when unset.
+func (cfg Config) pciJitter() float64 {
+	if cfg.PCIJitter == nil {
+		return DefaultPCIJitter
+	}
+	return *cfg.PCIJitter
+}
+
 // noDebt is the game's funding rule: there is no debt model, so a negative
 // annual rate is no funding at all rather than a drain on the treasury.
 func noDebt(rate float64) float64 {
@@ -246,8 +260,8 @@ func validateConfig(cfg Config) error {
 	if len(cfg.CostTiers) == 0 {
 		return errors.New("game: cost_tiers must be non-empty")
 	}
-	if !finite(cfg.PCIJitter) || cfg.PCIJitter < 0 {
-		return fmt.Errorf("game: pci_jitter must be finite and >= 0, got %g", cfg.PCIJitter)
+	if j := cfg.pciJitter(); !finite(j) || j < 0 {
+		return fmt.Errorf("game: pci_jitter must be finite and >= 0, got %g", j)
 	}
 	if !finite(cfg.AnnualBudget) {
 		return fmt.Errorf("game: annual_budget must be finite, got %g", cfg.AnnualBudget)
@@ -311,7 +325,7 @@ func New(cfg Config) (*Game, error) {
 	g.hexes = make([]hexState, len(cfg.Hexes))
 	g.hexByID = make(map[string]*hexState, len(cfg.Hexes))
 	for i, h := range cfg.Hexes {
-		pci := clampPCI(cfg.InitialPCI + jitterOffset(h.ID, cfg.PCIJitter))
+		pci := clampPCI(cfg.InitialPCI + jitterOffset(h.ID, cfg.pciJitter()))
 		g.hexes[i] = hexState{
 			id:          h.ID,
 			roadArea:    h.RoadsArea,

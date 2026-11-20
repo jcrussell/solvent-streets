@@ -8,11 +8,6 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/config"
 )
 
-// GamePCIJitter is how far a hex's starting PCI on the Play board may sit
-// above or below the city's initial PCI (game.Config.PCIJitter), so the board
-// opens as a patchwork instead of one flat colour.
-const GamePCIJitter = 8.0
-
 // gameHorizonAlternatives are the horizons the Play start screen offers
 // besides the forecast's own: a shorter and a longer game.
 var gameHorizonAlternatives = []int{20, 50}

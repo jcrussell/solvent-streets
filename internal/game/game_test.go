@@ -25,7 +25,7 @@ func baseConfig() Config {
 			{ID: "b", RoadsArea: 2000, DecayRate: 0.02},
 		},
 		InitialPCI:          80,
-		PCIJitter:           0,
+		PCIJitter:           new(0.0),
 		CostTiers:           defaultTiers(),
 		AnnualBudget:        1_000_000,
 		HorizonYears:        20,
@@ -73,8 +73,8 @@ func TestNewValidation(t *testing.T) {
 		"nan initialpci": func(c *Config) { c.InitialPCI = math.NaN() },
 		"initialpci>100": func(c *Config) { c.InitialPCI = 101 },
 		"neg initialpci": func(c *Config) { c.InitialPCI = -1 },
-		"nan jitter":     func(c *Config) { c.PCIJitter = math.NaN() },
-		"neg jitter":     func(c *Config) { c.PCIJitter = -1 },
+		"nan jitter":     func(c *Config) { c.PCIJitter = new(math.NaN()) },
+		"neg jitter":     func(c *Config) { c.PCIJitter = new(-1.0) },
 		"nan budget":     func(c *Config) { c.AnnualBudget = math.NaN() },
 		"inf budget":     func(c *Config) { c.AnnualBudget = math.Inf(-1) },
 		"nan growth":     func(c *Config) { c.GrowthRate = math.NaN() },
@@ -133,7 +133,7 @@ func TestDecayComposition(t *testing.T) {
 
 func TestJitterDeterministic(t *testing.T) {
 	cfg := baseConfig()
-	cfg.PCIJitter = 10
+	cfg.PCIJitter = new(10.0)
 	g1 := newGame(t, cfg)
 	g2 := newGame(t, cfg)
 	for i := range g1.hexes {
@@ -1056,5 +1056,39 @@ func TestClosuresWeighRoadArea(t *testing.T) {
 	g.Tick(0.01)
 	if g.lossReason != LossClosures {
 		t.Fatalf("closing the hex holding most of the road: status %q loss_reason %q, want %q", g.status, g.lossReason, LossClosures)
+	}
+}
+
+// TestPCIJitterDefault: a config that leaves pci_jitter out gets
+// DefaultPCIJitter, and an explicit 0 starts the board flat.
+func TestPCIJitterDefault(t *testing.T) {
+	var cfg Config
+	if err := json.Unmarshal([]byte(`{}`), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.pciJitter(); got != DefaultPCIJitter {
+		t.Errorf("omitted pci_jitter = %v, want %v", got, DefaultPCIJitter)
+	}
+
+	cfg = baseConfig()
+	cfg.PCIJitter = nil
+	g := newGame(t, cfg)
+	spread := false
+	for _, h := range g.hexes {
+		d := math.Abs(h.pci - cfg.InitialPCI)
+		if d > DefaultPCIJitter+1e-9 {
+			t.Errorf("hex %s starts %v from the initial PCI, beyond the default jitter", h.id, d)
+		}
+		spread = spread || d > 0
+	}
+	if !spread {
+		t.Error("the default jitter left every hex at the initial PCI")
+	}
+
+	cfg.PCIJitter = new(0.0)
+	for _, h := range newGame(t, cfg).hexes {
+		if h.pci != cfg.InitialPCI {
+			t.Errorf("hex %s starts at %v with zero jitter, want %v", h.id, h.pci, cfg.InitialPCI)
+		}
 	}
 }

@@ -122,12 +122,10 @@ async function bootBoard(seed, config) {
   return h;
 }
 
-test('play: the board takes its PCI jitter from the page config', async () => {
-  const { get } = await bootBoard(seedJSON, (cfg) => { cfg.pci_jitter = 3; });
-  assert.equal(get('gameConfig').pci_jitter, 3);
-
-  const stock = load({ page: 'play' });
-  assert.ok(stock.win.PVMT_CONFIG.pci_jitter > 0, 'the page config carries no jitter');
+test('play: the board leaves the PCI jitter to the engine', async () => {
+  const { get, win } = await bootBoard(seedJSON);
+  assert.equal(get('gameConfig').pci_jitter, undefined);
+  assert.equal(win.PVMT_CONFIG.pci_jitter, undefined);
 });
 
 test('play: a seed without a horizon or initial PCI falls back to the page defaults', async () => {
