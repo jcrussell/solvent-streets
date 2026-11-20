@@ -84,7 +84,7 @@ func NewCmdRoot(f *cmdutil.Factory) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:           "pvmt",
 		Short:         "Pavement data ingestion & forecasting tool",
-		Long:          "pvmt ingests pavement (roads, parking lots, sidewalks) from OpenStreetMap and ArcGIS,\nfire stations from OpenStreetMap and 2020 Census blocks from TIGERweb; computes per-hex\npaved area, fire response coverage and population; forecasts maintenance cost; and\nexports or serves the results as a MapLibre dashboard.",
+		Long:          cmdutil.Reflow("pvmt ingests pavement (roads, parking lots, sidewalks) from OpenStreetMap and ArcGIS, fire stations from OpenStreetMap and 2020 Census blocks from TIGERweb; computes per-hex paved area, fire response coverage and population; forecasts maintenance cost; and exports or serves the results as a MapLibre dashboard.", cmdutil.HelpWidth),
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		Version:       build.Current().Short(),
@@ -107,8 +107,8 @@ func NewCmdRoot(f *cmdutil.Factory) *cobra.Command {
 
 	var verbose int
 	var logLevel cmdutil.LogLevel
-	cmd.PersistentFlags().CountVarP(&verbose, "verbose", "v", "increase log verbosity (-v=info, -vv=debug)")
-	cmd.PersistentFlags().Var(&logLevel, "log-level", "explicit log level (debug|info|warn|error); overrides -v")
+	cmd.PersistentFlags().CountVarP(&verbose, "verbose", "v", "Increase log verbosity (-v=info, -vv=debug)")
+	cmd.PersistentFlags().Var(&logLevel, "log-level", "Set the log level (debug|info|warn|error); overrides -v")
 	_ = cmd.RegisterFlagCompletionFunc("log-level", cmdutil.LogLevelCompletion())
 
 	// Must run before addSubcommands: subcommands snapshot f.UnitSystem
@@ -251,16 +251,18 @@ func wireUnitSystem(root *cobra.Command, f *cmdutil.Factory) {
 }
 
 const (
-	groupResource = "resource"
-	groupServer   = "server"
-	groupAnalysis = "analysis"
-	groupInfo     = "info"
+	groupResource    = "resource"
+	groupPublish     = "publish"
+	groupAnalysis    = "analysis"
+	groupMaintenance = "maintenance"
+	groupInfo        = "info"
 )
 
 func addCommandGroups(cmd *cobra.Command) {
 	cmd.AddGroup(&cobra.Group{ID: groupResource, Title: "Resource commands:"})
-	cmd.AddGroup(&cobra.Group{ID: groupServer, Title: "Server commands:"})
+	cmd.AddGroup(&cobra.Group{ID: groupPublish, Title: "Publish commands:"})
 	cmd.AddGroup(&cobra.Group{ID: groupAnalysis, Title: "Analysis commands:"})
+	cmd.AddGroup(&cobra.Group{ID: groupMaintenance, Title: "Maintenance commands:"})
 	cmd.AddGroup(&cobra.Group{ID: groupInfo, Title: "Info commands:"})
 }
 
@@ -277,18 +279,18 @@ func addSubcommands(cmd *cobra.Command, f *cmdutil.Factory) {
 	addGroupedCommand(cmd, censuscmd.NewCmdCensus(f), groupResource)
 	addGroupedCommand(cmd, all.NewCmdAll(f), groupResource)
 
-	addGroupedCommand(cmd, serve.NewCmdServe(f, nil), groupServer)
-	addGroupedCommand(cmd, export.NewCmdExport(f, nil), groupServer)
+	addGroupedCommand(cmd, snapshots.NewCmdSnapshots(f), groupPublish)
+	addGroupedCommand(cmd, export.NewCmdExport(f, nil), groupPublish)
+	addGroupedCommand(cmd, serve.NewCmdServe(f, nil), groupPublish)
+	addGroupedCommand(cmd, checksite.NewCmdCheckSite(f, nil), groupPublish)
 
 	addGroupedCommand(cmd, forecastcmd.NewCmdForecast(f, nil), groupAnalysis)
 	addGroupedCommand(cmd, validate.NewCmdValidate(f, nil), groupAnalysis)
 
 	addGroupedCommand(cmd, status.NewCmdStatus(f, nil, nil), groupInfo)
 	addGroupedCommand(cmd, cities.NewCmdCities(f, nil), groupInfo)
-	addGroupedCommand(cmd, snapshots.NewCmdSnapshots(f), groupInfo)
-	addGroupedCommand(cmd, gc.NewCmdGC(f, nil), groupInfo)
-	addGroupedCommand(cmd, cachecmd.NewCmdCache(f), groupInfo)
-	addGroupedCommand(cmd, checksite.NewCmdCheckSite(f, nil), groupInfo)
+	addGroupedCommand(cmd, gc.NewCmdGC(f, nil), groupMaintenance)
+	addGroupedCommand(cmd, cachecmd.NewCmdCache(f), groupMaintenance)
 	addGroupedCommand(cmd, configcmd.NewCmdConfig(f), groupInfo)
 	addGroupedCommand(cmd, version.NewCmdVersion(f, nil), groupInfo)
 }

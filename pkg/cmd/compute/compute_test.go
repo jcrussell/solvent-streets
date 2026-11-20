@@ -393,10 +393,10 @@ func TestRunCompute_SaveHexStatsErrorFatal(t *testing.T) {
 	}
 }
 
-// TestRunCompute_CityOnlySuppressesAllCohortBreakdown pins:
-// With --city-only, the all-jurisdiction "Cohort
+// TestRunCompute_MaintainedOnlySuppressesAllCohortBreakdown pins:
+// With --maintained-only, the all-jurisdiction "Cohort
 // breakdown" summary must be suppressed to match the gated printResults.
-func TestRunCompute_CityOnlySuppressesAllCohortBreakdown(t *testing.T) {
+func TestRunCompute_MaintainedOnlySuppressesAllCohortBreakdown(t *testing.T) {
 	store := &dbtest.MockStore{
 		GetBoundaryFunc:  func(_ context.Context) (string, error) { return testBoundary, nil },
 		ListFeaturesFunc: roadsFeaturesFunc,
@@ -413,7 +413,7 @@ func TestRunCompute_CityOnlySuppressesAllCohortBreakdown(t *testing.T) {
 	cmd := NewCmdCompute(f, &resource.Pavement{}, nil)
 	cmd.SilenceErrors = true
 	cmd.SilenceUsage = true
-	cmd.SetArgs([]string{"--city-only"})
+	cmd.SetArgs([]string{"--maintained-only"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("compute: %v", err)
 	}
@@ -421,7 +421,7 @@ func TestRunCompute_CityOnlySuppressesAllCohortBreakdown(t *testing.T) {
 	// "\nCohort breakdown:" is the all-jurisdiction header; "City cohort
 	// breakdown:" is the city one (not prefixed by a bare newline+"Cohort").
 	if strings.Contains(out, "\nCohort breakdown:") {
-		t.Errorf("--city-only should suppress the all-jurisdiction cohort breakdown, got:\n%s", out)
+		t.Errorf("--maintained-only should suppress the all-jurisdiction cohort breakdown, got:\n%s", out)
 	}
 }
 
@@ -969,5 +969,27 @@ func TestRunCompute_StoresRoadDecayBlend(t *testing.T) {
 	}
 	if mixed == 0 {
 		t.Errorf("no hex blends the two classes: %v", k0)
+	}
+}
+
+// TestNewCmdCompute_CityOnlyIsADeprecatedAlias pins --city-only as a hidden,
+// deprecated spelling of --maintained-only that sets the same option.
+func TestNewCmdCompute_CityOnlyIsADeprecatedAlias(t *testing.T) {
+	ios, _, _, _ := iostreams.Test()
+	var got *Options
+	cmd := NewCmdCompute(&cmdutil.Factory{IOStreams: ios}, &resource.Pavement{}, func(_ context.Context, o *Options) error {
+		got = o
+		return nil
+	})
+	cmd.SetArgs([]string{"--city-only"})
+	cmd.SetErr(io.Discard)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("compute --city-only: %v", err)
+	}
+	if !got.MaintainedOnly {
+		t.Error("--city-only did not set MaintainedOnly")
+	}
+	if fl := cmd.Flags().Lookup("city-only"); fl.Deprecated == "" || !fl.Hidden {
+		t.Errorf("--city-only: deprecated %q, hidden %v; want both", fl.Deprecated, fl.Hidden)
 	}
 }

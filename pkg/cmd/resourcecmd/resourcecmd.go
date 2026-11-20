@@ -19,7 +19,10 @@ import (
 // Spec is the help text of a resource command group plus an optional
 // replacement for the compute subcommand.
 type Spec struct {
-	Use     string
+	Use string
+	// Noun names the group's features in help prose, plural ("roads",
+	// "Census blocks").
+	Noun    string
 	Short   string
 	Long    string
 	Example string
@@ -42,17 +45,17 @@ func New(f *cmdutil.Factory, rt resource.Source, spec Spec) *cobra.Command {
 	// rt.Type(), which for census and services is a storage name
 	// ("layer-census-blocks", "facility-fire") rather than a command.
 	ing := ingest.NewCmdIngest(f, rt, nil)
-	ing.Short, ing.Long, ing.Example = ingest.Short(spec.Use), ingest.Long(spec.Use, rt), ingest.Example(spec.Use, rt)
+	ing.Short, ing.Long, ing.Example = ingest.Short(spec.Noun), ingest.Long(spec.Use, spec.Noun, rt), ingest.Example(spec.Use, spec.Noun, rt)
 	cmd.AddCommand(ing)
 	if spec.Compute != nil {
 		cmd.AddCommand(spec.Compute(f, rt))
 	} else {
 		comp := compute.NewCmdCompute(f, rt, nil)
-		comp.Short, comp.Long, comp.Example = compute.Short(spec.Use), compute.Long(spec.Use), compute.Example(spec.Use)
+		comp.Short, comp.Long, comp.Example = compute.Short(spec.Noun), compute.Long(spec.Use, spec.Noun), compute.Example(spec.Use, spec.Noun)
 		cmd.AddCommand(comp)
 	}
 	st := status.NewCmdStatus(f, rt, nil)
-	st.Short, st.Long, st.Example = status.Short(spec.Use), status.Long(spec.Use, rt), status.Example(spec.Use)
+	st.Short, st.Long, st.Example = status.Short(spec.Noun), status.Long(spec.Noun, rt), status.Example(spec.Use, rt)
 	cmd.AddCommand(st)
 	return cmd
 }

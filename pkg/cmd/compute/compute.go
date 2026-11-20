@@ -30,15 +30,15 @@ import (
 )
 
 type Options struct {
-	IO           *iostreams.IOStreams
-	CityDB       func() (db.Store, error)
-	Config       func() (*config.Config, error)
-	CurrentCity  func() (*config.CityConfig, error)
-	UnitSystem   func() units.System
-	ResourceType resource.Source
-	CityOnly     bool
-	Exporter     cmdutil.Exporter
-	rows         *[]computeRow // multi-city accumulator; nil for single-pass JSON
+	IO             *iostreams.IOStreams
+	CityDB         func() (db.Store, error)
+	Config         func() (*config.Config, error)
+	CurrentCity    func() (*config.CityConfig, error)
+	UnitSystem     func() units.System
+	ResourceType   resource.Source
+	MaintainedOnly bool
+	Exporter       cmdutil.Exporter
+	rows           *[]computeRow // multi-city accumulator; nil for single-pass JSON
 	// PrebuiltGrid, when non-nil, is a clipped hex grid built once for the city
 	// and reused as-is (read-only) instead of regenerating + clipping here. Set
 	// by `all compute` via RunResourceForCity so the expensive HexGrid +
@@ -97,16 +97,16 @@ func (r computeRow) ExportData(fields []string) map[string]any {
 	return out
 }
 
-// Short is the one-line help of the coverage compute subcommand of the command
-// group named group (`pvmt <group> compute`).
-func Short(group string) string {
-	return fmt.Sprintf("Compute %s area per hex from the stored features", group)
+// Short is the one-line help of the coverage compute subcommand of a
+// command group whose features are noun ("roads", "parking lots").
+func Short(noun string) string {
+	return "Compute paved area per hex from the stored " + noun
 }
 
 // Long is the --help description of the coverage compute subcommand of the
-// command group named group.
-func Long(group string) string {
-	return fmt.Sprintf(`Turn the stored %s features of every configured city, or the one --city
+// command group named group, whose features are noun.
+func Long(group, noun string) string {
+	return cmdutil.Reflow(fmt.Sprintf(`Turn the stored %s of every configured city, or the one --city
 names, into paved surface (lines buffered to an estimated width, areas as
 mapped), clip it to the city boundary, and measure its area in each hex of
 the city's grid. Totals are kept for every jurisdiction and for the
@@ -115,20 +115,21 @@ city's latest compute, under the current config hash; run
 'pvmt snapshots create <name>' to publish it.
 
 Needs a prior 'pvmt %s ingest'. Rerun after re-ingesting or after changing a
-setting that affects results.`, group, group)
+setting that affects results.`, noun, group), cmdutil.HelpWidth)
 }
 
 // Example is the --help example text for the coverage compute subcommand of
-// the command group named group (`pvmt <group> compute`).
-func Example(group string) string {
+// the command group named group (`pvmt <group> compute`), whose features are
+// noun.
+func Example(group, noun string) string {
 	return fmt.Sprintf(`  # Compute per-hex coverage for %s across every configured city
   pvmt %s compute
 
-  # Restrict to city-maintained features only (when the resource has cohorts)
-  pvmt %s compute --city-only
+  # Print only the city-maintained results
+  pvmt %s compute --maintained-only
 
   # Scope to a single city
-  pvmt --city oakland-ca %s compute`, group, group, group, group)
+  pvmt --city oakland-ca %s compute`, noun, group, group, group)
 }
 
 var computeFields = []string{"city", "resource_type", "jurisdiction", "feature_count", "area", "estimated_spaces", "run_id"}
@@ -148,8 +149,8 @@ func NewCmdCompute(f *cmdutil.Factory, rt resource.Source, runF func(context.Con
 		Use:     "compute",
 		Args:    cobra.NoArgs,
 		Short:   Short(string(t)),
-		Long:    Long(string(t)),
-		Example: Example(string(t)),
+		Long:    Long(string(t), string(t)),
+		Example: Example(string(t), string(t)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if runF != nil {
 				return runF(cmd.Context(), opts)
@@ -158,7 +159,9 @@ func NewCmdCompute(f *cmdutil.Factory, rt resource.Source, runF func(context.Con
 		},
 	}
 
-	cmd.Flags().BoolVar(&opts.CityOnly, "city-only", false, "Print only the city-maintained results (--json still includes every jurisdiction)")
+	cmd.Flags().BoolVar(&opts.MaintainedOnly, "maintained-only", false, "Print only the city-maintained results (--json still includes every jurisdiction)")
+	cmd.Flags().BoolVar(&opts.MaintainedOnly, "city-only", false, "Print only the city-maintained results")
+	_ = cmd.Flags().MarkDeprecated("city-only", "use --maintained-only")
 	cmdutil.AddJSONFlags(cmd, &opts.Exporter, computeFields)
 
 	return cmd
@@ -545,10 +548,10 @@ func (c *computer) saveAllJurisdictionsResult(ctx context.Context, allBuffered [
 		return fmt.Errorf("save result: %w", err)
 	}
 	c.recordRow("all", featureCount, area, spaces)
-	if len(cohorts) > 0 && !c.opts.CityOnly && c.opts.ResourceType.HasCohorts() {
+	if len(cohorts) > 0 && !c.opts.MaintainedOnly && c.opts.ResourceType.HasCohorts() {
 		printCohortBreakdown(c.out, "Cohort breakdown", cohorts, area, c.sys)
 	}
-	if !c.opts.CityOnly {
+	if !c.opts.MaintainedOnly {
 		printResults(c.out, fmt.Sprintf("%s Results (all)", rtAll.Bare()), featureCount, area, spaces, c.sys)
 	}
 	return nil

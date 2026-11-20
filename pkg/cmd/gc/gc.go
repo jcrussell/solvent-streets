@@ -43,9 +43,9 @@ func NewCmdGC(f *cmdutil.Factory, runF func(context.Context, *Options) error) *c
 	cmd := &cobra.Command{
 		Use:   "gc",
 		Args:  cobra.NoArgs,
-		Short: "Sweep orphaned rows that snapshot prune can't reach",
-		Long: `Garbage-collect database rows that snapshot prune/rm structurally
-cannot reach:
+		Short: "Sweep orphaned rows that snapshots prune and delete can't reach",
+		Long: `Garbage-collect database rows that 'pvmt snapshots prune' and
+'pvmt snapshots delete' structurally cannot reach:
 
   - Roads, parking and sidewalks rows whose source_api is not a source
     this city resolves from config (e.g. arcgis_url was removed from

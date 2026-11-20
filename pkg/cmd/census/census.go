@@ -30,6 +30,7 @@ var blocks = &resource.CensusBlocks{}
 func NewCmdCensus(f *cmdutil.Factory) *cobra.Command {
 	return resourcecmd.New(f, blocks, resourcecmd.Spec{
 		Use:   "census",
+		Noun:  "Census blocks",
 		Short: "Manage 2020 Census blocks and per-hex population",
 		Long: `Ingest 2020 Census blocks with their population and housing-unit counts
 (from the Census Bureau's TIGERweb service), apportion those counts onto the

@@ -11,6 +11,7 @@ import (
 func NewCmdParking(f *cmdutil.Factory) *cobra.Command {
 	return resourcecmd.New(f, &resource.Parking{}, resourcecmd.Spec{
 		Use:   "parking",
+		Noun:  "parking lots",
 		Short: "Manage parking lot data",
 		Long:  "Ingest, compute, and view status for parking lot features.",
 		Example: `  # Pull OSM parking polygons

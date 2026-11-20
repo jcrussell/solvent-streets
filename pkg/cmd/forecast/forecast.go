@@ -96,7 +96,7 @@ By default it covers the pavement the city maintains, as the dashboard's
 headline does, when the city has any city-maintained pavement computed, and
 every jurisdiction's otherwise. --scope all forecasts every jurisdiction's
 pavement, the dashboard's "All" view. Nothing is stored and no snapshot is
-committed, and [forecast] settings are not part of the snapshot hash, so a
+committed, and [forecast] settings are not part of the config hash, so a
 forecast edit takes effect here without a recompute. A city with nothing
 computed under its current settings exits 3.`,
 		Example: `  # Run baseline + scenario comparisons for every configured city

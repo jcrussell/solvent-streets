@@ -99,39 +99,48 @@ func (r statusRow) field(f string) (any, bool) {
 	return nil, false
 }
 
-// Short is the one-line help of the status subcommand of the command group
-// named group (`pvmt <group> status`).
-func Short(group string) string {
-	return fmt.Sprintf("Show %s ingest and compute status", group)
+// Short is the one-line help of the status subcommand of a command group
+// whose features are noun.
+func Short(noun string) string {
+	return "Show ingest and compute status for " + noun
 }
 
-// Long is the --help description of the status subcommand of the command
-// group named group. Only a paved resource reports an area.
-func Long(group string, rt resource.Source) string {
+// paved reports whether rt is a pavement resource, the only kind with an
+// area and estimated spaces.
+func paved(rt resource.Source) bool {
+	t := rt.Type()
+	return !t.IsLayer() && !t.IsFacility()
+}
+
+// Long is the --help description of the status subcommand of a command group
+// whose features are noun. Only a paved resource reports an area.
+func Long(noun string, rt resource.Source) string {
 	area := ""
-	if t := rt.Type(); !t.IsLayer() && !t.IsFacility() {
+	if paved(rt) {
 		area = ", and paved area in the active unit system"
 	}
-	return fmt.Sprintf(`Report ingest and compute progress for %s in the current city:
-ingested feature count (everything the bounding-box fetch returned, before
-the boundary clip), last-ingest and last-compute timestamps%s, from the
-city's latest compute, and the state of its part: current, stale (an input it
-read was ingested again since) or not computed. Use --json with a
-comma-separated field list (resource_type, feature_count, last_ingest_at,
-last_compute_at, area, estimated_spaces, state, stale_inputs) for a single
-row.`, group, area)
+	return cmdutil.Reflow(fmt.Sprintf(`Report ingest and compute progress for %s in the current city:
+ingested feature count
+(everything the bounding-box fetch returned, before the boundary clip),
+last-ingest and last-compute timestamps%s, from the city's latest compute,
+and the state of its part: current, stale (an input it read was ingested
+again since) or not computed.`, noun, area), cmdutil.HelpWidth)
 }
 
 // Example is the --help example text for the status subcommand of the
 // command group named group (`pvmt <group> status`). The group name is not
 // derivable from the resource type (census blocks are stored as
 // "layer-census-blocks" but their command is `pvmt census`).
-func Example(group string) string {
-	return fmt.Sprintf(`  # Show feature + result counts for %s
+func Example(group string, rt resource.Source) string {
+	fields := "resource_type,feature_count,state"
+	if paved(rt) {
+		fields = "resource_type,feature_count,area"
+	}
+	return fmt.Sprintf(`  # Show feature and result counts
   pvmt %s status
 
   # Emit the row as JSON
-  pvmt %s status --json resource_type,feature_count,area`, group, group, group)
+  pvmt %s status --json %s`, group, group, fields)
 }
 
 var statusFields = []string{"resource_type", "feature_count", "last_ingest_at", "last_compute_at", "area", "estimated_spaces", "state", "stale_inputs"}
@@ -170,7 +179,7 @@ state, stale_inputs) to emit one row per resource.`
   pvmt status --json resource_type,feature_count,area`
 	if rt != nil {
 		short, long = Short(string(rt.Type())), Long(string(rt.Type()), rt)
-		example = Example(string(rt.Type()))
+		example = Example(string(rt.Type()), rt)
 	}
 
 	fields := statusFields

@@ -76,8 +76,8 @@ func NewCmdIngest(f *cmdutil.Factory, rt resource.Source, runF func(context.Cont
 		Use:     "ingest",
 		Args:    cobra.NoArgs,
 		Short:   Short(string(rt.Type())),
-		Long:    Long(string(rt.Type()), rt),
-		Example: Example(string(rt.Type()), rt),
+		Long:    Long(string(rt.Type()), string(rt.Type()), rt),
+		Example: Example(string(rt.Type()), string(rt.Type()), rt),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if runF != nil {
 				return runF(cmd.Context(), opts)
@@ -113,23 +113,39 @@ func sourceValues(rt resource.Source) []string {
 	return cmdutil.PavementSources()
 }
 
-// Short is the one-line help of the ingest subcommand of the command group
-// named group (`pvmt <group> ingest`).
-func Short(group string) string {
-	return fmt.Sprintf("Fetch %s data for each configured city", group)
+// Short is the one-line help of the ingest subcommand of a command group
+// whose features are noun ("roads", "Census blocks").
+func Short(noun string) string {
+	return fmt.Sprintf("Fetch %s for each configured city", noun)
+}
+
+// sourceNames are the upstream services as help prose names them.
+var sourceNames = map[string]string{
+	resource.SourceOverpass: "Overpass",
+	resource.SourceTigerweb: "TIGERweb",
+	resource.SourceArcGIS:   "ArcGIS",
+}
+
+// sourceName is source as help prose names it.
+func sourceName(source string) string {
+	if n, ok := sourceNames[source]; ok {
+		return n
+	}
+	return source
 }
 
 // Long is the --help description of the ingest subcommand of the command
-// group named group. Its source sentence depends on whether rt has its own
-// fixed source or reads the city's overpass / arcgis_url settings.
-func Long(group string, rt resource.Source) string {
+// group named group, whose features are noun. Its source sentence depends on
+// whether rt has its own fixed source or reads the city's overpass /
+// arcgis_url settings.
+func Long(group, noun string, rt resource.Source) string {
 	var src string
 	if own, ok := rt.(resource.OwnSourced); ok {
-		src = fmt.Sprintf("from %s (its only source; the city's overpass and arcgis_url settings\ndo not apply)", own.OwnSource())
+		src = fmt.Sprintf("from %s (its only source; the city's overpass and arcgis_url settings do not apply)", sourceName(own.OwnSource()))
 	} else {
-		src = "from the city's configured sources: OpenStreetMap via Overpass when\noverpass = true, and the agency ArcGIS layer when arcgis_url is set"
+		src = "from the city's configured sources: OpenStreetMap via Overpass when overpass = true, and the agency ArcGIS layer when arcgis_url is set"
 	}
-	return fmt.Sprintf(`Fetch %s features for every configured city, or the one --city names,
+	return cmdutil.Reflow(fmt.Sprintf(`Fetch %s for every configured city, or the one --city names,
 %s, and store them in the local database. Rows from each
 source that answered replace that source's previous rows; a source that
 fails leaves its rows in place.
@@ -145,22 +161,23 @@ through the cache without bypassing it, so a change to the water strip can
 be replayed; any request the cache does not hold (such as roads over an
 unstripped bbox no earlier ingest queried) goes upstream.
 
-Run 'pvmt %s compute' next.`, group, src, group)
+Run 'pvmt %s compute' next.`, noun, src, group), cmdutil.HelpWidth)
 }
 
 // Example is the --help example text for the ingest subcommand of the
-// command group named group (`pvmt <group> ingest`). The group name is not
-// derivable from rt: census blocks are stored as "layer-census-blocks" and
-// fire stations as "facility-fire", but their commands are `pvmt census` and
-// `pvmt services`. A resource with one fixed source gets no --source example.
-func Example(group string, rt resource.Source) string {
+// command group named group (`pvmt <group> ingest`), whose features are noun.
+// The group name is not derivable from rt: census blocks are stored as
+// "layer-census-blocks" and fire stations as "facility-fire", but their
+// commands are `pvmt census` and `pvmt services`. A resource with one fixed
+// source gets no --source example.
+func Example(group, noun string, rt resource.Source) string {
 	var b strings.Builder
 	if own, ok := rt.(resource.OwnSourced); ok {
-		fmt.Fprintf(&b, "  # Ingest every configured city (%s has one source: %s)\n  pvmt %s ingest\n\n",
-			group, own.OwnSource(), group)
+		fmt.Fprintf(&b, "  # Ingest every configured city (%s come from %s only)\n  pvmt %s ingest\n\n",
+			noun, sourceName(own.OwnSource()), group)
 	} else {
 		fmt.Fprintf(&b, "  # Pull %s from the OpenStreetMap Overpass API only\n  pvmt %s ingest --source overpass\n\n",
-			group, group)
+			noun, group)
 	}
 	fmt.Fprintf(&b, `  # Bypass the HTTP cache and re-fetch
   pvmt %s ingest --force

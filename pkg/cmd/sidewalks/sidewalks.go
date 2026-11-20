@@ -11,6 +11,7 @@ import (
 func NewCmdSidewalks(f *cmdutil.Factory) *cobra.Command {
 	return resourcecmd.New(f, &resource.Sidewalk{}, resourcecmd.Spec{
 		Use:   "sidewalks",
+		Noun:  "sidewalks",
 		Short: "Manage sidewalk data",
 		Long:  "Ingest, compute, and view status for sidewalk features.",
 		Example: `  # Pull OSM sidewalk linestrings

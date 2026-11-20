@@ -11,6 +11,7 @@ import (
 func NewCmdRoads(f *cmdutil.Factory) *cobra.Command {
 	return resourcecmd.New(f, &resource.Pavement{}, resourcecmd.Spec{
 		Use:   "roads",
+		Noun:  "roads",
 		Short: "Manage road/pavement data",
 		Long:  "Ingest, compute, and view status for road and pavement features.",
 		Example: `  # Pull OSM road geometries for the configured cities

@@ -6,7 +6,7 @@ The release notes link here from their header. Their "Breaking Changes" list nam
 
 ## v0.5.0
 
-Upgrading from v0.4.x takes ten steps. Plan for the first one: it re-fetches every city from the upstream sources.
+Upgrading from v0.4.x takes eleven steps. Plan for the first one: it re-fetches every city from the upstream sources.
 
 ### 1. Move the database aside and re-ingest
 
@@ -121,6 +121,12 @@ A config now has one forecast horizon, and its default is 30 years (up from 20).
 ### 10. Remove overlapping cost tiers
 
 A config whose `[[forecast.cost_tiers]]` bands overlap now fails to load with exit 2, naming the two bands. A PCI inside both had two prices, and the dashboard already refused to run its forecast controls on such a schedule. Move one band's `min_pci` or `max_pci` so the bands meet or leave a gap ([Forecast](configuration.md#forecast)).
+
+### 11. Update scripts that drive the CLI
+
+A few commands changed their flags or output so the CLI reads the same everywhere:
+
+- `pvmt <resource> compute --city-only` is now `--maintained-only`. The old spelling still works for now and prints a deprecation notice.
 
 ### Known issues
 

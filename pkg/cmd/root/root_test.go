@@ -250,10 +250,11 @@ func TestCommandGroups_AllSubcommandsGrouped(t *testing.T) {
 	cmd := NewCmdRoot(f)
 
 	wantGroups := map[string]bool{
-		groupResource: false,
-		groupServer:   false,
-		groupAnalysis: false,
-		groupInfo:     false,
+		groupResource:    false,
+		groupPublish:     false,
+		groupAnalysis:    false,
+		groupMaintenance: false,
+		groupInfo:        false,
 	}
 	for _, g := range cmd.Groups() {
 		if _, ok := wantGroups[g.ID]; !ok {

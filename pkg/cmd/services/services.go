@@ -30,6 +30,7 @@ func NewCmdServices(f *cmdutil.Factory) *cobra.Command {
 	var service string
 	cmd := resourcecmd.New(f, fac, resourcecmd.Spec{
 		Use:   "services",
+		Noun:  "service facilities",
 		Short: "Manage service facilities and response-time coverage",
 		Long: `Ingest the facilities of a public service (fire stations, from
 OpenStreetMap), compute how long that service takes to reach each hex over
