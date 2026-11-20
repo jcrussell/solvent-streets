@@ -554,7 +554,7 @@ type stateView struct {
 	OutOfFunds   bool         `json:"out_of_funds"`
 	Spent        float64      `json:"total_spend"`
 	Treatments   int          `json:"treatment_count"`
-	ClosedCount  int          `json:"closed_count"`
+	ClosedShare  float64      `json:"closed_share"`
 	Changed      []changedHex `json:"changed"`
 }
 
@@ -676,14 +676,14 @@ func TestTreatBatch(t *testing.T) {
 }
 
 // TestStateJSONSummaryFields: the state delta carries the cumulative summary
-// totals (spent/treatments) and the live closed_count.
+// totals (spent/treatments) and the live closed_share.
 func TestStateJSONSummaryFields(t *testing.T) {
 	g := newGame(t, baseConfig())
-	g.hexes[0].closed = true // 1 of 2 closed (under the 50% loss threshold)
+	g.hexes[0].closed = true // 1000 of 3000 m^2 closed (under the 50% loss threshold)
 	treat(g, "b", "preventive")
 	st := decodeState(t, g)
-	if st.ClosedCount != 1 {
-		t.Fatalf("closed_count = %d, want 1", st.ClosedCount)
+	if math.Abs(st.ClosedShare-1.0/3) > 1e-12 {
+		t.Fatalf("closed_share = %v, want 1/3 of the road area", st.ClosedShare)
 	}
 	if st.Treatments != 1 || st.Spent <= 0 {
 		t.Fatalf("summary fields wrong: spent=%v treatments=%d", st.Spent, st.Treatments)
@@ -785,11 +785,11 @@ func TestLossReason(t *testing.T) {
 	t.Run("closures", func(t *testing.T) {
 		cfg := baseConfig()
 		cfg.HorizonYears = 100
-		// Two closed hexes and one pristine hex big enough to hold the
-		// area-weighted network PCI above the floor.
+		// Two closed hexes holding most of the road area, and one pristine
+		// hex holding the open network's PCI above the floor.
 		cfg.Hexes = []HexConfig{
-			{ID: "a", RoadsArea: 1, DecayRate: 0.01},
-			{ID: "b", RoadsArea: 1, DecayRate: 0.01},
+			{ID: "a", RoadsArea: 600, DecayRate: 0.01},
+			{ID: "b", RoadsArea: 600, DecayRate: 0.01},
 			{ID: "c", RoadsArea: 1000, DecayRate: 0.01},
 		}
 		cfg.InitialPCI = 95
@@ -1024,5 +1024,37 @@ func TestOutOfFundsIgnoresZeroAreaHexes(t *testing.T) {
 	g.treasury = 6_000
 	if decodeState(t, g).OutOfFunds {
 		t.Error("$6,000 treats hex a, but the warning is up")
+	}
+}
+
+// TestClosuresWeighRoadArea: the closures loss is a share of road area, so
+// closing most hexes when they are slivers loses nothing, while closing one
+// hex that holds most of the road does.
+func TestClosuresWeighRoadArea(t *testing.T) {
+	cfg := baseConfig()
+	cfg.HorizonYears = 100
+	cfg.InitialPCI = 95
+	cfg.AnnualBudget = 0
+	cfg.Cohorts = nil
+	cfg.Hexes = []HexConfig{
+		{ID: "s1", RoadsArea: 1, DecayRate: 0.01},
+		{ID: "s2", RoadsArea: 1, DecayRate: 0.01},
+		{ID: "s3", RoadsArea: 1, DecayRate: 0.01},
+		{ID: "big", RoadsArea: 1000, DecayRate: 0.01},
+	}
+	g := newGame(t, cfg)
+	for _, id := range []string{"s1", "s2", "s3"} {
+		g.hexByID[id].pci, g.hexByID[id].closed = 0, true
+	}
+	g.Tick(0.01)
+	if g.status != statusRunning {
+		t.Fatalf("closing three slivers ended the game: %q (%s)", g.status, g.lossReason)
+	}
+
+	g = newGame(t, cfg)
+	g.hexByID["big"].pci, g.hexByID["big"].closed = 0, true
+	g.Tick(0.01)
+	if g.lossReason != LossClosures {
+		t.Fatalf("closing the hex holding most of the road: status %q loss_reason %q, want %q", g.status, g.lossReason, LossClosures)
 	}
 }

@@ -307,8 +307,9 @@
             if (status === 'running') return;
             stopLoop();
             const s = lastState || {};
-            const hexCount = (gameConfig && gameConfig.hexes) ? gameConfig.hexes.length : 0;
-            const gravelPct = hexCount ? (100 * (s.closed_count || 0) / hexCount) : 0;
+            // The share of the board's road area that closed, as the
+            // closures loss measures it.
+            const gravelPct = 100 * (s.closed_share || 0);
             const won = status === 'won';
             const row = (k, v) => '<div class="row"><span class="k">' + k + '</span><span class="v">' + v + '</span></div>';
             const text = won

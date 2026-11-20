@@ -38,8 +38,8 @@ const (
 	// this, the network has collapsed and the game is lost.
 	LosePCIFloor = 30.0
 
-	// LoseClosedFraction: if more than this fraction of hexes have closed, the
-	// game is lost.
+	// LoseClosedFraction: if more than this share of the board's road area has
+	// closed, the game is lost.
 	LoseClosedFraction = 0.5
 
 	// SliverAreaShare is the share of the median board hex's road area below
@@ -150,6 +150,9 @@ type Game struct {
 	tiers      []forecast.CostTier
 	tierRanks  []int // ascending cost rank per tier (see tierCostRank); fixed at New
 	initialPCI float64
+
+	// totalArea is the board's road area, fixed at New.
+	totalArea float64
 
 	// sliverArea is the road area below which a hex is a sliver
 	// (SliverAreaShare of the median hex), left out of the out-of-funds test.
@@ -307,7 +310,6 @@ func New(cfg Config) (*Game, error) {
 
 	g.hexes = make([]hexState, len(cfg.Hexes))
 	g.hexByID = make(map[string]*hexState, len(cfg.Hexes))
-	var totalArea float64
 	for i, h := range cfg.Hexes {
 		pci := clampPCI(cfg.InitialPCI + jitterOffset(h.ID, cfg.PCIJitter))
 		g.hexes[i] = hexState{
@@ -323,7 +325,7 @@ func New(cfg Config) (*Game, error) {
 		if _, ok := g.hexByID[h.ID]; !ok {
 			g.hexByID[h.ID] = &g.hexes[i]
 		}
-		totalArea += h.RoadsArea
+		g.totalArea += h.RoadsArea
 	}
 	g.sliverArea = SliverAreaShare * medianRoadArea(cfg.Hexes)
 	// One cycle of the board's year-1 need, priced as the forecast prices it:
@@ -496,12 +498,12 @@ const (
 // end banner can say which condition ended it.
 const (
 	LossPCIFloor = "pci_floor" // network PCI fell below LosePCIFloor
-	LossClosures = "closures"  // more than LoseClosedFraction of hexes closed
+	LossClosures = "closures"  // more than LoseClosedFraction of road area closed
 	LossBacklog  = "backlog"   // deferred backlog reached insolvency
 )
 
 // recomputeStatus transitions status. won/lost are terminal. Lose if the network
-// PCI falls below the floor, too many hexes have closed, or the deferred
+// PCI falls below the floor, too much road area has closed, or the deferred
 // backlog reaches one treatment cycle of year-1 need (insolvent, the same
 // definition the pregame projection and the Financials headline use). Win if
 // the horizon is reached still solvent.
@@ -509,18 +511,10 @@ func (g *Game) recomputeStatus() {
 	if g.status != statusRunning {
 		return
 	}
-	closed := 0
-	for i := range g.hexes {
-		if g.hexes[i].closed {
-			closed++
-		}
-	}
-	closedFrac := float64(closed) / float64(len(g.hexes))
-
 	switch {
 	case g.networkPCI() < LosePCIFloor:
 		g.lossReason = LossPCIFloor
-	case closedFrac > LoseClosedFraction:
+	case g.closedShare() > LoseClosedFraction:
 		g.lossReason = LossClosures
 	case g.insolvencyAt > 0 && g.backlog >= g.insolvencyAt:
 		g.lossReason = LossBacklog
@@ -534,6 +528,21 @@ func (g *Game) recomputeStatus() {
 	if !g.endless && g.simYears >= g.horizon {
 		g.status = statusWon
 	}
+}
+
+// closedShare is the share of the board's road area that has closed, the
+// measure the closures loss and the end banner's gravel figure read. Area, not
+// a hex count, so a closed sliver weighs what it holds, as it does in the
+// network PCI. New refuses a board with no road area, so the share is
+// always defined.
+func (g *Game) closedShare() float64 {
+	var closedArea float64
+	for i := range g.hexes {
+		if g.hexes[i].closed {
+			closedArea += g.hexes[i].roadArea
+		}
+	}
+	return closedArea / g.totalArea
 }
 
 // holdSteadyNeed is one hex's annual hold-steady need at pci: treating its
@@ -584,9 +593,11 @@ type stateOut struct {
 	// surfaces this as the live "out of funds" HUD warning.
 	OutOfFunds bool `json:"out_of_funds"`
 	// Run totals for the end-of-game summary (cumulative, not deltas).
-	Spent       float64      `json:"total_spend"`
-	Treatments  int          `json:"treatment_count"`
-	ClosedCount int          `json:"closed_count"`
+	Spent      float64 `json:"total_spend"`
+	Treatments int     `json:"treatment_count"`
+	// ClosedShare is the share of the board's road area that has closed
+	// (closedShare), 0..1.
+	ClosedShare float64      `json:"closed_share"`
 	Changed     []changedHex `json:"changed"`
 }
 
@@ -608,9 +619,6 @@ func (g *Game) StateJSON() ([]byte, error) {
 	}
 	for i := range g.hexes {
 		h := &g.hexes[i]
-		if h.closed {
-			out.ClosedCount++
-		}
 		band := BandForPCI(h.pci)
 		if band == h.paintedBand && h.closed == h.paintedClosed {
 			continue
@@ -625,6 +633,7 @@ func (g *Game) StateJSON() ([]byte, error) {
 	}
 
 	out.OutOfFunds = g.outOfFunds()
+	out.ClosedShare = g.closedShare()
 
 	return json.Marshal(out)
 }

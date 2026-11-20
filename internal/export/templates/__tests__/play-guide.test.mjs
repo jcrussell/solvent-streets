@@ -84,6 +84,12 @@ test('play: a backlog loss with the budget spent says decay outran it', () => {
   assert.match($('#banner .sub').textContent, /outran the budget/);
 });
 
+test('play: the banner reports the closed share of road area as gravel', () => {
+  const { $$ } = endBanner({ loss_reason: 'closures', treasury: 0, annual_budget: 1, closed_share: 0.537 });
+  const gravel = $$('#banner .banner-stats .row').find((r) => r.querySelector('.k').textContent === 'Gravel');
+  assert.equal(gravel.querySelector('.v').textContent, '54%');
+});
+
 test('play: PCI-floor and closure losses name their cause', () => {
   assert.match(endBanner({ loss_reason: 'pci_floor', treasury: 0, annual_budget: 1 }).$('#banner .sub').textContent, /PCI fell below/);
   assert.match(endBanner({ loss_reason: 'closures', treasury: 0, annual_budget: 1 }).$('#banner .sub').textContent, /closed to gravel/);
