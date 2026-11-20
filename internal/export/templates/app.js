@@ -1315,6 +1315,9 @@
                     renderOpenDetail = null;
                     renderCitySettings({ settings_toml: 'This city\'s settings could not be loaded.' });
                 }
+                // The headline dates its insolvency year from snapshot_date,
+                // and the Financials load can finish first.
+                renderSolvencyHeadline();
             }
 
             // Stored per-hex metrics (optional file: absent until a producer such
@@ -3368,6 +3371,15 @@
             return 'this city';
         }
 
+        // forecastYearOne is the calendar year of forecast year 1: the year of
+        // the loaded city's snapshot_date, so the page names the same years
+        // whenever it is viewed. Without a meta.json it is the viewer's year.
+        function forecastYearOne() {
+            var d = lastCityMeta && lastCityMeta.snapshot_date;
+            var y = typeof d === 'string' && /^\d{4}-/.test(d) ? parseInt(d.slice(0, 4), 10) : NaN;
+            return y > 0 ? y : new Date().getFullYear();
+        }
+
         // Render the roads-only solvency headline above the Financials charts
         // from the per-city forecast.json (the selected city's forecastData).
         // Break-even is always shown; the insolvency year and funding gap are
@@ -3391,8 +3403,7 @@
             if (hasBudget) {
                 var gapDollars = breakEven - roads.current_budget;
                 if (roads.insolvency_year) {
-                    // Forecast year 1 == the current calendar year.
-                    var crossYear = new Date().getFullYear() + roads.insolvency_year - 1;
+                    var crossYear = forecastYearOne() + roads.insolvency_year - 1;
                     lead = 'At current funding, ' + name + '’s street-repair backlog grows to an entire treatment cycle of deferred work by <span class="num">' + crossYear + '</span> (year ' + roads.insolvency_year + ').';
                 } else {
                     lead = 'At current funding, ' + name + '’s streets stay solvent through the forecast horizon.';

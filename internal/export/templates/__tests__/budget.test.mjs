@@ -116,6 +116,24 @@ test('the solvency headline follows the cost multiplier', async () => {
     'the roads headline must not include parking or sidewalks');
 });
 
+// Forecast year 1 is the snapshot's year, not the viewer's: the insolvency
+// year a page names stays the same whenever it is read.
+test('the solvency headline dates insolvency from the snapshot year', async () => {
+  const data = { ...fullData, 'meta.json': { ...fullData['meta.json'], snapshot_date: '2020-06-01' } };
+  const { doc, fireMap, flush } = await ready({ data });
+  fireMap('style.load'); await flush(10);
+  const headline = doc.getElementById('solvency-headline').textContent;
+  assert.match(headline, /by 2026 \(year 7\)/, headline);
+});
+
+test('a snapshot_date that is not a date dates insolvency from the viewer\'s year', async () => {
+  const data = { ...fullData, 'meta.json': { ...fullData['meta.json'], snapshot_date: '12345' } };
+  const { doc, fireMap, flush, win } = await ready({ data });
+  fireMap('style.load'); await flush(10);
+  const want = new win.Date().getFullYear() + 6;
+  assert.match(doc.getElementById('solvency-headline').textContent, new RegExp('by ' + want + ' \\(year 7\\)'));
+});
+
 const params = (win) => new URLSearchParams(win.location.search);
 
 // The range was re-sized off the budget on every input,
