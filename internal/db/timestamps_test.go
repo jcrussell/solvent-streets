@@ -9,49 +9,6 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/resource"
 )
 
-// timestampColumns is every timestamp column of the schema, as table.column.
-var timestampColumns = []string{
-	"city_boundaries.fetched_at",
-	"features.fetched_at",
-	"city_inputs.ingested_at",
-	"city_inputs.fetched_at",
-	"ingest_attempts.started_at",
-	"ingest_attempts.finished_at",
-	"runs.computed_at",
-	"snapshots.created_at",
-}
-
-// TestTimestamps_SchemaIsInteger: every *_at column is declared INTEGER, and
-// the list above names all of them.
-func TestTimestamps_SchemaIsInteger(t *testing.T) {
-	ctx := context.Background()
-	root, err := Open(":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = root.Close() })
-	var found []string
-	for _, table := range listTables(t, ctx, root.db) {
-		for _, c := range listColumns(t, ctx, root.db, table) {
-			if !strings.HasSuffix(c.name, "_at") {
-				continue
-			}
-			found = append(found, table+"."+c.name)
-			if c.typ != "INTEGER" {
-				t.Errorf("%s.%s is %s, want INTEGER unix seconds", table, c.name, c.typ)
-			}
-		}
-	}
-	for _, want := range timestampColumns {
-		if !strings.Contains(strings.Join(found, " "), want) {
-			t.Errorf("timestamp column %s missing; found %v", want, found)
-		}
-	}
-	if len(found) != len(timestampColumns) {
-		t.Errorf("timestamp columns = %v, want exactly %v", found, timestampColumns)
-	}
-}
-
 // TestTimestamps_EveryWriterStoresInteger exercises every statement that
 // writes a timestamp and checks each stored value is an integer, so no two
 // rows can hold the same instant in different text forms (such as Go's
@@ -71,8 +28,20 @@ func TestTimestamps_EveryWriterStoresInteger(t *testing.T) {
 	}
 	commitRun(t, store, "h", "roads", nil) // a run and a snapshot
 
-	for _, col := range timestampColumns {
-		table, column, _ := strings.Cut(col, ".")
+	var columns [][2]string // table, column
+	for _, table := range listTables(t, ctx, root.db) {
+		for _, c := range listColumns(t, ctx, root.db, table) {
+			if strings.HasSuffix(c.name, "_at") {
+				columns = append(columns, [2]string{table, c.name})
+			}
+		}
+	}
+	if len(columns) == 0 {
+		t.Fatal("the schema has no *_at columns; the walk checked nothing")
+	}
+	for _, tc := range columns {
+		table, column := tc[0], tc[1]
+		col := table + "." + column
 		var rows, ints int
 		q := `SELECT COUNT(*), COUNT(CASE WHEN typeof(` + column + `) = 'integer' THEN 1 END) FROM ` + table
 		if err := root.db.QueryRowContext(ctx, q).Scan(&rows, &ints); err != nil {

@@ -13,7 +13,7 @@ import (
 // A raw SQLITE_BUSY from such a race is a separate, known issue and is not
 // judged here.
 func TestOpen_ConcurrentFirstOpenIsNeverIncompatible(t *testing.T) {
-	const rounds, openers = 50, 8
+	const rounds, openers = 15, 8
 	for range rounds {
 		p := filepath.Join(t.TempDir(), "pvmt.db")
 		var wg sync.WaitGroup

@@ -47,6 +47,7 @@ func TestColdMigration_SchemaShape(t *testing.T) {
 			"city_metrics",
 			"features",
 			"hex_metrics",
+			"ingest_attempts",
 			"run_facilities",
 			"run_inputs",
 			"runs",

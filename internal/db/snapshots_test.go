@@ -212,10 +212,9 @@ func TestCommitLatest_SwapsOnlyItsPart(t *testing.T) {
 	if snaps, _ := store.ListSnapshots(ctx); len(snaps) != 1 {
 		t.Errorf("snapshots = %d, want only the one created", len(snaps))
 	}
-	// The replaced run is left for gc, not deleted at commit; the snapshot
-	// holds it here anyway, so check a run no snapshot holds.
-	roads3 := commitLatestRun(t, store, "roads", nil)
-	_ = roads3
+	// The replaced run is left for gc, not deleted at commit. roads1 is
+	// held by the snapshot, so replace roads2, which nothing else holds.
+	commitLatestRun(t, store, "roads", nil)
 	if n := runCount(t, store, roads2); n != 1 {
 		t.Errorf("replaced run %d deleted at commit (%d rows), want it left for gc", roads2, n)
 	}
