@@ -197,8 +197,18 @@ func metricRows(ctx context.Context, entry CityEntry, key, subject string) ([]db
 
 // drawnMetricRows is metricRows less the rows of hexes the map does not draw
 // (DrawnGrid). The grid is built only when there are rows to filter; nil
-// when there is no grid at all.
+// when there is no grid at all. A grid that keeps rows (DrawnGrid.keepRows)
+// reads each metric once however many files ask for it.
 func drawnMetricRows(ctx context.Context, entry CityEntry, grid *DrawnGrid, key, subject string) ([]db.HexMetric, error) {
+	read := func() ([]db.HexMetric, error) { return readDrawnMetricRows(ctx, entry, grid, key, subject) }
+	if kept := grid.keptRows(key, subject, read); kept != nil {
+		return kept()
+	}
+	return read()
+}
+
+// readDrawnMetricRows is drawnMetricRows' read.
+func readDrawnMetricRows(ctx context.Context, entry CityEntry, grid *DrawnGrid, key, subject string) ([]db.HexMetric, error) {
 	rows, err := metricRows(ctx, entry, key, subject)
 	if err != nil || len(rows) == 0 {
 		return nil, err

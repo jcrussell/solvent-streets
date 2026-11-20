@@ -171,3 +171,48 @@ func TestDrawnGrid_OneGridGivesEqualIDSets(t *testing.T) {
 		t.Errorf("meta.json summary counts %d hexes, want the %d drawn", got, len(drawn))
 	}
 }
+
+// TestDrawnGrid_KeepRowsReadsEachMetricOnce: meta.json's summaries and
+// hex-metrics.json built over one grid that keeps rows, as the static export
+// builds them, read each stored metric once between them; a grid that does
+// not keep them (the live server's) reads it per file.
+func TestDrawnGrid_KeepRowsReadsEachMetricOnce(t *testing.T) {
+	ctx := context.Background()
+	probe := hexEntry(t, nil, nil)
+	lattice := drawnOrder(t, probe)
+
+	for _, keep := range []bool{true, false} {
+		entry := hexEntry(t, map[resource.Type][]results.HexCoverage{
+			rtRoads: {{HexID: lattice[0], Area: 100, PctCovered: 10}},
+		}, nil)
+		store := entry.Store.(*dbtest.MockStore)
+		rows := &dbtest.MockStore{HexMetrics: append(slices.Clone(store.HexMetrics),
+			db.HexMetric{HexID: lattice[0], Metric: services.MetricFire, Value: 120})}
+		reads := 0
+		store.ListHexMetricsFunc = func(ctx context.Context, metric, subject string) ([]db.HexMetric, error) {
+			if metric == services.MetricFire && subject == "" {
+				reads++
+			}
+			return rows.ListHexMetrics(ctx, metric, subject)
+		}
+
+		grid := NewDrawnGrid(ctx, entry, nil)
+		if keep {
+			grid.keepRows()
+		}
+		if _, err := BuildMetaOn(ctx, entry, 0, grid); err != nil {
+			t.Fatal(err)
+		}
+		hm, err := BuildHexMetricsOn(ctx, entry, grid)
+		if err != nil || hm == nil || len(hm.Metrics[services.MetricFire].Values) != 1 {
+			t.Fatalf("keep=%v: BuildHexMetricsOn = (%+v, %v), want the one fire hex", keep, hm, err)
+		}
+		want := 2
+		if keep {
+			want = 1
+		}
+		if reads != want {
+			t.Errorf("keep=%v: fire rows read %d times, want %d", keep, reads, want)
+		}
+	}
+}

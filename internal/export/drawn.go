@@ -33,6 +33,42 @@ import (
 type DrawnGrid struct {
 	drawn func() (*drawnHexes, error)
 	ids   func() (map[string]bool, error)
+
+	// rows, when non-nil (keepRows), holds each stored metric's drawn rows
+	// keyed by metric and subject, so meta.json's summaries and
+	// hex-metrics.json read them once between them. Only the static export
+	// keeps them: the live server holds its grids for its lifetime, and the
+	// rows would stay with them.
+	rowsMu sync.Mutex
+	rows   map[[2]string]func() ([]db.HexMetric, error)
+}
+
+// keepRows makes g keep the drawn metric rows it is asked for
+// (drawnMetricRows), for a caller that builds every file over g at once and
+// then drops it.
+func (g *DrawnGrid) keepRows() {
+	g.rowsMu.Lock()
+	defer g.rowsMu.Unlock()
+	if g.rows == nil {
+		g.rows = map[[2]string]func() ([]db.HexMetric, error){}
+	}
+}
+
+// keptRows returns the once-only read of metric key over subject when g keeps
+// rows (keepRows), building it with read; nil otherwise.
+func (g *DrawnGrid) keptRows(key, subject string, read func() ([]db.HexMetric, error)) func() ([]db.HexMetric, error) {
+	g.rowsMu.Lock()
+	defer g.rowsMu.Unlock()
+	if g.rows == nil {
+		return nil
+	}
+	k := [2]string{key, subject}
+	if f, ok := g.rows[k]; ok {
+		return f
+	}
+	f := sync.OnceValues(read)
+	g.rows[k] = f
+	return f
 }
 
 // drawnHexes is a built DrawnGrid: the drawn hexes' encoded geometries,

@@ -318,8 +318,10 @@ func (e *Exporter) exportCityData(ctx context.Context, entry CityEntry, dataDir 
 	}
 	// One lattice and clip for the three files that describe the drawn grid:
 	// hexgrid.geojson draws it, and meta.json's metric summaries and
-	// hex-metrics.json cover exactly its hexes.
+	// hex-metrics.json cover exactly its hexes, reading each stored metric's
+	// rows once between them (keepRows).
 	grid := NewDrawnGrid(ctx, entry, proj)
+	grid.keepRows()
 
 	meta, err := BuildMetaOn(ctx, entry, 0, grid)
 	if err != nil {
