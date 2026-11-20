@@ -59,17 +59,21 @@ type compareStat struct {
 }
 
 // compareSeed keeps the cohorts and areas the tabs read, the horizon, and the
-// three settings the Aggregate divergence note compares (initial PCI, decay,
-// cost tiers). cost_tiers passes through verbatim so that comparison sees
-// exactly the seed's value.
+// settings the Aggregate divergence note compares: every per-city setting
+// that moves a city's dollars (initial PCI, decay, growth, treatment cycle,
+// cost overhead, cost tiers). cost_tiers passes through verbatim so that
+// comparison sees exactly the seed's value.
 type compareSeed struct {
-	InitialPCI         float64         `json:"initial_pci"`
-	DecayRate          float64         `json:"decay_rate"`
-	HorizonYears       int             `json:"horizon_years"`
-	CostTiers          json.RawMessage `json:"cost_tiers,omitempty"`
-	MaintainedArea     float64         `json:"maintained_area,omitempty"`
-	CityMaintainedArea float64         `json:"city_maintained_area,omitempty"`
-	Cohorts            []CohortSeed    `json:"cohorts,omitempty"`
+	InitialPCI          float64         `json:"initial_pci"`
+	DecayRate           float64         `json:"decay_rate"`
+	GrowthRate          float64         `json:"growth_rate"`
+	TreatmentCycleYears float64         `json:"treatment_cycle_years"`
+	CostOverhead        float64         `json:"cost_overhead"`
+	HorizonYears        int             `json:"horizon_years"`
+	CostTiers           json.RawMessage `json:"cost_tiers,omitempty"`
+	MaintainedArea      float64         `json:"maintained_area,omitempty"`
+	CityMaintainedArea  float64         `json:"city_maintained_area,omitempty"`
+	Cohorts             []CohortSeed    `json:"cohorts,omitempty"`
 }
 
 // compareScenario is the baseline (first) scenario of a scope, with only the

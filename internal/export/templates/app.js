@@ -5303,19 +5303,23 @@
             ].join('');
 
             // Forecast divergence note: per-city [forecast] can override
-            // initial PCI, decay, and cost tiers — summed dollars would then
-            // mix cost bases. forecast_seed.json carries all three. The
-            // horizon is one per config, so it is not part of the signature.
+            // every setting that moves a city's dollars (initial PCI, decay,
+            // growth, treatment cycle, cost overhead, cost tiers), and summed
+            // dollars would then mix cost bases. forecast_seed.json carries
+            // them all. The horizon is one per config, so it is not part of
+            // the signature.
             var sigs = {};
             cityData.forEach(function(city, idx) {
                 if (!allMetrics[idx].hasForecasts || !city.seed) return;
                 var s = city.seed;
-                sigs[JSON.stringify([s.initial_pci, s.decay_rate, s.cost_tiers])] = true;
+                sigs[JSON.stringify([s.initial_pci, s.decay_rate, s.growth_rate, s.treatment_cycle_years,
+                    s.cost_overhead, s.cost_tiers])] = true;
             });
             var noteEl = document.getElementById('aggregate-divergence-note');
             if (Object.keys(sigs).length > 1) {
                 noteEl.hidden = false;
-                noteEl.textContent = 'Heads up: cities in this region use different forecast settings (initial PCI, decay, or cost tiers). ' +
+                noteEl.textContent = 'Heads up: cities in this region use different forecast settings ' +
+                    '(initial PCI, decay, growth, treatment cycle, cost overhead or cost tiers). ' +
                     'Summed dollars may mix cost bases.';
             } else {
                 noteEl.hidden = true;

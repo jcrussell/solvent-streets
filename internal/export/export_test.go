@@ -683,6 +683,17 @@ func TestRunMultiCity_WritesCompareRollup(t *testing.T) {
 		if c.Forecast[0].ResourceType != "roads" {
 			t.Errorf("%s: rollup forecast is %q, want the roads entry", c.Slug, c.Forecast[0].ResourceType)
 		}
+		// The rollup's seed carries every setting the Aggregate divergence
+		// note compares, as forecast_seed.json has them.
+		var seed ForecastSeedJSON
+		if ok, err := readDataFile(dataDir, "forecast_seed.json", &seed); err != nil || !ok {
+			t.Fatal(err)
+		}
+		if c.Seed.CostOverhead != seed.CostOverhead || c.Seed.TreatmentCycleYears != seed.TreatmentCycleYears ||
+			c.Seed.GrowthRate != seed.GrowthRate || c.Seed.CostOverhead == 0 || c.Seed.TreatmentCycleYears == 0 {
+			t.Errorf("%s: rollup seed %+v lacks forecast_seed.json's overhead %g, cycle %g, growth %g",
+				c.Slug, c.Seed, seed.CostOverhead, seed.TreatmentCycleYears, seed.GrowthRate)
+		}
 	}
 	if len(raw)*4 > perCity {
 		t.Errorf("compare.json is %d bytes against %d for the per-city files; want well under a quarter", len(raw), perCity)

@@ -149,3 +149,17 @@ test('area labels name the maintained area and the per-area denominator', async 
   assert.match(cat.querySelector('.lb-row .lb-name').textContent, /\(÷ [\d,]+ acres\)/);
   assert.ok(Array.from(doc.querySelectorAll('.lb-category h4')).some((h) => h.textContent.startsWith('Maintained Area (all owners)')));
 });
+
+// The divergence note fires for any per-city forecast setting that moves a
+// city's dollars, not only initial PCI, decay and cost tiers: cities with
+// different cost overheads, treatment cycles or growth rates sum dollars
+// priced differently too.
+test('the Aggregate divergence note signs every dollar-moving forecast setting', async () => {
+  for (const [key, delta] of [['cost_overhead', 0.5], ['treatment_cycle_years', 8], ['growth_rate', 0.005]]) {
+    const { win } = await page([city('Alpha'), city('Beta', (c) => { c.seed[key] = (c.seed[key] || 0) + delta; })]);
+    const note = win.document.getElementById('aggregate-divergence-note');
+    assert.equal(note.hidden, false, 'cities differing only in ' + key + ' got no divergence note');
+  }
+  const { win } = await page([city('Alpha'), city('Beta')]);
+  assert.equal(win.document.getElementById('aggregate-divergence-note').hidden, true, 'identical cities got a divergence note');
+});
