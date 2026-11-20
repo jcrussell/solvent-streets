@@ -80,7 +80,7 @@ func BuildCityEntries(ctx context.Context, rootDB db.RootStorer, cfg *config.Con
 		// wrote. Hoisting either out of this loop is what made `make site`
 		// impossible: a union config would look for its ~277 cities in a
 		// namespace nothing had ever written to.
-		id, err := rootDB.EnsureCity(ctx, city.Slug(), city.Name, cfg.CityConfigID(&city))
+		_, store, err := db.CityStore(ctx, rootDB, city.Slug(), city.Name, cfg.CityConfigID(&city))
 		if err != nil {
 			errs = append(errs, fmt.Sprintf("%s: %v", city.Name, err))
 			continue
@@ -88,7 +88,7 @@ func BuildCityEntries(ctx context.Context, rootDB db.RootStorer, cfg *config.Con
 		entries = append(entries, CityEntry{
 			Config: cfg,
 			City:   city,
-			Store:  rootDB.ForCity(id).WithLatestCompute(cfg.CityHash(&city)),
+			Store:  store.WithLatestCompute(cfg.CityHash(&city)),
 			Slug:   city.Slug(),
 		})
 	}

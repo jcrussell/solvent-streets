@@ -743,3 +743,42 @@ func TestGC_KeepsOwnSourcedLayerRows(t *testing.T) {
 
 // testEpoch is the ComputeEpoch the db tests commit under.
 const testEpoch = 1
+
+// TestCityStore_EnsuresOnce: CityStore creates the city row once and returns
+// the same id, and a store scoped to it, on every call.
+func TestCityStore_EnsuresOnce(t *testing.T) {
+	ctx := context.Background()
+	root, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+
+	id1, store, err := CityStore(ctx, root, "a", "A", "test")
+	if err != nil || store == nil {
+		t.Fatalf("CityStore = (%d, %v, %v)", id1, store, err)
+	}
+	id2, _, err := CityStore(ctx, root, "a", "A", "test")
+	if err != nil || id2 != id1 {
+		t.Errorf("second CityStore = (%d, %v), want id %d", id2, err, id1)
+	}
+	if cities, err := root.ListCities(ctx); err != nil || len(cities) != 1 {
+		t.Errorf("ListCities = (%v, %v), want one city", cities, err)
+	}
+
+	// The store is the ensured city's: what it writes, that city reads, and
+	// another city does not.
+	if err := store.SaveBoundary(ctx, geomA, "nominatim"); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := root.ForCity(id1).GetBoundary(ctx); err != nil || got == "" {
+		t.Errorf("city a's boundary through ForCity = (%q, %v), want the one saved", got, err)
+	}
+	_, other, err := CityStore(ctx, root, "b", "B", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := other.GetBoundary(ctx); err != nil || got != "" {
+		t.Errorf("city b's boundary = (%q, %v), want none", got, err)
+	}
+}

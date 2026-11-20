@@ -346,6 +346,16 @@ type sqliteStore struct {
 
 var _ Store = (*sqliteStore)(nil)
 
+// CityStore ensures the city row (slug, configID) exists on root and returns
+// its id and city-scoped store, unpinned.
+func CityStore(ctx context.Context, root RootStorer, slug, name, configID string) (int64, Store, error) {
+	id, err := root.EnsureCity(ctx, slug, name, configID)
+	if err != nil {
+		return 0, nil, fmt.Errorf("ensure city %s: %w", slug, err)
+	}
+	return id, root.ForCity(id), nil
+}
+
 // RootStorer is the interface for managing cities and providing city-scoped stores.
 type RootStorer interface {
 	EnsureCity(ctx context.Context, slug, name, configID string) (int64, error)

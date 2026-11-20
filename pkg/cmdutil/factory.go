@@ -372,11 +372,8 @@ func ResolveCities(f *Factory) ([]config.CityConfig, error) {
 // here would hide rows they need to see. Commands that read one config's
 // results use PinnedCityStore instead.
 func EnsureCityStore(ctx context.Context, root db.RootStorer, city config.CityConfig, configID string) (db.Store, error) {
-	id, err := root.EnsureCity(ctx, city.Slug(), city.Name, configID)
-	if err != nil {
-		return nil, fmt.Errorf("ensure city %s: %w", city.Slug(), err)
-	}
-	return root.ForCity(id), nil
+	_, store, err := db.CityStore(ctx, root, city.Slug(), city.Name, configID)
+	return store, err
 }
 
 // PinnedCityStore is EnsureCityStore pinned to the city's latest compute

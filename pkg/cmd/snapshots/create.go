@@ -164,11 +164,11 @@ func runCreate(ctx context.Context, opts *CreateOptions) error {
 	reqs := make([]db.SnapshotRequest, len(cfg.Cities))
 	for i := range cfg.Cities {
 		city := &cfg.Cities[i]
-		id, err := root.EnsureCity(ctx, city.Slug(), city.Name, cfg.CityConfigID(city))
+		id, store, err := db.CityStore(ctx, root, city.Slug(), city.Name, cfg.CityConfigID(city))
 		if err != nil {
-			return fmt.Errorf("ensure city %s: %w", city.Slug(), err)
+			return err
 		}
-		c := &createCity{city: city, id: id, store: root.ForCity(id)}
+		c := &createCity{city: city, id: id, store: store}
 		cities[i] = c
 		reqs[i] = db.SnapshotRequest{
 			CityID:     id,
