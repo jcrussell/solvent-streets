@@ -2202,6 +2202,33 @@
             }
         })();
 
+        // Show/hide for the floating stats panel. Collapsed, it is a tab with
+        // the city name and the toggle. The choice is the viewer's, kept in
+        // localStorage across visits; with storage unavailable the panel
+        // starts open and the toggle still works for the visit.
+        const PANEL_COLLAPSED_KEY = 'pvmtPanelCollapsed';
+        (function setupPanelToggle() {
+            const panel = document.getElementById('panel');
+            const body = document.getElementById('panel-body');
+            const btn = buttonById('panel-toggle');
+            if (!panel || !body || !btn) return;
+            /** @param {boolean} collapsed */
+            function setCollapsed(collapsed) {
+                panel.classList.toggle('collapsed', collapsed);
+                body.hidden = collapsed;
+                btn.setAttribute('aria-expanded', String(!collapsed));
+                btn.title = collapsed ? 'Show details' : 'Hide details';
+            }
+            let stored = null;
+            try { stored = localStorage.getItem(PANEL_COLLAPSED_KEY); } catch (e) { /* storage disabled */ }
+            setCollapsed(stored === '1');
+            btn.addEventListener('click', () => {
+                const collapsed = btn.getAttribute('aria-expanded') === 'true';
+                setCollapsed(collapsed);
+                try { localStorage.setItem(PANEL_COLLAPSED_KEY, collapsed ? '1' : '0'); } catch (e) { /* storage disabled */ }
+            });
+        })();
+
         // Start the city's data once the style is in: adding sources and
         // layers needs nothing more. Not on 'load', which also waits for every
         // basemap tile and fires only from inside a render. A tile that fails

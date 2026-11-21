@@ -116,6 +116,26 @@
             overflow-y: auto;
         }
         #panel h2 { font-size: 18px; margin-bottom: 4px; }
+        /* Show/hide (setupPanelToggle): collapsed, the panel is a tab
+           holding the city name and the toggle. The chevron points the way
+           the panel will go. */
+        .panel-head { display: flex; align-items: flex-start; gap: 8px; }
+        .panel-head h2 { flex: 1; min-width: 0; }
+        .panel-toggle {
+            flex: none; width: 26px; height: 26px; margin: -2px -8px 0 0; padding: 0;
+            display: inline-flex; align-items: center; justify-content: center;
+            background: none; color: var(--text-muted);
+            border: 1px solid transparent; border-radius: 4px; cursor: pointer;
+        }
+        .panel-toggle:hover { color: var(--text); background: var(--panel-2); border-color: var(--border); }
+        .panel-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+        .panel-toggle svg { transition: transform 0.15s; }
+        #panel-body[hidden] { display: none; }
+        #panel.collapsed { padding: 8px 10px 8px 14px; overflow: hidden; }
+        #panel.collapsed .panel-head { align-items: center; }
+        #panel.collapsed h2 { margin-bottom: 0; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        #panel.collapsed .panel-toggle { margin: 0 -4px 0 0; }
+        #panel.collapsed .panel-toggle svg { transform: rotate(180deg); }
         #panel .subtitle { color: var(--text-muted); margin-bottom: 16px; font-size: 12px; }
         .latest-compute-badge { display: inline-block; margin: -10px 0 14px; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; background: var(--summary-bg); border: 1px solid var(--summary-border); }
         .latest-compute-badge[hidden] { display: none; }
@@ -753,6 +773,12 @@
                 font-size: 13px;
             }
             #panel h2 { font-size: 16px; }
+            /* Docked at the bottom, the panel collapses downward to a tab
+               at the bottom left, clear of the legend (top right) and the
+               map attribution (bottom right). */
+            .panel-toggle svg { transform: rotate(180deg); }
+            #panel.collapsed { right: auto; max-width: calc(100% - 16px); }
+            #panel.collapsed .panel-toggle svg { transform: none; }
             /* Legend pinned above the now-bottom panel. */
             #legend {
                 bottom: auto;
@@ -898,12 +924,22 @@
         </div>
         <div id="region-rubberband" hidden></div>
         <div id="panel">
-            <h2>{{.HeadingName}}</h2>
-            <div class="subtitle">Pavement & Parking Analysis | Last computed {{.SnapshotDate}}</div>
-            {{if .IsLiveServer}}<div id="latest-compute-badge" class="latest-compute-badge"{{if not .LatestCompute}} hidden{{end}}>Latest compute (not snapshotted)</div>{{end}}
-            <!-- Populated client-side by app.js renderCityStats() from meta.json,
-                 which converts raw-metric values to the live unit system. -->
-            <div id="stats"></div>
+            <!-- The heading stays when the panel is collapsed to a tab
+                 (app.js setupPanelToggle); the body is what hides. -->
+            <div class="panel-head">
+                <h2>{{.HeadingName}}</h2>
+                <button type="button" id="panel-toggle" class="panel-toggle" aria-expanded="true" aria-controls="panel-body"
+                        aria-label="City details" title="Hide details">
+                    <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" focusable="false"><path d="M3 9l4-4 4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+            </div>
+            <div id="panel-body">
+                <div class="subtitle">Pavement & Parking Analysis | Last computed {{.SnapshotDate}}</div>
+                {{if .IsLiveServer}}<div id="latest-compute-badge" class="latest-compute-badge"{{if not .LatestCompute}} hidden{{end}}>Latest compute (not snapshotted)</div>{{end}}
+                <!-- Populated client-side by app.js renderCityStats() from meta.json,
+                     which converts raw-metric values to the live unit system. -->
+                <div id="stats"></div>
+            </div>
         </div>
         <div id="legend">
             <!-- The key for the metric the toolbar's Color by selects:
