@@ -66,6 +66,7 @@ lint:
 		if [ -n "$$installed" ] && [ "v$$installed" != "$$floor" ]; then \
 			echo "warning: golangci-lint v$$installed installed, floor is $$floor (.golangci-version)"; \
 		fi
+	golangci-lint config verify
 	golangci-lint run
 
 # Lint + type-check the browser JS extracted from the export templates

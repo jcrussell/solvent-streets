@@ -103,11 +103,11 @@ linters:
       # recurring across rows or tables is the table's nature, not a hidden
       # shared concept, and a constant there only renames the literal.
       # Strings code compares or returns (case, ==, return, assignment)
-      # are still counted. `call` is the default exclusion and must be
+      # are still counted. `Call` is the default exclusion and must be
       # restated when the list is set.
       exclude-types:
-        - call
-        - compositelit
+        - Call
+        - CompositeLit
     gocognit:
       min-complexity: 20
     misspell:
