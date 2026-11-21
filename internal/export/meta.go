@@ -96,8 +96,8 @@ type TemplateData struct {
 	// only in multi-city mode (empty single-city). The game page (/play) renders
 	// per-city and uses it to emit DATA_PREFIX ('cities/<slug>/') and pre-select
 	// the city dropdown; the index ignores it (it switches cities client-side).
-	ActiveSlug      string
-	MethodologyHTML template.HTML
+	ActiveSlug string
+	AboutHTML  template.HTML
 	// IsLiveServer is true when rendered by pvmt serve; false for static
 	// export. Gates server-only UI (e.g. the snapshot picker) that depends
 	// on live /api endpoints absent from the static output.

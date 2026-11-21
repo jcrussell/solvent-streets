@@ -23,7 +23,7 @@ func (d TemplateData) GameHorizons() []int {
 
 // ParseGameTemplate returns the parsed template tree for the /play game page:
 // templates/game.html.tmpl plus the partials it shares with the index page
-// (selectors: the city selector's tag filters; common: the error banner). It does not pull in the methodology
+// (selectors: the city selector's tag filters; common: the error banner). It does not pull in the about
 // or theme partials, which only the index references. Shared between the
 // static export and the live server so the parse path stays single-sourced.
 func ParseGameTemplate() (*template.Template, error) {

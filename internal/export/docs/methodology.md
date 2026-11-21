@@ -1,7 +1,8 @@
 ## Methodology
 
-This section describes the data sources, models, and assumptions behind the
-analysis presented in each dashboard.
+This document describes the data sources, models, and assumptions behind the
+analysis presented in each dashboard. The dashboard's About tab is a short
+summary that links here.
 
 ### Data sources
 

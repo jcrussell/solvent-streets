@@ -329,20 +329,20 @@ func writeJSFixtureSite(t *testing.T, dir string, seed template.JS) {
 		{Slug: "gamma-or", Name: "Gamma, OR", BBox: [4]float64{-122.8, 45.4, -122.5, 45.6}, Center: [2]float64{-122.65, 45.5}, Tags: tagsFor("Gamma, OR")},
 	}
 
-	methodology, err := MethodologyHTML()
+	about, err := AboutHTML()
 	if err != nil {
-		t.Fatalf("MethodologyHTML: %v", err)
+		t.Fatalf("AboutHTML: %v", err)
 	}
 	td := TemplateData{
-		MethodologyHTML: methodology,
-		Name:            "Harness",
-		ForecastSeed:    seed,
-		LayerColors:     ResourceColorsJS(),
-		UnitSystem:      "imperial",
-		Cities:          cities,
-		TagDimensions:   GroupCitiesByDimension(cities),
-		GeneratedDate:   "2026-01-01",
-		BuildVersion:    "test",
+		AboutHTML:     about,
+		Name:          "Harness",
+		ForecastSeed:  seed,
+		LayerColors:   ResourceColorsJS(),
+		UnitSystem:    "imperial",
+		Cities:        cities,
+		TagDimensions: GroupCitiesByDimension(cities),
+		GeneratedDate: "2026-01-01",
+		BuildVersion:  "test",
 	}
 
 	index, err := RenderPage(ParseIndexTemplate, td)

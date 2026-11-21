@@ -80,17 +80,15 @@ test('the city in view is marked on its cards and leaderboard rows', async () =>
     'the previous city kept its screen-reader cue');
 });
 
-test('an in-page About link scrolls the tab to its heading', async () => {
-  const { win, doc } = await renderWith([]);
-  const scrolled = [];
-  win.Element.prototype.scrollIntoView = function () { scrolled.push(this.id); };
-  const link = doc.querySelector('#about-tab a[href="#how-spending-moves-condition"]');
-  assert.ok(link, 'the methodology has no link to #how-spending-moves-condition');
-  assert.ok(doc.getElementById('how-spending-moves-condition'), 'the heading has no id');
-  const ev = new win.MouseEvent('click', { bubbles: true, cancelable: true });
-  link.dispatchEvent(ev);
-  assert.ok(ev.defaultPrevented, 'the link navigated instead of scrolling the tab');
-  assert.deepEqual(scrolled, ['how-spending-moves-condition']);
+test('the About tab links the full methodology on GitHub, in a new tab', async () => {
+  const { doc } = await renderWith([]);
+  const link = Array.from(doc.querySelectorAll('#about-tab a'))
+    .find((a) => a.textContent.startsWith('Full methodology'));
+  assert.ok(link, 'the About tab has no Full methodology link');
+  assert.match(link.getAttribute('href'),
+    /^https:\/\/github\.com\/jcrussell\/solvent-streets\/blob\/[^/]+\/internal\/export\/docs\/methodology\.md$/);
+  assert.equal(link.getAttribute('target'), '_blank');
+  assert.equal(link.getAttribute('rel'), 'noopener');
 });
 
 // lbBlock returns the leaderboard category whose title starts with `label`.

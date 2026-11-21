@@ -2169,25 +2169,6 @@
             citySelect.addEventListener('change', () => selectCity(citySelect.value));
         }
 
-        // In-page links in the About prose ([...](#how-spending-moves-condition))
-        // scroll the tab to their heading here rather than as a fragment
-        // navigation. That would add a history entry and fire popstate, and the
-        // state popstate reads back from an About-tab URL carries none of the
-        // Financials settings (only the Financials tab writes them), so
-        // following a link would reset the reader's budget and model.
-        const aboutTab = document.getElementById('about-tab');
-        if (aboutTab) {
-            aboutTab.addEventListener('click', (e) => {
-                const a = e.target instanceof Element ? e.target.closest('a[href^="#"]') : null;
-                if (!a) return;
-                const id = decodeURIComponent((a.getAttribute('href') || '').slice(1));
-                const target = id ? document.getElementById(id) : null;
-                if (!target || !aboutTab.contains(target)) return;
-                e.preventDefault();
-                target.scrollIntoView({ block: 'start' });
-            });
-        }
-
         queryAll('select.tag-filter').forEach(el => {
             el.addEventListener('change', () => onTagFilterChange());
         });
@@ -3492,7 +3473,7 @@
             const mult = liveSolvency ? currentMultiplier() : seeded;
             if (!Number.isFinite(mult) || mult <= 1) {
                 return 'Figures are calibrated against real municipal hold-steady spending, so they are '
-                    + 'comparable to a published pavement budget. See Methodology for the cost basis.';
+                    + 'comparable to a published pavement budget. The About tab links the full methodology.';
             }
             const where = (Number.isFinite(seeded) && Math.abs(mult - seeded) < 1e-9)
                 ? 'set for this city in <code>forecast.cost_multiplier</code>'

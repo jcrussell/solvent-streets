@@ -1,28 +1,41 @@
 package export
 
 import (
+	"bufio"
 	"bytes"
+	"fmt"
 	"html/template"
+	"net/url"
+	"os"
+	"path"
 	"regexp"
 	"strings"
 	"testing"
+	"unicode"
 
+	"github.com/jcrussell/solvent-streets/internal/build"
+	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/forecast"
 )
 
-// methodologyMarkers are prose markers unique to the methodology source of
-// truth. If any disappear from the rendered output, the markdown embed or
-// the render pipeline has broken.
-var methodologyMarkers = []string{
-	"planning-grade",
+// methodologyFile is the full methodology, read on GitHub. The dashboard
+// does not embed it; the About tab links into it.
+const methodologyFile = "docs/methodology.md"
+
+// aboutMarkers are prose markers unique to the About source of truth. If
+// any disappear from the rendered output, the markdown embed or the render
+// pipeline has broken.
+var aboutMarkers = []string{
 	"OpenStreetMap",
-	"FHWA-RD-01-156",
-	"FHWA-HIF-12-042",
-	"linear annual growth",
+	"2020 U.S. Census",
+	"hold-steady budget",
+	"Solvency Score",
+	"insolvency year",
+	"Full methodology",
 }
 
 // forbiddenHTML are substrings that must never appear in the rendered
-// methodology. Goldmark's default renderer escapes raw HTML blocks, so a
+// About prose. Goldmark's default renderer escapes raw HTML blocks, so a
 // <script> tag in the markdown source surfaces as &lt;script&gt;. This is
 // a regression test on top of that escaping, not the security boundary.
 var forbiddenHTML = []string{
@@ -32,15 +45,33 @@ var forbiddenHTML = []string{
 	" onclick=",
 }
 
-func TestMethodologyHasNoRawHTML(t *testing.T) {
-	html, err := MethodologyHTML()
+func TestAboutHasNoRawHTML(t *testing.T) {
+	html, err := AboutHTML()
 	if err != nil {
-		t.Fatalf("MethodologyHTML: %v", err)
+		t.Fatalf("AboutHTML: %v", err)
 	}
 	rendered := strings.ToLower(string(html))
 	for _, s := range forbiddenHTML {
 		if strings.Contains(rendered, s) {
-			t.Errorf("rendered methodology contains forbidden substring %q", s)
+			t.Errorf("rendered About contains forbidden substring %q", s)
+		}
+	}
+}
+
+// TestAboutQuotesTheModelDefaults: the About prose states the default
+// starting PCI, horizon and cost tiers in words, so it must follow the
+// values the forecast uses.
+func TestAboutQuotesTheModelDefaults(t *testing.T) {
+	want := []string{
+		fmt.Sprintf("PCI %g", config.DefaultInitialPCI),
+		fmt.Sprintf("next %d years", config.DefaultHorizonYears),
+	}
+	for _, tier := range forecast.DefaultCostTiers {
+		want = append(want, fmt.Sprintf("$%g ", tier.CostPerSqM))
+	}
+	for _, s := range want {
+		if !bytes.Contains(aboutMarkdown, []byte(s)) {
+			t.Errorf("about.md does not say %q", s)
 		}
 	}
 }
@@ -49,26 +80,23 @@ func TestMethodologyHasNoRawHTML(t *testing.T) {
 // each, on the Financials charts, the Materials headline and in the
 // methodology that explains them.
 func TestMethodologyNamesTheFundingLevels(t *testing.T) {
-	html, err := MethodologyHTML()
-	if err != nil {
-		t.Fatalf("MethodologyHTML: %v", err)
-	}
+	md := readMethodology(t)
 	for _, s := range forecast.DefaultComparisons(1) {
-		if want := "<strong>" + s.Label + "</strong>"; !strings.Contains(string(html), want) {
+		if want := "**" + s.Label + "**"; !strings.Contains(md, want) {
 			t.Errorf("methodology does not name the %q run as its label does (looking for %q)", s.Name, want)
 		}
 	}
 }
 
-func TestDashboardMethodologyRenders(t *testing.T) {
+func TestDashboardAboutRenders(t *testing.T) {
 	tmpl := parseDashboardTemplates(t)
 
-	methodology, err := MethodologyHTML()
+	about, err := AboutHTML()
 	if err != nil {
-		t.Fatalf("MethodologyHTML: %v", err)
+		t.Fatalf("AboutHTML: %v", err)
 	}
 	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, TemplateData{MethodologyHTML: methodology}); err != nil {
+	if err := tmpl.Execute(&buf, TemplateData{AboutHTML: about}); err != nil {
 		t.Fatalf("execute index: %v", err)
 	}
 	out := buf.String()
@@ -78,12 +106,19 @@ func TestDashboardMethodologyRenders(t *testing.T) {
 		t.Fatal("rendered dashboard missing #about-tab container")
 	}
 	tail := out[aboutIdx:]
-	if !strings.Contains(tail, `class="methodology"`) {
-		t.Error("rendered dashboard missing methodology wrapper inside #about-tab")
+	if !strings.Contains(tail, `class="about-prose"`) {
+		t.Error("rendered dashboard missing about-prose wrapper inside #about-tab")
 	}
-	for _, s := range methodologyMarkers {
+	for _, s := range aboutMarkers {
 		if !strings.Contains(tail, s) {
 			t.Errorf("rendered dashboard missing %q inside About tab", s)
+		}
+	}
+	// The About tab's heading ids must be unique on the dashboard, which
+	// carries its own ids beside the prose.
+	for _, m := range regexp.MustCompile(`<h[1-6] id="([^"]+)"`).FindAllStringSubmatch(string(about), -1) {
+		if n := strings.Count(out, `id="`+m[1]+`"`); n != 1 {
+			t.Errorf(`dashboard has id="%s" %d times, want 1`, m[1], n)
 		}
 	}
 }
@@ -106,41 +141,157 @@ func TestDashboardHasAboutTab(t *testing.T) {
 	}
 }
 
-// TestMethodologyAnchorsResolve checks every in-document link in the
-// methodology lands on a heading id, so renaming a heading cannot silently
-// break a link to it. The ids must also be unique
-// on the dashboard, which carries its own ids beside the prose.
-func TestMethodologyAnchorsResolve(t *testing.T) {
-	html, err := MethodologyHTML()
+func TestRepoRef(t *testing.T) {
+	for version, want := range map[string]string{
+		"v0.4.1":               "v0.4.1",
+		"v1.10.0":              "v1.10.0",
+		"v0.4.1-532-gb5bbc142": "main",
+		"v0.4.1-dirty":         "main",
+		"v0.5.0-SNAPSHOT-abc":  "main",
+		"0.4.1":                "main",
+		"dev":                  "main",
+		"":                     "main",
+	} {
+		if got := repoRef(version); got != want {
+			t.Errorf("repoRef(%q) = %q, want %q", version, got, want)
+		}
+	}
+}
+
+// TestRenderAboutLinks: relative links resolve against about.md's directory
+// in the repository at the given ref, and every link that leaves the page
+// opens in a new tab.
+func TestRenderAboutLinks(t *testing.T) {
+	src := []byte("[a](methodology.md#color-by) [b](../../../README.md) [c](#local) [d](https://example.com/x)")
+	html, err := renderAbout(src, "v1.2.3")
 	if err != nil {
-		t.Fatalf("MethodologyHTML: %v", err)
+		t.Fatalf("renderAbout: %v", err)
 	}
-	ids := map[string]bool{}
-	for _, m := range regexp.MustCompile(`<h[1-6] id="([^"]+)"`).FindAllStringSubmatch(string(html), -1) {
-		ids[m[1]] = true
+	for _, want := range []string{
+		`<a href="https://github.com/jcrussell/solvent-streets/blob/v1.2.3/internal/export/docs/methodology.md#color-by" target="_blank" rel="noopener">a</a>`,
+		`<a href="https://github.com/jcrussell/solvent-streets/blob/v1.2.3/README.md" target="_blank" rel="noopener">b</a>`,
+		`<a href="#local">c</a>`,
+		`<a href="https://example.com/x" target="_blank" rel="noopener">d</a>`,
+	} {
+		if !strings.Contains(string(html), want) {
+			t.Errorf("rendered links missing %s\ngot: %s", want, html)
+		}
 	}
-	if !ids["how-spending-moves-condition"] {
-		t.Errorf(`rendered methodology has no id="how-spending-moves-condition"; heading ids: %v`, ids)
+}
+
+// TestMethodologyAnchorsResolve checks every link into a methodology
+// section lands on a heading GitHub generates an anchor for, so renaming a
+// heading cannot silently break a link to it. It covers the About tab's
+// rendered links (the dashboard's only way into the methodology) and the
+// methodology's own in-document links, and checks that every relative link
+// in about.md names a file in the repository.
+func TestMethodologyAnchorsResolve(t *testing.T) {
+	anchors := githubAnchors(t, readMethodology(t))
+	if !anchors["how-spending-moves-condition"] {
+		t.Errorf("methodology has no #how-spending-moves-condition anchor; anchors: %v", anchors)
 	}
-	links := regexp.MustCompile(`\]\(#([^)\s]+)\)`).FindAllSubmatch(methodologyMarkdown, -1)
+
+	about, err := AboutHTML()
+	if err != nil {
+		t.Fatalf("AboutHTML: %v", err)
+	}
+	methodologyURL := repoURL + "/blob/" + repoRef(build.Current().Version) + "/" + path.Join(aboutDir, path.Base(methodologyFile))
+	sectionLinks := 0
+	for _, m := range regexp.MustCompile(`href="([^"]+)"`).FindAllStringSubmatch(string(about), -1) {
+		u, err := url.Parse(m[1])
+		if err != nil {
+			t.Errorf("About links %q, which does not parse: %v", m[1], err)
+			continue
+		}
+		frag := u.Fragment
+		u.Fragment = ""
+		if u.String() != methodologyURL || frag == "" {
+			continue
+		}
+		sectionLinks++
+		if !anchors[frag] {
+			t.Errorf("About links methodology #%s, which no heading generates", frag)
+		}
+	}
+	if sectionLinks == 0 {
+		t.Fatalf("About has no links to a methodology section at %s; the check above would pass vacuously", methodologyURL)
+	}
+
+	links := regexp.MustCompile(`\]\(#([^)\s]+)\)`).FindAllStringSubmatch(readMethodology(t), -1)
 	if len(links) == 0 {
 		t.Fatal("methodology.md has no in-document links; the check below would pass vacuously")
 	}
 	for _, m := range links {
-		if !ids[string(m[1])] {
+		if !anchors[m[1]] {
 			t.Errorf("methodology.md links #%s, which no heading generates", m[1])
 		}
 	}
 
-	var buf bytes.Buffer
-	if err := parseDashboardTemplates(t).Execute(&buf, TemplateData{MethodologyHTML: html}); err != nil {
-		t.Fatalf("execute index: %v", err)
-	}
-	for id := range ids {
-		if n := strings.Count(buf.String(), `id="`+id+`"`); n != 1 {
-			t.Errorf(`dashboard has id="%s" %d times, want 1`, id, n)
+	for _, m := range regexp.MustCompile(`\]\(([^)\s]+)\)`).FindAllSubmatch(aboutMarkdown, -1) {
+		u, err := url.Parse(string(m[1]))
+		if err != nil || u.Scheme != "" || u.Path == "" {
+			continue
+		}
+		// about.md sits in docs/ beside this test's package directory.
+		if _, err := os.Stat(path.Join(path.Dir(methodologyFile), u.Path)); err != nil {
+			t.Errorf("about.md links %s, which is not in the repository: %v", m[1], err)
 		}
 	}
+}
+
+func readMethodology(t *testing.T) string {
+	t.Helper()
+	data, err := os.ReadFile(methodologyFile)
+	if err != nil {
+		t.Fatalf("read methodology: %v", err)
+	}
+	return string(data)
+}
+
+// githubAnchors returns the anchors GitHub generates for the ATX headings
+// of a markdown document outside fenced code: the heading text lowercased,
+// with each space turned into a hyphen and every character other than a
+// letter, digit, hyphen or underscore dropped ("### Color by" -> color-by).
+// A repeated heading takes -1, -2, ... after the first.
+func githubAnchors(t *testing.T, md string) map[string]bool {
+	t.Helper()
+	anchors := map[string]bool{}
+	seen := map[string]int{}
+	heading := regexp.MustCompile(`^#{1,6}\s+(.+?)\s*#*\s*$`)
+	fenced := false
+	sc := bufio.NewScanner(strings.NewReader(md))
+	for sc.Scan() {
+		line := sc.Text()
+		if strings.HasPrefix(line, "```") || strings.HasPrefix(line, "~~~") {
+			fenced = !fenced
+			continue
+		}
+		m := heading.FindStringSubmatch(line)
+		if fenced || m == nil {
+			continue
+		}
+		var b strings.Builder
+		for _, r := range strings.ToLower(m[1]) {
+			switch {
+			case r == ' ':
+				b.WriteRune('-')
+			case unicode.IsLetter(r), unicode.IsDigit(r), r == '-', r == '_':
+				b.WriteRune(r)
+			}
+		}
+		slug := b.String()
+		if n := seen[slug]; n > 0 {
+			seen[slug]++
+			slug = fmt.Sprintf("%s-%d", slug, n)
+		} else {
+			seen[slug] = 1
+		}
+		anchors[slug] = true
+	}
+	if err := sc.Err(); err != nil {
+		t.Fatalf("scan methodology: %v", err)
+	}
+	return anchors
 }
 
 func parseDashboardTemplates(t *testing.T) *template.Template {

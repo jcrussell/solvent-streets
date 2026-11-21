@@ -66,9 +66,9 @@ func CityPageMetaAndSeed(ctx context.Context, cfg *config.Config, entry CityEntr
 // single-city Config tab. The caller sets IsLiveServer and ActiveSlug, which only the live
 // server uses.
 func NewTemplateData(cfg *config.Config, meta MetaJSON, seed template.JS, cities []CityInfo, unitSystem string, hexEdges map[string]float64) (TemplateData, error) {
-	methodology, err := MethodologyHTML()
+	about, err := AboutHTML()
 	if err != nil {
-		return TemplateData{}, fmt.Errorf("render methodology: %w", err)
+		return TemplateData{}, fmt.Errorf("render about: %w", err)
 	}
 	// A single-city Config tab shows the file as written beside the resolved
 	// settings; an unreadable or absent file leaves the raw view empty. A
@@ -91,17 +91,17 @@ func NewTemplateData(cfg *config.Config, meta MetaJSON, seed template.JS, cities
 	}
 	date, ver := FooterInfo()
 	return TemplateData{
-		MetaJSON:        meta,
-		ForecastSeed:    seed,
-		LayerColors:     ResourceColorsJS(),
-		RawTOML:         rawTOML,
-		ResolvedTOML:    resolvedTOML,
-		UnitSystem:      unitSystem,
-		Cities:          cities,
-		TagDimensions:   GroupCitiesByDimension(cities),
-		MethodologyHTML: methodology,
-		GeneratedDate:   date,
-		BuildVersion:    ver,
+		MetaJSON:      meta,
+		ForecastSeed:  seed,
+		LayerColors:   ResourceColorsJS(),
+		RawTOML:       rawTOML,
+		ResolvedTOML:  resolvedTOML,
+		UnitSystem:    unitSystem,
+		Cities:        cities,
+		TagDimensions: GroupCitiesByDimension(cities),
+		AboutHTML:     about,
+		GeneratedDate: date,
+		BuildVersion:  ver,
 	}, nil
 }
 
