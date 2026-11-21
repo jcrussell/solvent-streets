@@ -9,7 +9,7 @@ import (
 
 // budgetedBacktest is testdata/mtc_budgeted_backtest.json: six Bay Area
 // cities with a cited roads budget, their MTC PCI in 2019 and 2024, and their
-// city-maintained road classes from the release export.
+// city-maintained road classes from a compute of examples/bay-area-ca.
 type budgetedBacktest struct {
 	Cities []struct {
 		Slug          string  `json:"slug"`

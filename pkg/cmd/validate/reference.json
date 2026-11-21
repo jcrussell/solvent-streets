@@ -7,7 +7,8 @@
     "gate is that it can fail.",
     "",
     "paved_area_sqm is DERIVED, not measured: it is the tool's own computed",
-    "pavement area, matching the §1 table to within 1%. It is",
+    "city-maintained road area (examples/bay-area-ca, roads from OpenStreetMap",
+    "only), the Tool area of the §1 table. It is",
     "adequate as a scale input (it is what the model is asked to price) but it",
     "is NOT an independent measurement, so a residual here is not evidence",
     "about geometry. §1 validates the geometry separately against MTC lane-mile",
@@ -29,7 +30,7 @@
       "name": "Berkeley, CA",
       "pci": 56,
       "decay_rate": 0.045,
-      "paved_area_sqm": 3416367,
+      "paved_area_sqm": 2761108,
       "current_budget": 15000000,
       "published_break_even_budget": 18300000,
       "sources": [
@@ -42,7 +43,7 @@
       "name": "Dublin, CA",
       "pci": 78,
       "decay_rate": 0.035,
-      "paved_area_sqm": 3824703,
+      "paved_area_sqm": 3114948,
       "current_budget": 3700000,
       "sources": [
         "MTC 2024 PCI table (mtc.ca.gov) — PCI 78",
@@ -54,7 +55,7 @@
       "name": "Hayward, CA",
       "pci": 73,
       "decay_rate": 0.04,
-      "paved_area_sqm": 7474039,
+      "paved_area_sqm": 6264373,
       "current_budget": 10063947,
       "sources": [
         "MTC 2024 PCI table (mtc.ca.gov) — PCI 73",
@@ -66,7 +67,7 @@
       "name": "Pleasanton, CA",
       "pci": 76,
       "decay_rate": 0.035,
-      "paved_area_sqm": 5537659,
+      "paved_area_sqm": 4549405,
       "current_budget": 4800000,
       "sources": [
         "MTC 2024 PCI table (mtc.ca.gov) — PCI 76",
@@ -78,7 +79,7 @@
       "name": "Livermore, CA",
       "pci": 75,
       "decay_rate": 0.035,
-      "paved_area_sqm": 6587658,
+      "paved_area_sqm": 5529307,
       "current_budget": 4850000,
       "sources": [
         "MTC 2024 PCI table (mtc.ca.gov) — PCI 75",
@@ -90,7 +91,7 @@
       "name": "Oakland, CA",
       "pci": 58,
       "decay_rate": 0.045,
-      "paved_area_sqm": 14937801,
+      "paved_area_sqm": 12626253,
       "current_budget": 60000000,
       "sources": [
         "MTC 2024 PCI table (mtc.ca.gov) — PCI 58",

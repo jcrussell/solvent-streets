@@ -1,5 +1,5 @@
 {
- "_comment": "Budgeted backtest. pci_2019/pci_2024: MTC Pavement Condition Index (3-year moving average) per docs/validation.md section 2 sources. current_budget: the cited roads budget in examples/bay-area-ca (today's budget, applied to 2019-24). cohorts: city-maintained road classes and areas (m2) from the v0.5.0 release export's forecast_seed.json city_cohorts. Default cost tiers, cost multiplier 1, 12-year cycle.",
+ "_comment": "Budgeted backtest. pci_2019/pci_2024: MTC Pavement Condition Index (3-year moving average) per docs/validation.md section 2 sources. current_budget: the cited roads budget in examples/bay-area-ca (today's budget, applied to 2019-24). cohorts: city-maintained road classes and areas (m2), the stored city-scope paved_area per class from an `all compute` of examples/bay-area-ca, roads from OpenStreetMap only. Default cost tiers, cost multiplier 1, 12-year cycle.",
  "cities": [
   {
    "slug": "oakland-ca",
@@ -10,23 +10,23 @@
    "cohorts": [
     {
      "classification": "primary",
-     "area": 2874348
+     "area": 628343
     },
     {
      "classification": "residential",
-     "area": 6624604
+     "area": 5582640
     },
     {
      "classification": "secondary",
-     "area": 1779753
+     "area": 2097003
     },
     {
      "classification": "service",
-     "area": 2517066
+     "area": 2966779
     },
     {
      "classification": "tertiary",
-     "area": 1149353
+     "area": 1351488
     }
    ]
   },
@@ -39,23 +39,23 @@
    "cohorts": [
     {
      "classification": "primary",
-     "area": 242000
+     "area": 482
     },
     {
      "classification": "residential",
-     "area": 2044676
+     "area": 1468572
     },
     {
      "classification": "secondary",
-     "area": 218007
+     "area": 248935
     },
     {
      "classification": "service",
-     "area": 427499
+     "area": 488147
     },
     {
      "classification": "tertiary",
-     "area": 487136
+     "area": 554973
     }
    ]
   },
@@ -68,23 +68,23 @@
    "cohorts": [
     {
      "classification": "primary",
-     "area": 547170
+     "area": 386557
     },
     {
      "classification": "residential",
-     "area": 3780358
+     "area": 2505168
     },
     {
      "classification": "secondary",
-     "area": 675473
+     "area": 722567
     },
     {
      "classification": "service",
-     "area": 1907625
+     "area": 2046905
     },
     {
      "classification": "tertiary",
-     "area": 563488
+     "area": 603177
     }
    ]
   },
@@ -97,23 +97,23 @@
    "cohorts": [
     {
      "classification": "primary",
-     "area": 730724
+     "area": 132782
     },
     {
      "classification": "residential",
-     "area": 2810849
+     "area": 2267733
     },
     {
      "classification": "secondary",
-     "area": 786532
+     "area": 840649
     },
     {
      "classification": "service",
-     "area": 1406502
+     "area": 1558462
     },
     {
      "classification": "tertiary",
-     "area": 851294
+     "area": 729681
     }
    ]
   },
@@ -126,23 +126,23 @@
    "cohorts": [
     {
      "classification": "primary",
-     "area": 573438
+     "area": 116231
     },
     {
      "classification": "residential",
-     "area": 2386641
+     "area": 1992314
     },
     {
      "classification": "secondary",
-     "area": 716196
+     "area": 714582
     },
     {
      "classification": "service",
-     "area": 1242123
+     "area": 1386977
     },
     {
      "classification": "tertiary",
-     "area": 619281
+     "area": 339301
     }
    ]
   },
@@ -155,23 +155,23 @@
    "cohorts": [
     {
      "classification": "primary",
-     "area": 361747
+     "area": 159277
     },
     {
      "classification": "residential",
-     "area": 2060587
+     "area": 1485281
     },
     {
      "classification": "secondary",
-     "area": 354853
+     "area": 376662
     },
     {
      "classification": "service",
-     "area": 765433
+     "area": 812476
     },
     {
      "classification": "tertiary",
-     "area": 282101
+     "area": 281253
     }
    ]
   }

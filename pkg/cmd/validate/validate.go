@@ -130,8 +130,8 @@ It checks the model, not your configuration: it reads no pvmt.toml, no
 database and no network, and your cities, cost tiers and forecast settings
 play no part. The reference data ships with the binary and every row carries
 its source. Each
-city is priced as one residential class of its published paved area, PCI
-and decay rate, with the shipped cost tiers, condition spread and treatment
+city is priced as one residential class of its reference paved area (the
+tool's own computed area, not a published one), its PCI and decay rate, with the shipped cost tiers, condition spread and treatment
 cycle, no cost multiplier, 0.5% annual area growth and a 25-year worst-first
 horizon. Exits non-zero when a city with a published hold-steady budget falls outside the
 tolerance band, so it can run in CI.

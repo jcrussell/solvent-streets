@@ -19,27 +19,35 @@ build by [`pvmt validate`](#7-what-is-gated-and-what-remains-open).
 
 | Stage | Result | Evidence |
 |---|---|---|
-| Pavement area | Sound | 1.2–1.9× bare travel-lane area in all 8 cities, no outliers (§1) |
+| Pavement area | Length right, width short | street length matches Berkeley's published centerline miles within 7%, but area is 16% under Berkeley's published ~3.3M m² (§1) |
 | Decay form | Sound | the do-nothing curve is a clean lower bound on every city (§2) |
 | Decay rate | Not verifiable from public data | published PCI already includes maintenance (§2) |
 | Spending response | Set by five-year budgeted history | six cities at their cited budgets, 2019→2024: RMSE 4.2 PCI at the cited decay rates (§2) |
 | Unit costs | Bare-construction level | they match contractor bids, and run ~2–3× below loaded municipal costs (§3) |
 | Condition spread | Partly corrected | pricing a single average understates cost ~32–37%; the default spread recovers much of it (§4) |
 | Treatment cycle | Matches published cadences | N = 12 sits inside the 10–14-year cycles cities report (§5) |
-| Break-even budget | Matches Berkeley | $19.4M against the cited $18.3M hold-steady, +5.8% (§6) |
+| Break-even budget | Rate matches Berkeley; dollars low with the area | $5.67/m²·yr against the cited $5.6; $15.6M against the cited $18.3M hold-steady, −14.5% (§6) |
 
-The physical estimates hold up across all eight cities. The solvency dollars
-reproduce the one city with an independent hold-steady figure. They are
-anchored on that single city, so read them as a planning-grade estimate: right
-in scale, not a budget line item.
+Per square metre, the solvency model reproduces the one city with an
+independent hold-steady figure. Pavement area is the weak stage: the road
+network's length is right, but the modelled street widths leave out most of
+the curb-to-curb extras, so area, and every dollar figure priced on it, runs
+low, Berkeley's by about 16%. A width calibration is planned. Until then, and
+because the cost anchor rests on a single city, read the solvency dollars as a
+planning-grade estimate: right in scale, on the low side, not a budget line
+item.
 
 ## Method
 
-Each city's area and cost figures come from running `roads ingest`,
-`roads compute` and `export`, with ArcGIS Street_Centerlines and Overpass as
-sources. The solvency figures come from `pvmt validate`, which prices each
-city's committed reference data (`pkg/cmd/validate/reference.json`); `pvmt help
-validate` gives the run's exact settings. The `initial_pci` values in
+Each city's area and cost figures come from running `all ingest` and
+`all compute` on the Alameda County cities of
+[`examples/bay-area-ca`](../examples/bay-area-ca/pvmt.toml), with Overpass as
+the only road source (a city that also sets `arcgis_url` counts part of its
+pavement twice; see
+[configuration](configuration.md#one-road-source-per-city)). The solvency
+figures come from `pvmt validate`, which prices each city's committed
+reference data (`pkg/cmd/validate/reference.json`); `pvmt help validate`
+gives the run's exact settings. The `initial_pci` values in
 [`examples/bay-area-ca`](../examples/bay-area-ca/pvmt.toml) match the MTC 2024
 table to the digit. The MTC series was extracted three times independently,
 with exact agreement. Cohort area does not depend on the hex size: Berkeley's
@@ -53,21 +61,40 @@ Does buffering centerlines by width recover real pavement area? MTC publishes
 pavement, which includes parking lanes, shoulders and turn pockets, so its
 area should come out somewhat larger.
 
+Tool area is each city's city-maintained road area.
+
 | City | Tool area | MTC lane-mi | Implied ft/lane-mi | vs 12-ft travel lane |
 |---|---|---|---|---|
-| Oakland | 160.8M sf | 2,052 | 14.8 | 1.24× |
-| Berkeley | 36.8M sf | 450 | 15.5 | 1.29× |
-| Livermore | 70.9M sf | 734 | 18.3 | 1.52× |
-| San Leandro | 40.0M sf | 394 | 19.2 | 1.60× |
-| Pleasanton | 59.6M sf | 520 | 21.7 | 1.81× |
-| Fremont | 128.1M sf | 1,095 | 22.2 | 1.85× |
-| Dublin | 41.2M sf | 350 | 22.3 | 1.86× |
-| Hayward | 80.4M sf | 681 | 22.4 | 1.86× |
+| Berkeley | 29.7M sf | 450 | 12.5 | 1.04× |
+| Oakland | 135.9M sf | 2,052 | 12.5 | 1.05× |
+| Livermore | 59.5M sf | 734 | 15.4 | 1.28× |
+| San Leandro | 35.1M sf | 394 | 16.9 | 1.41× |
+| Pleasanton | 49.0M sf | 520 | 17.8 | 1.49× |
+| Dublin | 33.5M sf | 350 | 18.1 | 1.51× |
+| Fremont | 106.7M sf | 1,095 | 18.5 | 1.54× |
+| Hayward | 67.4M sf | 681 | 18.8 | 1.56× |
 
-Tool area is consistently 1.2–1.9× the bare travel-lane area. That is the
-signature of curb-to-curb pavement. Dense grids land lowest (Oakland,
-Berkeley) and suburban networks widest (Fremont, Dublin, Hayward). No city is an
-outlier, across an 8× range of network sizes.
+Tool area is 1.0–1.6× the bare travel-lane area, lowest in the dense grids
+(Berkeley, Oakland) and highest in the suburban networks. Part of it is
+service roads: alleys, driveways and parking aisles, most of which no city
+maintains or counts in its lane-miles. Without them, tool area is 0.80–1.12×
+lane area, 0.98× on average. So the width rules recover the travel lanes and
+little more. The parking lanes, shoulders and gutters that make up
+curb-to-curb pavement are mostly missing.
+
+Berkeley is the one city that publishes a curb-to-curb area, about 3.3M m².
+The tool's 2.76M m² is 16% under it. The shortfall is width, not length.
+Inside Berkeley, OpenStreetMap holds 367 km of city-maintained non-service
+street, within 7% of the 214 centerline miles (344 km) the city publishes.
+But the modelled width on those streets averages 6.35 m, against the ~9.6 m
+that Berkeley's area implies. Most residential streets carry no `width` or
+`lanes` tag, so across the 14 Alameda County cities 87% of residential length
+takes the 5.5 m default, about two travel lanes and no parking. The parking
+allowance fires on none of it: it reads `parking:left` and `parking:right`,
+and these cities tag parking, where they tag it at all, as `parking:both` or
+`parking:lane:both`. A width calibration, a parking and shoulder allowance by
+road class, is planned. It has to be checked on more than Berkeley, the only
+curb-to-curb figure here, so that it fits the network rather than one city.
 
 ## 2. Decay: form and rate
 
@@ -104,33 +131,34 @@ not deterioration.
 
 Six cities in the table above cite a roads budget. Each is run worst-first at
 that budget for five years from its 2019 PCI, as the dashboard's "Your budget"
-line runs it, on its city-maintained road classes from the release export
+line runs it, on its city-maintained road classes from the §1 compute
 (`internal/forecast/testdata/mtc_budgeted_backtest.json`, gated by
 `TestBacktest_BudgetedFiveYears`).
 
 | City | Budget | PCI 2019 | Predicted 2024 | Audited 2024 | Residual |
 |---|---|---|---|---|---|
-| Oakland | $60.0M | 53 | 51.9 | 58 | −6.1 |
-| Berkeley | $15.0M | 57 | 56.4 | 56 | +0.4 |
-| Hayward | $10.1M | 70 | 66.5 | 73 | −6.5 |
-| Livermore | $4.85M | 79 | 74.7 | 75 | −0.3 |
-| Pleasanton | $4.8M | 79 | 75.2 | 76 | −0.8 |
-| Dublin | $3.7M | 85 | 82.9 | 78 | +4.9 |
+| Oakland | $60.0M | 53 | 52.3 | 58 | −5.7 |
+| Berkeley | $15.0M | 57 | 57.6 | 56 | +1.6 |
+| Hayward | $10.1M | 70 | 67.1 | 73 | −5.9 |
+| Livermore | $4.85M | 79 | 75.1 | 75 | +0.1 |
+| Pleasanton | $4.8M | 79 | 75.8 | 76 | −0.2 |
+| Dublin | $3.7M | 85 | 83.9 | 78 | +5.9 |
 
-RMSE 4.2 PCI. Every city runs below its hold-steady need here, so this tests
-the partial-funding response: how much of a year's decay a budget short of
+RMSE 4.2 PCI. Every city but Berkeley runs below its hold-steady need here,
+so this tests the partial-funding response: how much of a year's decay a budget short of
 need recovers. That response and the decay rate trade off almost one for one
 over five years (slower decay with a weaker response fits about as well), so
 the data cannot set both. The decay rates stay at their LTPP-derived values,
 and the response's strength (the worst-first partial-funding efficiency, 3.0)
 is the level this table selects at those rates. Pushed further, the RMSE
-falls only to about 4.0, improving Hayward and Livermore while Dublin runs
+falls only to about 4.1, improving Hayward while Dublin and Livermore run
 higher. Oakland and Hayward improved on budgets the model reads as
 underfunded, so they stay about 6 PCI low under any setting: today's budgets
 stand in for 2019–24 spending, and MTC's three-year average smooths the 2024
 value. The gate fits and checks the same six cities, so it guards against a
-regression rather than validating independently. Spending above need is not
-tested by this data.
+regression rather than validating independently. Spending above need is
+barely tested: only Berkeley's budget covers its need on these cohorts, and
+only just.
 
 ## 3. Cost basis: bare construction vs. loaded program cost
 
@@ -160,10 +188,10 @@ loaded range.
 **Don't load the tiers to "fix" this.** This section compares *per-treatment
 unit costs*. §6 compares *whole-program annual dollars*, which is what the site
 publishes. At that level the bare tiers, with the condition spread (§4) and
-the 12-year cycle (§5), already reproduce Berkeley's loaded hold-steady figure.
-Multiplying the tiers by 1.5 would put Berkeley's break-even at about $29M,
-59% above its published $18.3M. A city whose program costs genuinely run higher
-has `cost_multiplier` (see the
+the 12-year cycle (§5), already reproduce Berkeley's loaded hold-steady rate,
+$5.67 per m² a year against its $5.6. Multiplying the tiers by 1.5 would put
+that rate at about $8.50, 52% above it. A city whose program costs genuinely
+run higher has `cost_multiplier` (see the
 [methodology](../internal/export/docs/methodology.md#bare-construction-cost-vs-loaded-program-cost)).
 
 ## 4. Condition spread
@@ -189,7 +217,7 @@ tabulated.
 
 The forecast prices an assumed spread around the configured average (see the
 [methodology](../internal/export/docs/methodology.md#condition-spread)). It
-moves Berkeley's break-even from about $16M to about $19M. A single-peaked
+moves Berkeley's break-even from about $4.7 to $5.67 per m² a year. A single-peaked
 spread cannot reproduce Berkeley's barbell, though, so the correction is
 partial, and only measured per-segment condition would close the gap.
 
@@ -231,21 +259,27 @@ fixed there, the cost level is no longer free:
 - Loaded tiers (~2.5×) would give ~$14, which only N ≈ 30 could match, and
   that contradicts the published cadence.
 
-The shipped defaults, that is, together reproduce Berkeley's published
-reality: bare-construction tiers, the condition spread and N = 12. Here is the
-current model on the six cities with committed reference data (from
-`pvmt validate`):
+The shipped defaults, that is, together reproduce Berkeley's published cost
+rate: bare-construction tiers, the condition spread and N = 12. The dollar
+break-even is that rate times the tool's area, so it inherits §1's area
+shortfall. Here is the current model on the six cities with committed
+reference data (from `pvmt validate`):
 
 | City | PCI | Break-even | $/m²·yr | Published hold-steady | Current budget | Funding gap |
 |---|---|---|---|---|---|---|
-| Berkeley | 56 | $19.4M | $5.67 | $18.3M (+5.8%) | $15.0M | +29% |
-| Oakland | 58 | $79.9M | $5.35 | — | $60.0M | +33% |
-| Hayward | 73 | $21.9M | $2.93 | — | $10.1M | +118% |
-| Dublin | 78 | $8.6M | $2.24 | — | $3.7M | +132% |
-| Pleasanton | 76 | $13.8M | $2.49 | — | $4.8M | +187% |
-| Livermore | 75 | $17.3M | $2.62 | — | $4.85M | +256% |
+| Berkeley | 56 | $15.6M | $5.67 | $18.3M (−14.5%) | $15.0M | +4% |
+| Oakland | 58 | $67.5M | $5.35 | — | $60.0M | +13% |
+| Hayward | 73 | $18.4M | $2.93 | — | $10.1M | +82% |
+| Dublin | 78 | $7.0M | $2.24 | — | $3.7M | +89% |
+| Pleasanton | 76 | $11.3M | $2.49 | — | $4.8M | +136% |
+| Livermore | 75 | $14.5M | $2.62 | — | $4.85M | +199% |
 
-The paved areas in that data match the §1 tool measurements to within 1%.
+Berkeley's break-even is 14.5% under its published figure, and nearly all of
+that is the area: the tool prices 2.76M m² where Berkeley maintains about
+3.3M m² (−16%), at a rate 1% above Berkeley's. The other cities' areas are
+short by a similar width effect (§1), so their break-evens and funding gaps
+are likely understated too. The paved areas in that data are the §1 tool
+areas.
 San Leandro and Fremont publish no single citable annual budget, so they have
 no row; San Leandro self-reports a deferred backlog of about $180M.
 
@@ -267,8 +301,10 @@ level or the cycle that moves the dollars by a *factor*. Separately,
 `internal/forecast/backtest_test.go` brackets Berkeley's $/m²·yr between $4.5
 and $6.5.
 
-Two things remain open:
+Three things remain open:
 
+- **Road width.** Modelled widths leave out most curb-to-curb pavement, so
+  area and dollars run low (§1). A width calibration is planned.
 - **Decay rate.** It needs raw field-survey PCI over a low-maintenance period
   (§2).
 - **Real condition distribution.** Ingesting measured per-segment PCI would
