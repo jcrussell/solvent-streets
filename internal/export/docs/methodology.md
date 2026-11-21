@@ -54,7 +54,14 @@ The Play board decays each hex at one blended rate: the rates of the road
 classes the city maintains in that hex, weighted by each class's paved area
 there, under the same `decay_rate` scaling. Its road area is the map's
 city-scope roads area for the hex, so where two classes overlap (an
-intersection) the shared pavement is counted once.
+intersection) the shared pavement is counted once. The board starts in the
+forecast's [condition spread](#condition-spread): each slice of the spread
+takes its share of the board's road area, on hexes picked by a fixed hash of
+the hex id, so the slices scatter across the map and the same city always
+starts the same board. Each year's need on the board is priced at the
+condition each hex decays to by the year's end, as the forecast prices it, so
+the board's need and its insolvency threshold match the Financials tab's for
+the same roads.
 
 ### Cost model
 

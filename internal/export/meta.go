@@ -415,8 +415,7 @@ func (d TemplateData) IndexConfigJSON() template.JS {
 // page seed's. cities/tag_dimensions carry the same payload the index page
 // gets so the play page's tag filters can rebuild its city selector
 // client-side from the same data. hexgrid_version is the hexgrid.geojson
-// "v" the board reads (HexGridFileVersion), as on the index page. The
-// board's starting-PCI spread is the engine's own (game.DefaultPCIJitter).
+// "v" the board reads (HexGridFileVersion), as on the index page.
 func (d TemplateData) GameConfigJSON() template.JS {
 	dataPrefix := ""
 	if d.ActiveSlug != "" {

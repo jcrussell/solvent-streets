@@ -13,6 +13,7 @@
 package game
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -48,11 +49,6 @@ const (
 	// target the brush rarely means to treat. The out-of-funds test leaves
 	// slivers out, or a city whose board holds one would never be out of funds.
 	SliverAreaShare = 0.05
-
-	// DefaultPCIJitter is how far a hex's starting PCI may sit above or below
-	// the initial PCI when a Config leaves pci_jitter out, so the board opens
-	// as a patchwork instead of one flat colour.
-	DefaultPCIJitter = 8.0
 )
 
 // --- Config: the JSON contract decoded from the browser at gameInit ---
@@ -78,11 +74,9 @@ type CohortConfig struct {
 type Config struct {
 	Hexes []HexConfig `json:"hexes"`
 
+	// InitialPCI is the network's mean PCI. The board spreads it into the
+	// forecast's condition bands (see startingPCIs).
 	InitialPCI float64 `json:"initial_pci"`
-	// PCIJitter spreads the starting PCI deterministically per hex (see New) so
-	// the board is not a flat color while staying reproducible across runs/tests.
-	// Omitted (nil) it is DefaultPCIJitter; 0 starts every hex at InitialPCI.
-	PCIJitter *float64 `json:"pci_jitter,omitempty"`
 
 	CostTiers []forecast.CostTier `json:"cost_tiers"`
 
@@ -168,13 +162,19 @@ type Game struct {
 	// cycleYears is the treatment cycle, resolved.
 	cycleYears float64
 
+	// areaGrowth is the forecast's road area for each sim-year as a multiple
+	// of the board's (forecast.LinearGrowthEstimator at the config's
+	// growth_rate), which scales the board's need as the forecast's grows.
+	areaGrowth *forecast.LinearGrowthEstimator
+
 	// Insolvency, on the forecast's definition (forecast.InsolvencyThreshold)
-	// applied to the player's own network. Each sim-year the hold-steady need of
-	// the board (every hex's tiered cost at its current PCI, over the treatment
-	// cycle) accrues in yearNeed and the player's treatments in yearSpent; at
-	// the year boundary the shortfall joins backlog, which only ever grows. The
-	// game is lost when backlog reaches insolvencyAt, one cycle of the board's
-	// year-1 need — the threshold the pregame projection reports against.
+	// applied to the player's own network. Each sim-year the hold-steady need
+	// of the board (every hex's tiered cost at the PCI it decays to by the
+	// year's end, over the treatment cycle) accrues in yearNeed and the
+	// player's treatments in yearSpent; at the year boundary the shortfall
+	// joins backlog, which only ever grows. The game is lost when backlog
+	// reaches insolvencyAt, one cycle of the board's year-1 need — the
+	// threshold the pregame projection reports against.
 	backlog      float64 // cumulative unmet need (forecast DeferredBacklog)
 	yearNeed     float64
 	yearSpent    float64
@@ -227,14 +227,6 @@ func loadedTiers(tiers []forecast.CostTier, multiplier float64) []forecast.CostT
 	return out
 }
 
-// pciJitter is cfg's starting-PCI spread, DefaultPCIJitter when unset.
-func (cfg Config) pciJitter() float64 {
-	if cfg.PCIJitter == nil {
-		return DefaultPCIJitter
-	}
-	return *cfg.PCIJitter
-}
-
 // noDebt is the game's funding rule: there is no debt model, so a negative
 // annual rate is no funding at all rather than a drain on the treasury.
 func noDebt(rate float64) float64 {
@@ -248,7 +240,7 @@ func noDebt(rate float64) float64 {
 // The forecast inputs are held to forecast.Inputs.Validate, the bounds a
 // pvmt.toml is loaded under, so the seed an export wrote always starts a game.
 // The rest are the game's own: a board, at least one cost tier (the treatments
-// on offer), the jitter, and a finite budget.
+// on offer) and a finite budget.
 //
 // Each float check is written so NaN and ±Inf fail it: a bare `<= 0` / `< 0`
 // lets NaN through (all comparisons against NaN are false), and a non-finite
@@ -259,9 +251,6 @@ func validateConfig(cfg Config) error {
 	}
 	if len(cfg.CostTiers) == 0 {
 		return errors.New("game: cost_tiers must be non-empty")
-	}
-	if j := cfg.pciJitter(); !finite(j) || j < 0 {
-		return fmt.Errorf("game: pci_jitter must be finite and >= 0, got %g", j)
 	}
 	if !finite(cfg.AnnualBudget) {
 		return fmt.Errorf("game: annual_budget must be finite, got %g", cfg.AnnualBudget)
@@ -296,11 +285,8 @@ func validateHexes(hexes []HexConfig) error {
 	return nil
 }
 
-// New validates cfg (validateConfig) and builds a Game.
-//
-// Starting PCI per hex is initial_pci offset by a *deterministic* jitter derived
-// from an FNV hash of the hex id (range [-pci_jitter, +pci_jitter], clamped to
-// [0,100]). No global math/rand is used, so runs and tests are reproducible.
+// New validates cfg (validateConfig) and builds a Game whose hexes start in
+// the forecast's condition bands (startingPCIs).
 func New(cfg Config) (*Game, error) {
 	if err := validateConfig(cfg); err != nil {
 		return nil, err
@@ -320,18 +306,26 @@ func New(cfg Config) (*Game, error) {
 		tiers:        tiers,
 		initialPCI:   cfg.InitialPCI,
 		cycleYears:   forecast.ResolveCycleYears(cfg.TreatmentCycleYears),
+		areaGrowth:   &forecast.LinearGrowthEstimator{AnnualGrowthRate: cfg.GrowthRate},
 	}
 
+	startPCI := startingPCIs(cfg.Hexes, cfg.InitialPCI)
 	g.hexes = make([]hexState, len(cfg.Hexes))
 	g.hexByID = make(map[string]*hexState, len(cfg.Hexes))
 	for i, h := range cfg.Hexes {
-		pci := clampPCI(cfg.InitialPCI + jitterOffset(h.ID, cfg.pciJitter()))
+		// A hex starting at or below ClosureEpsilon starts closed at PCI 0,
+		// as Tick closes one. With the default tiers its need is unchanged:
+		// the cost curve is flat below its lowest anchor.
+		pci, closed := startPCI[i], startPCI[i] <= ClosureEpsilon
+		if closed {
+			pci = 0
+		}
 		g.hexes[i] = hexState{
 			id:          h.ID,
 			roadArea:    h.RoadsArea,
 			k:           h.DecayRate,
 			pci:         pci,
-			closed:      pci <= ClosureEpsilon,
+			closed:      closed,
 			paintedBand: -1, // never painted -> first StateJSON emits all hexes
 		}
 		// First-wins on duplicate ids: the lookup returns the same hex a linear
@@ -343,12 +337,13 @@ func New(cfg Config) (*Game, error) {
 	}
 	g.sliverArea = SliverAreaShare * medianRoadArea(cfg.Hexes)
 	// One cycle of the board's year-1 need, priced as the forecast prices it:
-	// each hex at its PCI after one year's decay.
+	// each hex at its PCI after one year's decay, over year 1's road area.
 	var year1Need float64
 	for i := range g.hexes {
 		h := &g.hexes[i]
 		year1Need += g.holdSteadyNeed(h.roadArea, h.pci*math.Exp(-h.k))
 	}
+	year1Need *= g.areaFactor(0)
 	g.insolvencyAt = forecast.InsolvencyThreshold(year1Need, g.cycleYears)
 
 	g.tierRanks = make([]int, len(tiers))
@@ -358,11 +353,62 @@ func New(cfg Config) (*Game, error) {
 	return g, nil
 }
 
+// startingPCIs is each hex's starting PCI: the board's road area spread into
+// the condition bands forecast.SpreadCohorts spreads the mean initialPCI into,
+// each band taking its share of the area at its PCI. The board's year-1 need,
+// and so its backlog loss threshold, is then the forecast's for the same
+// network rather than the need at the mean alone, which the non-linear cost
+// curve prices low.
+//
+// Hexes take bands in the order of a hash of their id (64-bit FNV-1a, its bits
+// mixed by mix64; ties by id, then by position): a hex takes the band that
+// holds the midpoint of its area in that order. The hash order is reproducible, independent of the order
+// the hexes arrive in, and unrelated to where a hex sits or which classes it
+// holds, so the bands scatter across the map as a patchwork rather than a
+// block, and each band holds about the board's mix of decay rates, which the
+// forecast's bands share.
+func startingPCIs(hexes []HexConfig, initialPCI float64) []float64 {
+	var total float64
+	for _, h := range hexes {
+		total += h.RoadsArea
+	}
+	bands := forecast.SpreadCohorts([]forecast.RawCohort{{Area: total}}, initialPCI)
+
+	keys := make([]uint64, len(hexes))
+	order := make([]int, len(hexes))
+	for i, h := range hexes {
+		hash := fnv.New64a()
+		_, _ = hash.Write([]byte(h.ID))
+		keys[i] = mix64(hash.Sum64())
+		order[i] = i
+	}
+	slices.SortFunc(order, func(a, b int) int {
+		return cmp.Or(cmp.Compare(keys[a], keys[b]), cmp.Compare(hexes[a].ID, hexes[b].ID), cmp.Compare(a, b))
+	})
+
+	out := make([]float64, len(hexes))
+	band, bandEnd := 0, bands[0].Area
+	var seen float64
+	for _, i := range order {
+		mid := seen + hexes[i].RoadsArea/2
+		for band < len(bands)-1 && mid >= bandEnd {
+			band++
+			bandEnd += bands[band].Area
+		}
+		out[i] = bands[band].InitialPCI
+		seen += hexes[i].RoadsArea
+	}
+	return out
+}
+
 // Tick advances sim time by dt sim-years. Each open hex decays continuously by
 // exp(-k*dt); because exp composes (prod over a year of exp(-k*dt) == exp(-k*1)),
 // repeated ticks land exactly on the annual ExponentialPCIForecaster step with no
 // drift. The treasury refills at annualBudget*dt. The board's hold-steady need
-// accrues for the tick, and each completed sim-year settles its unmet need
+// accrues for the tick, each hex priced at the PCI it decays to by the end of
+// the sim-year and over that year's grown road area, as forecast.Simulate
+// prices a year's need; an idle board so accrues the forecast's need for the
+// same bands, year by year. Each completed sim-year settles its unmet need
 // (need minus the year's treatment spend, if positive) into the backlog. Hexes
 // at or below ClosureEpsilon close.
 func (g *Game) Tick(dt float64) {
@@ -386,11 +432,16 @@ func (g *Game) Tick(dt float64) {
 			h.closed = true
 		}
 	}
-	// This tick's share of the year's hold-steady need. Closed hexes still need
-	// rebuilding, so every hex counts (a closed hex at PCI 0).
+	// This tick's share of the year's hold-steady need, at each hex's
+	// end-of-year condition. Closed hexes still need rebuilding, so every hex
+	// counts (a closed hex at PCI 0).
+	rem := math.Max(0, float64(g.yearsDone+1)-g.simYears)
+	var tickNeed float64
 	for i := range g.hexes {
-		g.yearNeed += g.holdSteadyNeed(g.hexes[i].roadArea, g.hexes[i].pci) * dt
+		h := &g.hexes[i]
+		tickNeed += g.holdSteadyNeed(h.roadArea, h.pci*math.Exp(-h.k*rem))
 	}
+	g.yearNeed += tickNeed * g.areaFactor(g.yearsDone) * dt
 	for float64(g.yearsDone+1) <= g.simYears {
 		g.backlog += math.Max(0, g.yearNeed-g.yearSpent)
 		g.yearNeed, g.yearSpent = 0, 0
@@ -557,6 +608,13 @@ func (g *Game) closedShare() float64 {
 		}
 	}
 	return closedArea / g.totalArea
+}
+
+// areaFactor is the forecast's road area in sim-year year+1 (0 = year 1) as a
+// multiple of the board's: the need the forecast prices that year grows with
+// its area, while the board's hexes keep theirs.
+func (g *Game) areaFactor(year int) float64 {
+	return g.areaGrowth.EstimateGrowth(1, year+1)[year]
 }
 
 // holdSteadyNeed is one hex's annual hold-steady need at pci: treating its
@@ -759,17 +817,17 @@ func tierCostRank(tiers []forecast.CostTier, i int) int {
 	return rank
 }
 
-// jitterOffset derives a deterministic offset in [-jitter, +jitter] from the
-// hex id via FNV-32a, so the starting board varies but is reproducible.
-func jitterOffset(id string, jitter float64) float64 {
-	if jitter == 0 {
-		return 0
-	}
-	h := fnv.New32a()
-	_, _ = h.Write([]byte(id))
-	// map hash to [-1, 1]
-	frac := float64(h.Sum32()%10001)/10000.0*2.0 - 1.0
-	return frac * jitter
+// mix64 is the MurmurHash3 64-bit finalizer. FNV-1a leaves the high bits of a
+// short id's hash tied to its leading bytes, so ids sorted by the raw hash
+// cluster by prefix ("hex:12:…" beside "hex:12:…"), which on a grid is a
+// column of hexes; mixing spreads every input bit over the whole word.
+func mix64(x uint64) uint64 {
+	x ^= x >> 33
+	x *= 0xff51afd7ed558ccd
+	x ^= x >> 33
+	x *= 0xc4ceb9fe1a85ec53
+	x ^= x >> 33
+	return x
 }
 
 func clampPCI(pci float64) float64 {

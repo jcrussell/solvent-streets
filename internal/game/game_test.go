@@ -25,7 +25,6 @@ func baseConfig() Config {
 			{ID: "b", RoadsArea: 2000, DecayRate: 0.02},
 		},
 		InitialPCI:          80,
-		PCIJitter:           new(0.0),
 		CostTiers:           defaultTiers(),
 		AnnualBudget:        1_000_000,
 		HorizonYears:        20,
@@ -35,6 +34,14 @@ func baseConfig() Config {
 			{Classification: "residential", Area: 1000, DecayRate: 0.04},
 			{Classification: "primary", Area: 2000, DecayRate: 0.02},
 		},
+	}
+}
+
+// setPCI opens every hex of g at pci, for a test that needs a flat board
+// rather than the condition bands New starts it in.
+func setPCI(g *Game, pci float64) {
+	for i := range g.hexes {
+		g.hexes[i].pci, g.hexes[i].closed = pci, false
 	}
 }
 
@@ -73,8 +80,6 @@ func TestNewValidation(t *testing.T) {
 		"nan initialpci":  func(c *Config) { c.InitialPCI = math.NaN() },
 		"initialpci>100":  func(c *Config) { c.InitialPCI = 101 },
 		"neg initialpci":  func(c *Config) { c.InitialPCI = -1 },
-		"nan jitter":      func(c *Config) { c.PCIJitter = new(math.NaN()) },
-		"neg jitter":      func(c *Config) { c.PCIJitter = new(-1.0) },
 		"nan budget":      func(c *Config) { c.AnnualBudget = math.NaN() },
 		"inf budget":      func(c *Config) { c.AnnualBudget = math.Inf(-1) },
 		"nan growth":      func(c *Config) { c.GrowthRate = math.NaN() },
@@ -128,26 +133,6 @@ func TestDecayComposition(t *testing.T) {
 	got := g.hexes[0].pci
 	if math.Abs(got-want) > 1e-9 {
 		t.Fatalf("decay composition: got %.12f want %.12f", got, want)
-	}
-}
-
-func TestJitterDeterministic(t *testing.T) {
-	cfg := baseConfig()
-	cfg.PCIJitter = new(10.0)
-	g1 := newGame(t, cfg)
-	g2 := newGame(t, cfg)
-	for i := range g1.hexes {
-		if g1.hexes[i].pci != g2.hexes[i].pci {
-			t.Fatalf("jitter not deterministic for hex %d", i)
-		}
-		// within the jitter band
-		if d := math.Abs(g1.hexes[i].pci - 80); d > 10+1e-9 {
-			t.Fatalf("jitter out of band: %v", d)
-		}
-	}
-	// jitter must actually vary the two hexes (different ids)
-	if g1.hexes[0].pci == g1.hexes[1].pci {
-		t.Fatalf("expected distinct jittered PCIs for distinct ids")
 	}
 }
 
@@ -808,15 +793,15 @@ func TestLossReason(t *testing.T) {
 // TestLiveInsolvencyMatchesProjection: at a $0 budget the pregame projection
 // and the live game, played idle at the frame-sized ticks the browser uses,
 // report insolvency in the same year, for slow and fast decay alike.
-// Whole-year ticks price each year's need at its
-// end-of-year condition only and can land a year early, which an earlier
-// +-1 tolerance hid; the browser never ticks that coarsely.
 func TestLiveInsolvencyMatchesProjection(t *testing.T) {
 	const dt = 1.0 / 60
 	for _, k := range []float64{0.02, 0.04, 0.06, 0.09} {
+		// A board of equal hexes, a whole number per condition band, so
+		// its bands are the projection's exactly.
 		cfg := idleConfig(0)
+		cfg.Hexes = make([]HexConfig, 90)
 		for i := range cfg.Hexes {
-			cfg.Hexes[i].DecayRate = k
+			cfg.Hexes[i] = HexConfig{ID: fmt.Sprint(i), RoadsArea: 3000.0 / 90, DecayRate: k}
 		}
 		cfg.Cohorts[0].DecayRate = k
 		want, ok := ProjectInsolvency(cfg)
@@ -973,7 +958,8 @@ func TestOutOfFunds(t *testing.T) {
 		{ID: "b", RoadsArea: 2000, DecayRate: 0.02},
 		{ID: "sliver", RoadsArea: 0.01, DecayRate: 0.02},
 	}
-	g := newGame(t, cfg) // PCI 80: preventive at $5/m^2, $5,000 for "a"
+	g := newGame(t, cfg)
+	setPCI(g, 80) // preventive at $5/m^2, $5,000 for "a"
 
 	g.treasury = 4_000
 	if !decodeState(t, g).OutOfFunds {
@@ -1013,7 +999,8 @@ func TestOutOfFundsIgnoresZeroAreaHexes(t *testing.T) {
 		{ID: "sliver", RoadsArea: 0.01, DecayRate: 0.02},
 		{ID: "a", RoadsArea: 1000, DecayRate: 0.02},
 	}
-	g := newGame(t, cfg) // PCI 80: preventive at $5/m^2, $5,000 for "a"
+	g := newGame(t, cfg)
+	setPCI(g, 80) // preventive at $5/m^2, $5,000 for "a"
 	if got, want := g.sliverArea, SliverAreaShare*500.005; math.Abs(got-want) > 1e-9 {
 		t.Errorf("sliver threshold = %v, want %v (the median of the hexes holding road)", got, want)
 	}
@@ -1056,39 +1043,5 @@ func TestClosuresWeighRoadArea(t *testing.T) {
 	g.Tick(0.01)
 	if g.lossReason != LossClosures {
 		t.Fatalf("closing the hex holding most of the road: status %q loss_reason %q, want %q", g.status, g.lossReason, LossClosures)
-	}
-}
-
-// TestPCIJitterDefault: a config that leaves pci_jitter out gets
-// DefaultPCIJitter, and an explicit 0 starts the board flat.
-func TestPCIJitterDefault(t *testing.T) {
-	var cfg Config
-	if err := json.Unmarshal([]byte(`{}`), &cfg); err != nil {
-		t.Fatal(err)
-	}
-	if got := cfg.pciJitter(); got != DefaultPCIJitter {
-		t.Errorf("omitted pci_jitter = %v, want %v", got, DefaultPCIJitter)
-	}
-
-	cfg = baseConfig()
-	cfg.PCIJitter = nil
-	g := newGame(t, cfg)
-	spread := false
-	for _, h := range g.hexes {
-		d := math.Abs(h.pci - cfg.InitialPCI)
-		if d > DefaultPCIJitter+1e-9 {
-			t.Errorf("hex %s starts %v from the initial PCI, beyond the default jitter", h.id, d)
-		}
-		spread = spread || d > 0
-	}
-	if !spread {
-		t.Error("the default jitter left every hex at the initial PCI")
-	}
-
-	cfg.PCIJitter = new(0.0)
-	for _, h := range newGame(t, cfg).hexes {
-		if h.pci != cfg.InitialPCI {
-			t.Errorf("hex %s starts at %v with zero jitter, want %v", h.id, h.pci, cfg.InitialPCI)
-		}
 	}
 }
