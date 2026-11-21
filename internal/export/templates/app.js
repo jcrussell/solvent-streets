@@ -3725,6 +3725,28 @@
             return parseFloat(slider.value);
         }
 
+        // snapToShippedStep puts a slider seeded off its shipped step back on
+        // it: seedRangeInput leaves step="any" for an off-step seed, or keeps
+        // the step but counts it from a bound it widened to a fractional seed
+        // (45.5 makes every stop fractional). The value and the widened bounds
+        // are rounded onto the shipped step. The Initial PCI slider calls it on
+        // each drag: a fractional initial_pci is shown and simulated exactly,
+        // and dragging moves in whole points from there.
+        function snapToShippedStep(slider) {
+            const track = shippedTracks.get(slider);
+            if (!track) return;
+            const step = parseFloat(track.step);
+            if (slider.step === track.step && isStepAligned(parseFloat(slider.min), parseFloat(track.min), step)) return;
+            const snap = (x) => Math.round(x / step) * step;
+            slider.min = String(Math.min(parseFloat(track.min), Math.floor(parseFloat(slider.min) / step) * step));
+            slider.max = String(Math.max(parseFloat(track.max), Math.ceil(parseFloat(slider.max) / step) * step));
+            const v = snap(parseFloat(slider.value));
+            slider.step = track.step;
+            slider.value = String(v);
+            slider.setAttribute('aria-valuemin', slider.min);
+            slider.setAttribute('aria-valuemax', slider.max);
+        }
+
         // Config validation accepts initial_pci anywhere in 0-100 and
         // NormalizeForecast only replaces <=0 or >100, so a city configured at
         // 45 reaches the seed intact — while the markup's track floors at 50.
@@ -4085,18 +4107,20 @@
         }
 
         // seededPCI is the Initial PCI the slider is seeded at: the seed's,
-        // else (no seed yet, or one without a usable initial_pci) the markup's.
+        // exactly as configured (a fractional one included, so the live
+        // forecast starts where forecast.json and Compare do), else (no seed
+        // yet, or one without a usable initial_pci) the markup's.
         function seededPCI() {
             return FORECAST_SEED && typeof FORECAST_SEED.initial_pci === 'number' && Number.isFinite(FORECAST_SEED.initial_pci)
-                ? Math.round(FORECAST_SEED.initial_pci)
-                : parseInt(inputById('pci-slider').defaultValue);
+                ? FORECAST_SEED.initial_pci
+                : parseFloat(inputById('pci-slider').defaultValue);
         }
 
         // currentModel is the model settings on the controls, each null where
         // it is the seed's (see pendingModel).
         /** @returns {ModelSettings} */
         function currentModel() {
-            const pci = parseInt(inputById('pci-slider').value);
+            const pci = parseFloat(inputById('pci-slider').value);
             const cost = currentMultiplier();
             const seedTiers = FORECAST_SEED.cost_tiers || [];
             const tiers = readTierInputs().map(t => ({ min_pci: t.min_pci, max_pci: t.max_pci, cost_per_sqm: t.cost_per_sqm }));
@@ -4149,7 +4173,7 @@
         }
 
         function getControlValues() {
-            const initialPCI = parseInt(inputById('pci-slider').value);
+            const initialPCI = parseFloat(inputById('pci-slider').value);
 
             // Read tier values from inputs (advanced), fallback to seed
             const tiers = readTierInputs();
@@ -4509,6 +4533,7 @@
         }
         const pciSlider = inputById('pci-slider');
         pciSlider.addEventListener('input', () => {
+            snapToShippedStep(pciSlider);
             document.getElementById('pci-value').textContent = pciSlider.value;
             syncAriaValueNow(pciSlider);
             runCustomScenario();

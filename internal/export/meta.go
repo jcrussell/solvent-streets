@@ -244,7 +244,8 @@ type ForecastDefaults struct {
 }
 
 // PCISlider is InitialPCI on the Initial PCI slider's whole-number track,
-// rounded half up as the browser's Math.round does when it seeds the slider.
+// rounded half up, for the markup shown before the script runs. The script
+// then seeds the slider at the exact InitialPCI.
 func (f ForecastDefaults) PCISlider() int { return int(math.Floor(f.InitialPCI + 0.5)) }
 
 // ForecastDefaults returns the page's forecast settings: those of the seed it

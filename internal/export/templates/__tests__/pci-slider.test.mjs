@@ -97,3 +97,42 @@ test('the ARIA value tracks the seed and the drag, not the shipped default', asy
   assert.equal(slider.getAttribute('aria-valuenow'), '70',
     'the announced value went stale as soon as the slider moved');
 });
+
+test('a fractional seed runs the live forecast at the configured PCI', async () => {
+  // forecast.json and Compare use initial_pci as configured; a slider that
+  // rounded it ran the live line (and the headline tiles it overwrites) from a
+  // different start once the WASM booted.
+  const { $, win } = await ready(withPCI(72.5));
+  assert.equal(parseFloat($('#pci-slider').value), 72.5, 'the slider rounded the seed');
+  assert.equal($('#pci-value').textContent, '72.5');
+  assert.equal(win.__simCalls.at(-1).initial_pci, 72.5,
+    'the bridge simulated from a rounded PCI, not the configured one');
+  assert.equal(win.location.search.includes('pci='), false,
+    'the seed itself is not a setting to share');
+});
+
+test('dragging from a fractional seed moves in whole points', async () => {
+  const { $, win } = await ready(withPCI(72.5));
+  const slider = $('#pci-slider');
+
+  slider.value = '74.3';
+  slider.dispatchEvent(new win.Event('input', { bubbles: true }));
+
+  assert.equal(slider.step, '1', 'the slider kept fractional steps after the first drag');
+  assert.equal(slider.value, '74');
+  assert.equal($('#pci-value').textContent, '74');
+  assert.equal(win.__simCalls.at(-1).initial_pci, 74);
+});
+
+test('a fractional seed below the floor snaps its widened bound to whole points on drag', async () => {
+  const { $, win } = await ready(withPCI(45.5));
+  const slider = $('#pci-slider');
+  assert.equal(parseFloat(slider.min), 45.5);
+
+  slider.value = '47';
+  slider.dispatchEvent(new win.Event('input', { bubbles: true }));
+
+  assert.equal(slider.min, '45', 'a fractional min leaves every whole step off the track');
+  assert.ok(Number.isInteger(parseFloat(slider.value)), `drag landed on ${slider.value}, not a whole point`);
+  assert.equal(slider.getAttribute('aria-valuemin'), '45');
+});
