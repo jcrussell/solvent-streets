@@ -89,11 +89,48 @@ function installStubs(win, { data, simulate, gates, wasm, goRuntime }) {
       get boxZoom() { return { enable() {}, disable() {} }; }
     },
     NavigationControl: class {},
+    // Enough of MapLibre's Popup for the hex popup: addTo puts a
+    // .maplibregl-popup holding the content and a close button in the page,
+    // remove takes it out and fires 'close', as MapLibre's does. Each one
+    // is recorded in win.__popups.
     Popup: class {
-      setLngLat() { return this; }
-      setHTML() { return this; }
-      addTo() { return this; }
-      remove() { return this; }
+      constructor(opts) {
+        this.options = opts || {};
+        this.handlers = { open: [], close: [] };
+        this.container = null;
+        this.content = null;
+        this.lngLat = null;
+        win.__popups.push(this);
+      }
+      on(ev, fn) { (this.handlers[ev] = this.handlers[ev] || []).push(fn); return this; }
+      setLngLat(ll) { this.lngLat = ll; return this; }
+      setHTML(html) { const d = win.document.createElement('div'); d.innerHTML = html; return this.setDOMContent(d); }
+      setDOMContent(node) { this.content = node; return this; }
+      getElement() { return this.container; }
+      isOpen() { return !!this.container; }
+      addTo() {
+        if (this.container) return this;
+        const c = win.document.createElement('div');
+        c.className = 'maplibregl-popup ' + (this.options.className || '');
+        const close = win.document.createElement('button');
+        close.className = 'maplibregl-popup-close-button';
+        close.type = 'button';
+        close.setAttribute('aria-label', 'Close popup');
+        close.addEventListener('click', () => this.remove());
+        c.appendChild(close);
+        if (this.content) c.appendChild(this.content);
+        win.document.body.appendChild(c);
+        this.container = c;
+        this.handlers.open.forEach((fn) => fn());
+        return this;
+      }
+      remove() {
+        if (!this.container) return this;
+        this.container.remove();
+        this.container = null;
+        this.handlers.close.forEach((fn) => fn());
+        return this;
+      }
     },
     LngLatBounds: class {
       extend() { return this; }
@@ -117,6 +154,7 @@ function installStubs(win, { data, simulate, gates, wasm, goRuntime }) {
   if (wasm) win.WebAssembly = { instantiateStreaming: async () => ({ instance: {} }) };
   win.__fitBounds = [];
   win.__fitOptions = [];
+  win.__popups = [];
   win.__mapHandlers = handlers;
 
   // Chart.js. Instances are recorded so a test can read what was plotted

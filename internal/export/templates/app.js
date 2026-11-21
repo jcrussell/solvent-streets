@@ -817,8 +817,9 @@
         let hexDataByScope = { city: {}, all: {} };       // { scope: { type: [features] } }
         let costSummaryByScope = { city: {}, all: {} };   // { scope: { type: {year1_need,area} } }
         let activeTypes = new Set(Object.keys(layerColors));
-        // #stats shows either the city summary or one detail panel (a clicked
-        // hex, a dragged region) over it. savedPanelHTML is the summary the
+        // #stats shows either the city summary or the region detail panel (a
+        // dragged region) over it; a clicked hex opens a popup on the map
+        // instead (openHexPopup), leaving the summary in place. savedPanelHTML is the summary the
         // detail panel's close button restores; renderOpenDetail re-renders
         // the open detail panel from live state, and is null while the
         // summary is showing. A resource toggle, scope switch or units switch
@@ -1204,6 +1205,7 @@
         // panel the user opened stays open and is re-rendered too; the
         // refreshed summary is what its close button restores.
         function refreshCityStats() {
+            refreshHexPopup();
             const statsEl = document.getElementById('stats');
             if (!statsEl || !lastCityMeta) return;
             if (!renderOpenDetail) {
@@ -1277,6 +1279,7 @@
         async function loadCityData() {
             const gen = ++cityLoadGen; // bail stale loads after each await
             const prefix = DATA_PREFIX; // snapshot to avoid mid-await mutation
+            closeHexPopup(); // its hex belongs to the city being replaced
             // Remove existing layers and sources
             ['hex-outline', 'hex-fill', 'boundary-line', 'metric-points'].concat(Object.keys(layerColors).map(t => t + '-fill')).forEach(id => {
                 if (map.getLayer(id)) map.removeLayer(id);
@@ -1544,6 +1547,11 @@
                 map.getCanvas().style.cursor = 'pointer';
                 if (e.features && e.features.length > 0) {
                     const p = e.features[0].properties;
+                    // The hex the popup already shows needs no tooltip on top.
+                    if (popupHexId !== null && p.hex_id === popupHexId) {
+                        tooltip.style.display = 'none';
+                        return;
+                    }
                     tooltip.innerHTML =
                         '<strong>Coverage:</strong> ' + (p.share != null ? Math.round(p.share * 100) : 0) + '%<br>' +
                         '<strong>Area:</strong> ' + fmtArea(p.area || 0) + '<br>' +
@@ -1553,26 +1561,106 @@
                     tooltip.style.display = 'block';
                     tooltip.style.left = (e.point.x + 12) + 'px';
                     tooltip.style.top = (e.point.y - 12) + 'px';
+                    // Nor may it cover the open popup.
+                    const popEl = popupHexId !== null && hexPopup.getElement ? hexPopup.getElement() : null;
+                    if (popEl) {
+                        const a = tooltip.getBoundingClientRect(), b = popEl.getBoundingClientRect();
+                        if (a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom) tooltip.style.display = 'none';
+                    }
                 }
             });
             map.on('mouseleave', 'hex-fill', () => {
                 map.getCanvas().style.cursor = '';
                 tooltip.style.display = 'none';
             });
+            // Any map click closes the popup; a click on a hex then reopens
+            // it there. The two listeners run in this order (MapLibre fires
+            // a type's listeners in registration order), so a click on
+            // another hex moves the popup and a click off the hexes closes it.
+            map.on('click', () => closeHexPopup());
             map.on('click', 'hex-fill', e => {
-                if (selecting) return; // region-select drag in progress; don't open hex panel
+                if (selecting) return; // region-select drag in progress; don't open the popup
                 if (!e.features || e.features.length === 0) return;
-                const hexId = e.features[0].properties.hex_id;
-                openDetail(() => renderHexDetail(hexId));
+                openHexPopup(e.features[0].properties.hex_id, e.lngLat);
+            });
+            document.addEventListener('keydown', e => {
+                if (e.key === 'Escape' && popupHexId !== null) closeHexPopup();
             });
         }
 
-        // renderHexDetail shows one hex's per-resource breakdown in #stats,
-        // over the toggled resources in the active scope, so the panel matches
-        // what the heatmap paints for that hex.
-        function renderHexDetail(hexId) {
-            const statsEl = document.getElementById('stats');
-            if (!statsEl) return;
+        // The hex popup: one hex's breakdown, anchored where it was clicked.
+        // One MapLibre Popup is reused; popupHexId is the hex it shows (null
+        // while closed) and popupBody its content, redrawn in place by
+        // refreshHexPopup so a toggle elsewhere does not pull focus into it.
+        // The city summary stays in the panel throughout.
+        /** @type {any} */
+        let hexPopup = null;
+        /** @type {string | null} */
+        let popupHexId = null;
+        /** @type {HTMLElement | null} */
+        let popupBody = null;
+        /** @param {string} hexId @param {any} lngLat */
+        function openHexPopup(hexId, lngLat) {
+            if (!hexPopup) {
+                popupBody = document.createElement('div');
+                popupBody.className = 'hex-detail';
+                hexPopup = new maplibregl.Popup({ className: 'hex-popup', maxWidth: '320px', closeOnClick: false, closeOnMove: false, focusAfterOpen: true });
+                hexPopup.setDOMContent(popupBody);
+                // The close button, Escape, a map click, a city or Color by
+                // change all end here.
+                hexPopup.on('close', () => {
+                    const el = hexPopup.getElement && hexPopup.getElement();
+                    const hadFocus = !!(el && el.contains(document.activeElement));
+                    popupHexId = null;
+                    const status = document.getElementById('hex-popup-status');
+                    if (status) status.textContent = '';
+                    // Focus inside the closed popup would fall to <body>;
+                    // hand it back to the map.
+                    const canvas = map.getCanvas();
+                    if (hadFocus && canvas && typeof canvas.focus === 'function') canvas.focus();
+                });
+            }
+            popupHexId = hexId;
+            renderHexPopup();
+            if (lngLat) hexPopup.setLngLat(lngLat);
+            hexPopup.addTo(map);
+            const el = hexPopup.getElement && hexPopup.getElement();
+            if (el) {
+                // A non-modal dialog named by its heading; focus moves to its
+                // close button on open (focusAfterOpen), so a keyboard user
+                // lands in it and a screen reader announces it.
+                el.setAttribute('role', 'dialog');
+                el.setAttribute('aria-labelledby', 'hex-popup-title');
+                el.onmouseenter = () => { const t = document.getElementById('hex-tooltip'); if (t) t.style.display = 'none'; };
+            }
+            const tooltip = document.getElementById('hex-tooltip');
+            if (tooltip) tooltip.style.display = 'none';
+        }
+        function closeHexPopup() {
+            if (hexPopup && popupHexId !== null) hexPopup.remove();
+        }
+        // refreshHexPopup redraws an open popup from live state (resource
+        // toggles, scope, units).
+        function refreshHexPopup() {
+            if (popupHexId !== null) renderHexPopup();
+        }
+
+        // renderHexPopup fills the popup with the open hex's per-resource
+        // breakdown over the toggled resources in the active scope, so it
+        // matches what the heatmap paints for that hex, and puts a one-line
+        // summary in the polite live region for a screen reader.
+        function renderHexPopup() {
+            if (!popupBody || popupHexId === null) return;
+            const d = hexDetail(popupHexId);
+            popupBody.innerHTML = d.html;
+            const status = document.getElementById('hex-popup-status');
+            if (status) status.textContent = d.summary;
+        }
+
+        // hexDetail is one hex's breakdown: the popup's HTML and a plain-text
+        // summary of its totals.
+        /** @param {string} hexId */
+        function hexDetail(hexId) {
             const hexDataByType = hexDataByScope[currentScope] || {};
             const costSummary = costSummaryByScope[currentScope] || {};
             let rows = '';
@@ -1596,15 +1684,19 @@
                 rows += '<tr><td style="text-transform:capitalize">' + type + '</td><td>' + fmtArea(area) + '</td><td>' + Math.round(pct) + '%</td><td>' + fmtMoney(cost) + '</td></tr>';
             }
 
-            statsEl.innerHTML =
-                '<div class="hex-detail">' +
-                '<h3>Hex ' + hexId + '<button class="close-btn" id="close-hex" type="button" aria-label="Close hex details">&times;</button></h3>' +
-                '<table><tr><th>Type</th><th>Area</th><th>Coverage</th><th>Est. Cost</th></tr>' +
-                rows +
-                '<tr class="total-row"><td>Total</td><td>' + fmtArea(totalArea) + '</td><td>' + Math.min(Math.round(totalPct), 100) + '%</td><td>' + fmtMoney(totalCost) + '</td></tr>' +
-                '</table>' +
-                (totalSpaces > 0 ? '<div class="stat-row"><span class="stat-label">Est. Parking Spaces</span><span class="stat-value">' + Math.round(totalSpaces).toLocaleString('en-US') + '</span></div>' : '') +
-                '</div>';
+            const coverage = Math.min(Math.round(totalPct), 100);
+            const spaces = totalSpaces > 0 ? Math.round(totalSpaces).toLocaleString('en-US') : '';
+            return {
+                html:
+                    '<h3 id="hex-popup-title">Hex ' + esc(hexId) + '</h3>' +
+                    '<table><tr><th>Type</th><th>Area</th><th>Coverage</th><th>Est. Cost</th></tr>' +
+                    rows +
+                    '<tr class="total-row"><td>Total</td><td>' + fmtArea(totalArea) + '</td><td>' + coverage + '%</td><td>' + fmtMoney(totalCost) + '</td></tr>' +
+                    '</table>' +
+                    (spaces ? '<div class="stat-row"><span class="stat-label">Est. Parking Spaces</span><span class="stat-value">' + spaces + '</span></div>' : ''),
+                summary: 'Hex ' + hexId + ': ' + fmtArea(totalArea) + ', ' + coverage + '% covered, est. cost ' + fmtMoney(totalCost) +
+                    (spaces ? ', ' + spaces + ' parking spaces' : ''),
+            };
         }
         registerHexHandlers();
 
@@ -1948,6 +2040,7 @@
         // records the choice in the URL (counterpart of selectCity/selectScope).
         function selectHexMetric(key, opts) {
             hexMetric = (key && metricAvailable(key)) ? key : DEFAULT_METRIC;
+            closeHexPopup();
             populateMetricSelect();
             const src = map.getSource('hexgrid');
             if (src) src.setData(buildBlendedHexFC());
@@ -2016,6 +2109,7 @@
             }
 
             function startSelecting() {
+                closeHexPopup(); // it would sit over the region being dragged
                 selecting = true;
                 btn.setAttribute('aria-pressed', 'true');
                 map.dragPan.disable();

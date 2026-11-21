@@ -221,20 +221,46 @@
         }
         #region-rubberband[hidden] { display: none; }
 
-        /* Hex detail panel */
-        .hex-detail, .region-detail { font-size: 13px; }
+        /* Region detail panel */
+        .region-detail { font-size: 13px; }
         .region-detail h3 { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
         .region-detail .close-btn {
             background: none; border: none; font-size: 18px; cursor: pointer; color: var(--text-muted); padding: 0 4px; line-height: 1;
         }
-        .hex-detail h3 { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-        .hex-detail .close-btn {
-            background: none; border: none; font-size: 18px; cursor: pointer; color: var(--text-muted); padding: 0 4px; line-height: 1;
+
+        /* Hex popup (openHexPopup): a MapLibre popup restyled as a panel
+           surface in either theme. Above the stats panel and legend, below
+           the map toolbar. */
+        .hex-popup { z-index: 3; }
+        .hex-popup .maplibregl-popup-content {
+            background: var(--panel); color: var(--text);
+            border: 1px solid var(--border); border-radius: 8px;
+            box-shadow: var(--shadow-hover);
+            padding: 10px 12px 8px;
         }
+        .hex-popup.maplibregl-popup-anchor-top .maplibregl-popup-tip,
+        .hex-popup.maplibregl-popup-anchor-top-left .maplibregl-popup-tip,
+        .hex-popup.maplibregl-popup-anchor-top-right .maplibregl-popup-tip { border-bottom-color: var(--panel); }
+        .hex-popup.maplibregl-popup-anchor-bottom .maplibregl-popup-tip,
+        .hex-popup.maplibregl-popup-anchor-bottom-left .maplibregl-popup-tip,
+        .hex-popup.maplibregl-popup-anchor-bottom-right .maplibregl-popup-tip { border-top-color: var(--panel); }
+        .hex-popup.maplibregl-popup-anchor-left .maplibregl-popup-tip { border-right-color: var(--panel); }
+        .hex-popup.maplibregl-popup-anchor-right .maplibregl-popup-tip { border-left-color: var(--panel); }
+        .hex-popup .maplibregl-popup-close-button {
+            top: 4px; right: 4px; width: 24px; height: 24px;
+            font-size: 18px; line-height: 1; color: var(--text-muted);
+            background: none; border: none; border-radius: 4px; cursor: pointer;
+        }
+        .hex-popup .maplibregl-popup-close-button:hover { color: var(--text); background: var(--panel-2); }
+        .hex-popup .maplibregl-popup-close-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+        .hex-detail { font-size: 12px; }
+        .hex-detail h3 { font-size: 13px; margin: 0 28px 6px 0; color: var(--text-muted); font-weight: 600; }
         .hex-detail table { width: 100%; border-collapse: collapse; }
-        .hex-detail th, .hex-detail td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--border); }
+        .hex-detail th, .hex-detail td { text-align: left; padding: 3px 5px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+        .hex-detail td:first-child { text-transform: capitalize; }
         .hex-detail th { color: var(--text-muted); font-weight: 500; }
         .hex-detail .total-row { font-weight: 600; border-top: 2px solid var(--border-strong); }
+        .hex-detail .stat-row { margin-top: 4px; }
 
         /* Financials tab */
         .financials { padding: 24px; max-width: 1200px; margin: 0 auto; overflow-y: auto; height: 100%; }
@@ -890,6 +916,8 @@
             </div>
         </div>
         <div id="hex-tooltip"></div>
+        <!-- Announces the hex popup's totals (renderHexPopup). -->
+        <div id="hex-popup-status" class="visually-hidden" role="status" aria-live="polite"></div>
     </div>
 
     <div id="financials-tab" class="tab-content" data-city-scoped role="tabpanel" aria-labelledby="financials-tab-btn">
