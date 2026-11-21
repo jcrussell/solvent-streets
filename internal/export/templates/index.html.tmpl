@@ -604,6 +604,18 @@
         .compare-header .compare-sub { font-size: 14px; color: var(--text-muted); }
         .score-section-title { font-size: 18px; color: var(--text-strong); margin-bottom: 4px; }
         .score-sub { font-size: 13px; color: var(--text-muted); margin-bottom: 16px; }
+        .compare-toolbar {
+            display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+            margin: -16px 0 24px; font-size: 13px; color: var(--text-muted);
+        }
+        .compare-toolbar[hidden] { display: none; }
+        .compare-toolbar label { font-weight: 600; color: var(--text); }
+        .compare-toolbar select {
+            background: var(--panel); color: var(--text); border: 1px solid var(--border);
+            border-radius: 4px; padding: 3px 6px; font-size: 13px; cursor: pointer;
+        }
+        .compare-toolbar .compare-jump { margin-left: auto; color: var(--link); text-decoration: none; font-weight: 600; }
+        .compare-toolbar .compare-jump:hover { text-decoration: underline; }
         .score-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; margin-bottom: 40px; }
         .score-card.score-card-muted { opacity: 0.6; }
         .score-card.score-card-muted .score-value { color: var(--text-muted); }
@@ -1143,6 +1155,15 @@
             </div>
             <div class="compare-loading" id="compare-loading">Loading city data...</div>
             <div id="compare-content" style="display:none;">
+                <!-- How many tiles each section shows (app.js
+                     renderCompareTiles), and a way past them to the charts.
+                     Hidden on a site the default count shows in full. -->
+                <div class="compare-toolbar" id="compare-toolbar" hidden>
+                    <label for="compare-top">Show top</label>
+                    <select id="compare-top" autocomplete="off"><option value="10">10</option></select>
+                    <span id="compare-top-of"></span>
+                    <a href="#compare-charts" class="compare-jump" id="compare-jump">Charts &darr;</a>
+                </div>
                 <h3 class="score-section-title">Solvency Score <span class="lb-note" title="Solvency Score = current road budget / hold-steady (break-even) budget, roads/streets only. 100 = fully funded to hold the network steady; 50 = needs ~2x today's budget; 25 = needs ~4x. Surplus (over-funded) is capped at 100. Cities without a cited current_budget can't be scored and are shown unranked (N/A).">ⓘ</span></h3>
                 <div class="score-sub">Can each city afford to hold its street network steady? Higher is more solvent. Cities without a cited current budget are unranked.</div>
                 <div class="score-cards" id="solvency-cards"></div>
@@ -1154,7 +1175,7 @@
                     <h3>Category Leaderboards</h3>
                     <div id="leaderboard-list"></div>
                 </div>
-                <div class="compare-charts">
+                <div class="compare-charts" id="compare-charts">
                     <div class="compare-chart-card">
                         <h3>Infrastructure Breakdown</h3>
                         <canvas id="compare-area-chart" role="img" aria-label="Infrastructure Breakdown chart"></canvas>

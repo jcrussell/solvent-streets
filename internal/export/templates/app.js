@@ -72,6 +72,7 @@
                     pci:      p.get('pci'),
                     cost:     p.get('cost'),
                     tiers:    p.get('tiers'),
+                    top:      p.get('top'),
                 };
             },
             current() {
@@ -92,6 +93,8 @@
                 // The Financials budget, likewise, only once the reader has
                 // set one: the default (today's budget) needs no URL.
                 const onFinancials = tabBtn && tabBtn.dataset.tab === 'financials-tab';
+                // Compare's tile count, likewise, once it is not the default.
+                const onCompare = tabBtn && tabBtn.dataset.tab === 'compare-tab';
                 // With no city matching the filters the select holds a disabled
                 // placeholder (value '') and no city is in view (the no-match
                 // panel replaces the city tabs), so the URL names none. A
@@ -115,12 +118,13 @@
                     // And the model settings (strategy, Initial PCI, cost
                     // multiplier, tier costs) that differ from the city's seed.
                     ...modelURLState(onFinancials),
+                    top:      (onCompare && compareTopOffered !== false && compareTopN !== COMPARE_TOP_DEFAULT) ? topParam(compareTopN) : null,
                 };
             },
             // url serializes a state object to this page's path + query string.
             url(s) {
                 const p = new URLSearchParams();
-                for (const k of ['city', 'tab', 'scope', 'snapshot', 'metric', 'budget', 'maintain', 'strategy', 'pci', 'cost', 'tiers']) {
+                for (const k of ['city', 'tab', 'scope', 'snapshot', 'metric', 'budget', 'maintain', 'strategy', 'pci', 'cost', 'tiers', 'top']) {
                     if (s[k]) p.set(k, s[k]);
                 }
                 PvmtSelectors.urlTags(s.tags, TAG_DIMS).forEach(t => p.append('tag', t));
@@ -344,6 +348,25 @@
         // promise cache (var hoists the declaration but runs the initializer in
         // place), defeating the dedupe and leaving stale scope figures.
         var compareLoaded = false;
+        // Compare shows the top compareTopN cities in each tile section (0:
+        // all of them), chosen with #compare-top and routed as ?top=. A site
+        // with no more cities than the default shows every tile and no
+        // selector.
+        const COMPARE_TOP_OPTIONS = [3, 10, 25, 0];
+        const COMPARE_TOP_DEFAULT = 10;
+        var compareTopN = COMPARE_TOP_DEFAULT;
+        // Whether this site offers the selector: null until Compare first
+        // renders its tiles.
+        /** @type {boolean | null} */
+        var compareTopOffered = null;
+        /** @param {string | null | undefined} v @returns {number} */
+        function parseTop(v) {
+            if (v === 'all') return 0;
+            const n = Number(v);
+            return COMPARE_TOP_OPTIONS.includes(n) && n > 0 ? n : COMPARE_TOP_DEFAULT;
+        }
+        /** @param {number} n */
+        function topParam(n) { return n === 0 ? 'all' : String(n); }
         var compareCharts = [];
         var aggregateCharts = [];
         // Materials tab chart handles + stale-load guard. Declared here (like the
@@ -475,6 +498,7 @@
             // The metric list arrives with the city's data; keep the requested
             // key and let loadCityData fall back to coverage if it is absent.
             if (init.metric) hexMetric = init.metric;
+            compareTopN = parseTop(init.top);
             // Settle the budget, the maintained network and the model settings
             // before the replaceState below, or it would serialize the defaults
             // and drop a shared ?budget= / ?maintain= / ?pci= ... from the
@@ -567,6 +591,12 @@
             // key directly, as the deep-link path does; selectHexMetric would
             // see an empty map and collapse to coverage.
             // Only an entry with the same data in view repaints in place.
+            // Compare's tile count; the tiles redraw in place.
+            const targetTop = parseTop(s.top);
+            if (targetTop !== compareTopN) {
+                compareTopN = targetTop;
+                renderCompareTiles();
+            }
             const targetMetric = s.metric || DEFAULT_METRIC;
             if (cityChanged || snapshotChanged) hexMetric = targetMetric;
             else if (targetMetric !== hexMetric) selectHexMetric(targetMetric, { push: false });
@@ -5275,6 +5305,58 @@
             });
         }
 
+        // compareTiles holds each tile section's cards, ranked first, as
+        // renderCompare built them; renderCompareTiles draws the top
+        // compareTopN of each, so a change of N redraws no chart.
+        /** @type {{solvency: string[], infra: string[]}} */
+        var compareTiles = { solvency: [], infra: [] };
+        function renderCompareTiles() {
+            const solvEl = document.getElementById('solvency-cards');
+            const infraEl = document.getElementById('infra-cards');
+            if (!solvEl || !infraEl) return;
+            const total = Math.max(compareTiles.solvency.length, compareTiles.infra.length);
+            const bar = document.getElementById('compare-toolbar');
+            const sel = selectById('compare-top');
+            // Only a site the default would cut short gets the selector.
+            // Until the first tiles arrive the size is unknown, and a ?top=
+            // stays in the URL; a site without the selector drops it.
+            const offered = total > COMPARE_TOP_DEFAULT;
+            const wasOffered = compareTopOffered;
+            if (total > 0) compareTopOffered = offered;
+            if (wasOffered !== false && compareTopOffered === false && compareTopN !== COMPARE_TOP_DEFAULT &&
+                queryEl('.tab-btn.active')?.dataset.tab === 'compare-tab') Router.replace();
+            const n = offered && compareTopN > 0 ? Math.min(compareTopN, total) : total;
+            if (bar) bar.hidden = !offered;
+            if (sel && offered) {
+                // A count that would show every city reads as All.
+                sel.innerHTML = COMPARE_TOP_OPTIONS.filter(o => o > 0 && o < total)
+                    .map(o => '<option value="' + o + '">' + o + '</option>').join('') + '<option value="all">All</option>';
+                sel.value = n >= total ? 'all' : String(n);
+                const of = document.getElementById('compare-top-of');
+                if (of) of.textContent = 'of ' + total + ' cities';
+            }
+            solvEl.innerHTML = compareTiles.solvency.slice(0, n).join('');
+            infraEl.innerHTML = compareTiles.infra.slice(0, n).join('');
+            markCurrentCity();
+        }
+        {
+            const sel = selectById('compare-top');
+            if (sel) sel.addEventListener('change', () => {
+                compareTopN = parseTop(sel.value);
+                renderCompareTiles();
+                Router.push();
+            });
+            // The jump to the charts scrolls the tab rather than following
+            // the fragment, which would add a history entry (as the About
+            // tab's in-page links do).
+            const jump = document.getElementById('compare-jump');
+            const charts = document.getElementById('compare-charts');
+            if (jump && charts) jump.addEventListener('click', (e) => {
+                e.preventDefault();
+                charts.scrollIntoView({ block: 'start' });
+            });
+        }
+
         function renderCompare(cityData) {
             var allMetrics = cityData.map(extractMetrics);
             var medals = ['\u{1F947}', '\u{1F948}', '\u{1F949}'];
@@ -5398,18 +5480,19 @@
             }).concat(solvUnscored.map(function(m) {
                 return scoreCard(m, { ranked: false, muted: true, value: 'N/A', label: 'No cited budget — unranked', breakdown: solvencyBreakdown(m) });
             }));
-            document.getElementById('solvency-cards').innerHTML = solvCards.join('');
+            compareTiles.solvency = solvCards;
             var defaultNote = document.getElementById('default-pci-note');
             if (defaultNote) defaultNote.hidden = !allMetrics.some(function(m) { return m.defaultPCI; });
 
             // Infrastructure Index cards: every city with every layer places;
             // one missing a layer is shown unranked.
             var infraRanked = assignRanks(complete.slice().sort(function(a, b) { return b.infraScore - a.infraScore; }));
-            document.getElementById('infra-cards').innerHTML = infraRanked.map(function(m) {
+            compareTiles.infra = infraRanked.map(function(m) {
                 return scoreCard(m, { ranked: infraRanked.length >= 2, value: m.infraScore, label: 'Infrastructure Index', breakdown: infraBreakdown(m) });
             }).concat(allMetrics.filter(function(m) { return m.unranked.length > 0; }).map(function(m) {
                 return scoreCard(m, { ranked: false, muted: true, value: 'N/A', label: unrankedLabel(m) + ' — unranked', breakdown: infraBreakdown(m) });
-            })).join('');
+            }));
+            renderCompareTiles();
 
             // Leaderboards — data-driven categories
             var categories = [
