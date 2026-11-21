@@ -96,8 +96,11 @@ test('custom tier labels get their own legend entries and colours', async () => 
 
   const chart = win.__charts.find((c) => c.options?.plugins?.legend?.labels?.generateLabels);
   assert.ok(chart, 'no tier-coloured chart rendered');
+  win.Chart.defaults.color = '#c0ffee';
   const legend = chart.options.plugins.legend.labels.generateLabels();
   assert.deepEqual(legend.map((l) => l.text), ['Seal', 'Overlay', 'Mill', 'Rebuild']);
+  assert.ok(legend.every((l) => l.fontColor === '#c0ffee'),
+    'the legend text takes the theme\'s chart colour, not Chart.js\'s black');
   assert.equal(legend[0].fillStyle, GREEN, 'the best tier is green');
   assert.equal(legend.at(-1).fillStyle, RED, 'the worst tier is red');
   assert.equal(new Set(legend.map((l) => l.fillStyle)).size, 4, 'every tier has its own colour');
@@ -137,7 +140,10 @@ test('the Materials mix legend lists the material tiers under a custom cost sche
 
   const chart = win.__charts.find((c) => c.config.type === 'bar' && c.options?.plugins?.legend?.labels?.generateLabels);
   assert.ok(chart, 'no Materials mix chart rendered');
+  win.Chart.defaults.color = '#c0ffee';
   const legend = chart.options.plugins.legend.labels.generateLabels();
+  assert.ok(legend.every((l) => l.fontColor === '#c0ffee'),
+    'the legend text takes the theme\'s chart colour, not Chart.js\'s black');
   assert.deepEqual(legend.map((l) => [l.text, l.fillStyle]),
     [['Preventive', GREEN], ['Rehab', AMBER], ['Reconstruction', RED]]);
   const byLabel = new Map(legend.map((l) => [l.text.toLowerCase(), l.fillStyle]));

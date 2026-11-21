@@ -2322,12 +2322,16 @@
         }
         // Chart.js legend items for the Financials tier-coloured bar charts:
         // the city's cost tiers, best first.
+        // A legend built with generateLabels draws its text in the item's
+        // fontColor, and Chart.js leaves an item without one black, so the
+        // tier legends set it to the theme's chart text colour. It is read
+        // on every draw, so a theme switch recolours the legend too.
+        function tierLegendItem(label, color) {
+            const name = String(label || '');
+            return { text: name.charAt(0).toUpperCase() + name.slice(1), fillStyle: color, strokeStyle: color, fontColor: Chart.defaults.color };
+        }
         function tierLegendLabels() {
-            return rankedCostTiers().map(t => {
-                const name = String(t.label || '');
-                const color = tierColor(t.label);
-                return { text: name.charAt(0).toUpperCase() + name.slice(1), fillStyle: color, strokeStyle: color };
-            });
+            return rankedCostTiers().map(t => tierLegendItem(t.label, tierColor(t.label)));
         }
         // Material tiers are banded on their own, not by the city's cost
         // tiers (forecast.MaterialTier), so the Materials tab colours and
@@ -2345,11 +2349,7 @@
         }
         /** @param {{label: string}[]} ranked */
         function materialTierLegendLabels(ranked) {
-            return ranked.map(t => {
-                const name = String(t.label || '');
-                const color = materialTierColor(t.label, ranked);
-                return { text: name.charAt(0).toUpperCase() + name.slice(1), fillStyle: color, strokeStyle: color };
-            });
+            return ranked.map(t => tierLegendItem(t.label, materialTierColor(t.label, ranked)));
         }
         // pciTooltipLabel is a PCI chart's tooltip line, at the shown PCI.
         /** @param {any} ctx */
