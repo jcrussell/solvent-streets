@@ -159,3 +159,12 @@ test('back to an entry in another scope re-renders Compare in that scope', async
   assert.equal(win.eval('currentScope'), 'city');
   assert.equal(text(), city, 'Compare still shows the all-jurisdiction figures');
 });
+
+test('the solvency card lists city-maintained roads before insolvency', async () => {
+  const roads = city('alpha-ca', 120, 12);
+  roads.forecast = roads.forecast.map((f) => (f.resource_type === 'roads' ? { ...f, roads_area: 4e6 } : f));
+  const { doc } = await renderWith([roads, city('beta-ca', 60)]);
+  const card = cards(doc).find((c) => c.dataset.slug === 'alpha-ca');
+  const labels = Array.from(card.querySelectorAll('.sb-row > span:first-child')).map((s) => s.textContent);
+  assert.deepEqual(labels, ['Current Budget', 'Hold-Steady Budget', 'Funding Gap', 'City-Maintained Roads', 'Insolvency']);
+});

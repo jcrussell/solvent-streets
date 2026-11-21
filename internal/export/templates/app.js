@@ -5044,10 +5044,10 @@
                 return (m.currentBudget > 0 ? '<div class="sb-row"><span>Current Budget</span><span>' + fmtMoney(m.currentBudget) + '/yr</span></div>' : '') +
                     (m.breakEvenBudget > 0 ? '<div class="sb-row"><span>Hold-Steady Budget</span><span>' + fmtMoney(m.breakEvenBudget) + '/yr</span></div>' : '') +
                     '<div class="sb-row"><span>Funding Gap</span><span>' + gap + '</span></div>' +
-                    '<div class="sb-row"><span>Insolvency</span><span>' + insolv + '</span></div>' +
                     // The budgets above price city-maintained roads only, so
                     // show that network, not the all-resource total.
-                    (m.solvencyRoadsAreaLarge > 0 ? '<div class="sb-row"><span>City-Maintained Roads</span><span>' + fmtNum(m.solvencyRoadsAreaLarge) + ' ' + areaLargeUnit() + '</span></div>' : '');
+                    (m.solvencyRoadsAreaLarge > 0 ? '<div class="sb-row"><span>City-Maintained Roads</span><span>' + fmtNum(m.solvencyRoadsAreaLarge) + ' ' + areaLargeUnit() + '</span></div>' : '') +
+                    '<div class="sb-row"><span>Insolvency</span><span>' + insolv + '</span></div>';
             }
 
             function infraBreakdown(m) {
