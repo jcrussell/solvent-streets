@@ -341,7 +341,7 @@ little. The totals are exact, and city-maintained never exceeds all owners in
 total, but a single class can show slightly more city-maintained area than
 all-owner area: up to about 4% in dense grids such as Somerville, where the
 city-only split no longer shares crossings with state routes. Compare the two
-scopes by their totals, not class by class. `pvmt compute`'s two cohort
+scopes by their totals, not class by class. `pvmt forecast`'s two cohort
 breakdowns and the Financials cohort table under each scope show these
 per-class figures. The effect on the forecast is the class mix alone, under
 0.25% of city-scope need.
