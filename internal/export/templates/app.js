@@ -1108,6 +1108,7 @@
             if (!statsEl || !meta) return;
             savedPanelHTML = cityStatsHTML(meta);
             renderOpenDetail = null;
+            clearRegionHighlight();
             statsEl.innerHTML = savedPanelHTML;
         }
 
@@ -1233,7 +1234,8 @@
         {
             const statsEl = document.getElementById('stats');
             if (statsEl) statsEl.addEventListener('click', e => {
-                if (!(e.target instanceof Element) || !e.target.closest('.close-btn')) return;
+                if (!(e.target instanceof Element) || !e.target.closest('.close-btn, .region-clear')) return;
+                clearRegionHighlight();
                 renderOpenDetail = null;
                 statsEl.innerHTML = savedPanelHTML;
             });
@@ -1281,10 +1283,10 @@
             const prefix = DATA_PREFIX; // snapshot to avoid mid-await mutation
             closeHexPopup(); // its hex belongs to the city being replaced
             // Remove existing layers and sources
-            ['hex-outline', 'hex-fill', 'boundary-line', 'metric-points'].concat(Object.keys(layerColors).map(t => t + '-fill')).forEach(id => {
+            ['region-highlight', 'hex-outline', 'hex-fill', 'boundary-line', 'metric-points'].concat(Object.keys(layerColors).map(t => t + '-fill')).forEach(id => {
                 if (map.getLayer(id)) map.removeLayer(id);
             });
-            ['hexgrid', 'boundary', 'metric-points'].concat(Object.keys(layerColors)).forEach(id => {
+            ['region-highlight', 'hexgrid', 'boundary', 'metric-points'].concat(Object.keys(layerColors)).forEach(id => {
                 if (map.getSource(id)) map.removeSource(id);
             });
             hexDataByScope = { city: {}, all: {} };
@@ -1653,49 +1655,132 @@
             if (!popupBody || popupHexId === null) return;
             const d = hexDetail(popupHexId);
             popupBody.innerHTML = d.html;
+            popupBody.dataset.hex = popupHexId;
             const status = document.getElementById('hex-popup-status');
             if (status) status.textContent = d.summary;
         }
 
-        // hexDetail is one hex's breakdown: the popup's HTML and a plain-text
-        // summary of its totals.
+        // hexFigures is one hex's pavement over the toggled resources in the
+        // active scope, per resource (area, coverage share, est. parking
+        // spaces, est. year-1 cost: the resource's cost-summary need split by
+        // the hex's share of its area) and in total. land is the hex's land
+        // area: a resource's area over its share, as the producer measured
+        // it, else the hex polygon's.
         /** @param {string} hexId */
-        function hexDetail(hexId) {
+        function hexFigures(hexId) {
             const hexDataByType = hexDataByScope[currentScope] || {};
             const costSummary = costSummaryByScope[currentScope] || {};
-            let rows = '';
-            let totalArea = 0, totalPct = 0, totalCost = 0, totalSpaces = 0;
+            /** @type {{type: string, area: number, share: number, spaces: number, cost: number}[]} */
+            const types = [];
+            const total = { area: 0, share: 0, spaces: 0, cost: 0, hasCost: false };
+            let land = 0;
             for (const type of Object.keys(layerColors)) {
                 if (!activeTypes.has(type)) continue;
-                const features = hexDataByType[type] || [];
-                const match = features.find(f => f.properties.hex_id === hexId);
+                const match = (hexDataByType[type] || []).find(f => f.properties.hex_id === hexId);
                 if (!match) continue;
                 const area = match.properties.area || 0;
-                const pct = (match.properties.share || 0) * 100;
-                totalSpaces += match.properties.spaces || 0;
-                let cost = 0;
+                const share = match.properties.share || 0;
+                const spaces = match.properties.spaces || 0;
                 const cs = costSummary[type];
-                if (cs && cs.area) {
-                    cost = (area / cs.area) * cs.year1_need;
-                }
-                totalArea += area;
-                totalPct += pct;
-                totalCost += cost;
-                rows += '<tr><td style="text-transform:capitalize">' + type + '</td><td>' + fmtArea(area) + '</td><td>' + Math.round(pct) + '%</td><td>' + fmtMoney(cost) + '</td></tr>';
+                const cost = cs && cs.area ? (area / cs.area) * cs.year1_need : 0;
+                if (cs && cs.area) total.hasCost = true;
+                if (!land && share > 0 && area > 0) land = area / share;
+                types.push({ type, area, share, spaces, cost });
+                total.area += area;
+                total.share += share;
+                total.spaces += spaces;
+                total.cost += cost;
             }
+            total.share = Math.min(total.share, 1);
+            if (!land) land = geomAreaM2(hexGeomById[hexId]);
+            return { types, total, land };
+        }
 
-            const coverage = Math.min(Math.round(totalPct), 100);
-            const spaces = totalSpaces > 0 ? Math.round(totalSpaces).toLocaleString('en-US') : '';
+        // geomAreaM2 is a polygon's area in square metres, from its outer
+        // ring on a local equirectangular projection: close enough for a
+        // hex-sized cell. 0 for anything else.
+        /** @param {any} geom */
+        function geomAreaM2(geom) {
+            const ring = geom && geom.type === 'Polygon' ? geom.coordinates[0]
+                : geom && geom.type === 'MultiPolygon' ? geom.coordinates[0] && geom.coordinates[0][0] : null;
+            if (!ring || ring.length < 3) return 0;
+            let twice = 0;
+            for (let i = 0; i < ring.length - 1; i++) {
+                twice += ring[i][0] * ring[i + 1][1] - ring[i + 1][0] * ring[i][1];
+            }
+            const mPerDeg = 111320;
+            return Math.abs(twice / 2) * mPerDeg * mPerDeg * Math.cos(ring[0][1] * Math.PI / 180);
+        }
+
+        // metricGroup files a per-hex metric under the popup's People or
+        // Services heading: a metric measured from points of service (fire
+        // stations) is a service, every other stored metric and each
+        // per-resident ratio describes the people living there.
+        /** @param {PvmtHexMetric} m */
+        function metricGroup(m) {
+            return (m.points && m.points.length > 0) || m.threshold_s ? 'Services' : 'People';
+        }
+
+        // hexMetricRows lists the stored and ratio metrics this city has a
+        // value for in one hex, each in its registry format, grouped as
+        // metricGroup files them. The pavement sums are the Pavement table.
+        /** @param {string} hexId @param {{area: number, share: number, spaces: number, cost: number}} total */
+        function hexMetricRows(hexId, total) {
+            /** @type {Record<string, string>} */
+            const groups = { People: '', Services: '' };
+            const blended = { area: total.area, share: total.share, spaces: total.spaces, year1_need: total.cost };
+            for (const key of availableMetricKeys()) {
+                const m = lookupMetric(key);
+                if (!m || (m.derive && m.derive.op === 'sum')) continue;
+                const v = metricValue(m, hexId, blended);
+                if (v == null || !Number.isFinite(v)) continue;
+                const refIdx = m.refs ? m.refs[hexId] : undefined;
+                const pt = refIdx != null && m.points ? m.points[refIdx] : null;
+                const ref = pt ? ' · ' + esc(String(pt.name || pt.id)) : '';
+                const unit = m.format === 'minutes' ? ' min' : '';
+                groups[metricGroup(m)] += statRow(esc(m.label), fmtMetric(v, m.format) + unit + ref);
+            }
+            return groups;
+        }
+
+        /** @param {string} label @param {string} value */
+        function statRow(label, value) {
+            return '<div class="stat-row"><span class="stat-label">' + label + '</span><span class="stat-value">' + value + '</span></div>';
+        }
+
+        // hexDetail is one hex's breakdown, grouped Pavement / People /
+        // Services: the popup's HTML and a plain-text summary of it. The
+        // heading names the hex by its size and paving, not its grid id.
+        /** @param {string} hexId */
+        function hexDetail(hexId) {
+            const { types, total, land } = hexFigures(hexId);
+            const paved = Math.round(total.share * 100);
+            const landText = land > 0 ? fmtNum1(toAreaLarge(land)) + ' ' + areaLargeUnit() : '';
+            let pavement = '';
+            if (types.length > 0) {
+                pavement =
+                    '<table><tr><th>Type</th><th>Area</th><th>Paved</th>' + (total.hasCost ? '<th>Est. Cost</th>' : '') + '</tr>' +
+                    types.map(t => '<tr><td>' + esc(t.type) + '</td><td>' + fmtArea(t.area) + '</td><td>' + Math.round(t.share * 100) + '%</td>' +
+                        (total.hasCost ? '<td>' + fmtMoney(t.cost) + '</td>' : '') + '</tr>').join('') +
+                    (types.length > 1 ? '<tr class="total-row"><td>Total</td><td>' + fmtArea(total.area) + '</td><td>' + paved + '%</td>' +
+                        (total.hasCost ? '<td>' + fmtMoney(total.cost) + '</td>' : '') + '</tr>' : '') +
+                    '</table>' +
+                    (total.spaces > 0 ? statRow('Est. parking spaces', Math.round(total.spaces).toLocaleString('en-US')) : '');
+            }
+            const groups = hexMetricRows(hexId, total);
+            const section = (title, body) => body ? '<div class="hex-group"><h4>' + title + '</h4>' + body + '</div>' : '';
+            const sub = [landText, types.length > 0 ? paved + '% paved' : 'no mapped pavement'].filter(Boolean).join(' · ');
             return {
                 html:
-                    '<h3 id="hex-popup-title">Hex ' + esc(hexId) + '</h3>' +
-                    '<table><tr><th>Type</th><th>Area</th><th>Coverage</th><th>Est. Cost</th></tr>' +
-                    rows +
-                    '<tr class="total-row"><td>Total</td><td>' + fmtArea(totalArea) + '</td><td>' + coverage + '%</td><td>' + fmtMoney(totalCost) + '</td></tr>' +
-                    '</table>' +
-                    (spaces ? '<div class="stat-row"><span class="stat-label">Est. Parking Spaces</span><span class="stat-value">' + spaces + '</span></div>' : ''),
-                summary: 'Hex ' + hexId + ': ' + fmtArea(totalArea) + ', ' + coverage + '% covered, est. cost ' + fmtMoney(totalCost) +
-                    (spaces ? ', ' + spaces + ' parking spaces' : ''),
+                    '<h3 id="hex-popup-title">Hex details</h3>' +
+                    '<div class="hex-sub">' + sub + '</div>' +
+                    section('Pavement', pavement) +
+                    section('People', groups.People) +
+                    section('Services', groups.Services),
+                summary: 'Hex details: ' + sub +
+                    (types.length > 0 ? ', ' + fmtArea(total.area) + ' maintained' : '') +
+                    (total.hasCost ? ', est. year-1 cost ' + fmtMoney(total.cost) : '') +
+                    (total.spaces > 0 ? ', ' + Math.round(total.spaces).toLocaleString('en-US') + ' parking spaces' : ''),
             };
         }
         registerHexHandlers();
@@ -2054,6 +2139,28 @@
             if (metricSel) metricSel.addEventListener('change', () => selectHexMetric(metricSel.value));
         }
 
+        // The selected region's hexes, outlined on the map over the heatmap
+        // while the region card is open. Cleared with the card (its close
+        // and Clear selection buttons), and on a city change.
+        /** @param {any[]} features */
+        function setRegionHighlight(features) {
+            const data = { type: 'FeatureCollection', features };
+            const src = map.getSource('region-highlight');
+            if (src) { src.setData(data); return; }
+            map.addSource('region-highlight', { type: 'geojson', data });
+            map.addLayer({
+                id: 'region-highlight', type: 'line', source: 'region-highlight',
+                paint: { 'line-color': cssVar('--accent'), 'line-width': 2.5 },
+            });
+        }
+        function clearRegionHighlight() {
+            if (map.getLayer('region-highlight')) map.removeLayer('region-highlight');
+            if (map.getSource('region-highlight')) map.removeSource('region-highlight');
+        }
+        document.addEventListener('pvmt:themechange', () => {
+            if (map.getLayer('region-highlight')) map.setPaintProperty('region-highlight', 'line-color', cssVar('--accent'));
+        });
+
         // --- Drag-to-select region -> aggregate totals ---------------------
         // Lets the user drag a rectangle on the map and see aggregate totals
         // (hex count, area, area-weighted % covered, total est. cost) for the
@@ -2165,28 +2272,93 @@
                 openDetail(() => renderRegionDetail(bbox));
             }
 
-            // renderRegionDetail aggregates the blended hex FC over bbox and
-            // renders the result card into #stats. Empty selection shows
-            // zeros, not an error.
+            /** @param {any} f @param {number[]} bbox */
+            function centroidIn(f, bbox) {
+                const c = f && f.geometry ? polyCentroid(f.geometry) : null;
+                return !!c && c[0] >= bbox[0] && c[0] <= bbox[2] && c[1] >= bbox[1] && c[1] <= bbox[3];
+            }
+
+            // regionMetricRow is the region's figure for the active Color by
+            // metric when the pavement rows do not already give it: a stored
+            // count's total (meta.json gives an additive metric a city
+            // total), a per-resident ratio's Σ numerator / Σ denominator, or
+            // for a time or density the mean weighted by hex land area. It
+            // reads every hex in the box the metric covers, pavement or not.
+            /** @param {number[]} bbox @param {Record<string, any>} paved */
+            function regionMetricRow(bbox, paved) {
+                const m = activeMetric();
+                if (!m || (m.derive && m.derive.op === 'sum')) return '';
+                const summary = lastCityMeta && lastCityMeta.metrics ? lastCityMeta.metrics[hexMetric] : null;
+                if (m.derive && m.derive.op === 'ratio') {
+                    const den = hexMetrics[m.derive.den || ''];
+                    let num = 0, d = 0;
+                    for (const [hid, v] of Object.entries((den && den.values) || {})) {
+                        if (!centroidIn({ geometry: hexGeomById[hid] }, bbox)) continue;
+                        d += v;
+                        if (paved[hid]) num += paved[hid][DERIVE_PROPS[m.derive.prop]] || 0;
+                    }
+                    return d > 0 ? statRow(esc(m.label) + ' (region)', fmtMetric(num / d, m.format)) : '';
+                }
+                let sum = 0, wsum = 0, w = 0, n = 0;
+                for (const [hid, v] of Object.entries(m.values || {})) {
+                    const geom = hexGeomById[hid];
+                    if (!centroidIn({ geometry: geom }, bbox)) continue;
+                    const land = geomAreaM2(geom) || 1;
+                    sum += v; wsum += v * land; w += land; n++;
+                }
+                if (n === 0) return '';
+                const unit = m.format === 'minutes' ? ' min' : '';
+                if (summary && summary.total != null) return statRow(esc(m.label) + ' (total)', fmtMetric(sum, m.format) + unit);
+                return statRow(esc(m.label) + ' (area-weighted mean)', fmtMetric(wsum / w, m.format) + unit);
+            }
+
+            // renderRegionDetail totals the hexes with toggled pavement whose
+            // centre falls in bbox, highlights them on the map, and renders
+            // the region card into #stats: the hex count, their land and
+            // paved area and the share paved (paved over land, so a dense
+            // hex counts by its land, not its paving), est. year-1 cost and
+            // parking spaces, the per-resource breakdown, and the Color by
+            // metric's figure. An empty selection shows zeros, not an error.
             function renderRegionDetail(bbox) {
-                const [minLng, minLat, maxLng, maxLat] = bbox;
                 const fc = buildBlendedHexFC();
-                let count = 0, sumArea = 0, sumCost = 0, sumShareArea = 0;
+                /** @type {any[]} */
+                const selected = [];
+                /** @type {Record<string, any>} */
+                const paved = {};
+                let land = 0, sumArea = 0, sumCost = 0, sumSpaces = 0;
+                /** @type {Record<string, {area: number, cost: number}>} */
+                const byType = {};
+                let hasCost = false;
                 for (const f of (fc.features || [])) {
-                    const c = polyCentroid(f.geometry);
-                    if (!c) continue;
-                    if (c[0] < minLng || c[0] > maxLng || c[1] < minLat || c[1] > maxLat) continue;
-                    const area = f.properties.area || 0;
+                    if (!centroidIn(f, bbox)) continue;
                     // A stored metric adds pavement-less hexes to the map
                     // (metricExtraHexes); they hold nothing to total, so the
                     // count must not change with Color by.
-                    if (area <= 0) continue;
-                    count++;
-                    sumArea += area;
-                    sumCost += f.properties.year1_need || 0;
-                    sumShareArea += (f.properties.share || 0) * area;
+                    if ((f.properties.area || 0) <= 0) continue;
+                    const hid = f.properties.hex_id;
+                    const fig = hexFigures(hid);
+                    selected.push(f);
+                    paved[hid] = f.properties;
+                    land += fig.land;
+                    sumArea += fig.total.area;
+                    sumCost += fig.total.cost;
+                    sumSpaces += fig.total.spaces;
+                    if (fig.total.hasCost) hasCost = true;
+                    for (const t of fig.types) {
+                        const acc = byType[t.type] || (byType[t.type] = { area: 0, cost: 0 });
+                        acc.area += t.area;
+                        acc.cost += t.cost;
+                    }
                 }
-                const wPct = sumArea > 0 ? (sumShareArea / sumArea) * 100 : 0;
+                setRegionHighlight(selected);
+                const pct = land > 0 ? (sumArea / land) * 100 : 0;
+                const types = Object.keys(layerColors).filter(t => byType[t]);
+                const table = types.length > 0
+                    ? '<table class="region-types"><tr><th>Type</th><th>Paved area</th>' + (hasCost ? '<th>Est. cost</th>' : '') + '</tr>' +
+                        types.map(t => '<tr><td>' + esc(t) + '</td><td>' + fmtNum1(toAreaLarge(byType[t].area)) + ' ' + areaLargeUnit() + '</td>' +
+                            (hasCost ? '<td>' + fmtMoney(byType[t].cost) + '</td>' : '') + '</tr>').join('') +
+                        '</table>'
+                    : '';
 
                 const statsEl = document.getElementById('stats');
                 if (!statsEl) return;
@@ -2194,10 +2366,15 @@
                     '<div class="region-detail">' +
                     '<div class="stat-card summary-card">' +
                     '<h3>Selected Region<button class="close-btn" id="close-region" type="button" aria-label="Close region selection">&times;</button></h3>' +
-                    '<div class="stat-row"><span class="stat-label">Hexes selected</span><span class="stat-value">' + fmtNum(count) + '</span></div>' +
-                    '<div class="stat-row"><span class="stat-label">Total Area (' + areaLargeUnit() + ')</span><span class="stat-value">' + fmtNum1(toAreaLarge(sumArea)) + '</span></div>' +
-                    '<div class="stat-row"><span class="stat-label">% Covered (area-weighted)</span><span class="stat-value">' + wPct.toFixed(1) + '%</span></div>' +
-                    '<div class="stat-row"><span class="stat-label">Est. year-1 cost</span><span class="stat-value">' + fmtMoney(sumCost) + '</span></div>' +
+                    statRow('Hexes selected', fmtNum(selected.length)) +
+                    statRow('Land area (' + areaLargeUnit() + ')', fmtNum1(toAreaLarge(land))) +
+                    statRow('Paved area (' + areaLargeUnit() + ')', fmtNum1(toAreaLarge(sumArea))) +
+                    statRow('% paved (of land)', pct.toFixed(1) + '%') +
+                    statRow('Est. year-1 cost', fmtMoney(sumCost)) +
+                    (sumSpaces > 0 ? statRow('Est. parking spaces', Math.round(sumSpaces).toLocaleString('en-US')) : '') +
+                    regionMetricRow(bbox, paved) +
+                    table +
+                    '<button type="button" class="region-clear" id="clear-region">Clear selection</button>' +
                     '</div></div>';
             }
         })();

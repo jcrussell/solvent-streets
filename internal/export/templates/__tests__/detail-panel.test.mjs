@@ -39,12 +39,24 @@ const population = {
   values: { 'hex:0:0': 50, 'hex:0:1': 82 },
 };
 
+// Fire response from two stations, so the popup has a Services row.
+const fire = {
+  label: 'Fire response', unit: 's', format: 'minutes', source: 'test', threshold_s: 240,
+  scale: { kind: 'sequential', transform: 'linear', bands: [240, 480] },
+  values: { 'hex:0:0': 205, 'hex:0:1': 300 },
+  refs: { 'hex:0:0': 0, 'hex:0:1': 1 },
+  points: [
+    { id: 'n/1', name: 'Station 4', position: [0, 0], source: 'osm' },
+    { id: 'n/2', name: 'Station 7', position: [1, 1], source: 'osm' },
+  ],
+};
+
 async function loadGrid() {
   const h = load({ data: {
     'meta.json': metaJSON,
     'hexgrid.geojson': grid,
     'hex-cost-summary.json': costSummary,
-    'hex-metrics.json': { v: 2, metrics: { population } },
+    'hex-metrics.json': { v: 2, metrics: { population, fire_response_s: fire } },
   } });
   await h.flush();
   await h.win.loadCityData();
@@ -95,13 +107,13 @@ test('a hex click opens a popup with its details and keeps the city summary in t
 
   const p = popup(h);
   assert.ok(p, 'the click opened no popup');
-  assert.equal(p.querySelector('h3').textContent, 'Hex hex:0:0');
+  assert.equal(p.querySelector('.hex-detail').dataset.hex, 'hex:0:0');
   assert.deepEqual(hexRows(h), ['parking', 'roads']);
-  assert.match(p.textContent, /Est\. Parking Spaces\s*120/);
+  assert.match(p.textContent, /Est\. parking spaces\s*120/);
   assert.deepEqual(h.win.__popups[0].lngLat, { lng: 0.25, lat: 0.75 }, 'the popup is not at the clicked point');
   assert.equal(p.getAttribute('role'), 'dialog');
   assert.equal(p.getAttribute('aria-labelledby'), 'hex-popup-title');
-  assert.match(h.$('#hex-popup-status').textContent, /^Hex hex:0:0: /, 'the popup is not announced');
+  assert.match(h.$('#hex-popup-status').textContent, /^Hex details: /, 'the popup is not announced');
 
   assert.equal(h.$('#stats').innerHTML, summary, 'the click replaced the city summary');
   assert.equal(h.$('#stats .hex-detail'), null);
@@ -117,7 +129,7 @@ test('another hex moves the popup; a click off the hexes or Escape closes it', a
   clickHex(h, 'hex:0:1', { lng: 0.9, lat: 0.1 });
   assert.equal(h.$$('.maplibregl-popup').length, 1);
   assert.equal(h.win.__popups.length, 1, 'a second popup was made rather than the first moved');
-  assert.equal(popup(h).querySelector('h3').textContent, 'Hex hex:0:1');
+  assert.equal(popup(h).querySelector('.hex-detail').dataset.hex, 'hex:0:1');
   assert.deepEqual(h.win.__popups[0].lngLat, { lng: 0.9, lat: 0.1 });
 
   clickMap(h);
@@ -234,4 +246,97 @@ test('the region hex count does not depend on Color by', async () => {
   assert.equal(regionCount(), '2');
   h.win.selectHexMetric('population');
   assert.equal(regionCount(), '2', 'a stored metric added its pavement-less hex to the count');
+});
+
+// groupRows is one popup group's rows as [label, value] pairs.
+const groupRows = (h, title) => {
+  const g = Array.from(popup(h).querySelectorAll('.hex-group')).find((el) => el.querySelector('h4').textContent === title);
+  return g ? Array.from(g.querySelectorAll('.stat-row')).map((r) => [r.querySelector('.stat-label').textContent, r.querySelector('.stat-value').textContent]) : null;
+};
+
+test('the hex popup groups pavement, people and services under friendly labels', async () => {
+  const h = await loadGrid();
+  h.win.selectScope('all', { push: false });
+  clickHex(h, 'hex:0:0');
+  const p = popup(h);
+  assert.equal(p.querySelector('h3').textContent, 'Hex details');
+  assert.doesNotMatch(p.textContent, /hex:0:0/, 'the popup shows the internal hex id');
+  // Land is the first listed resource's area over its share: 3000 m² of
+  // parking at 0.7 is a 4,286 m² hex, 1.1 acres. Roads and parking
+  // together cover all of it.
+  assert.equal(p.querySelector('.hex-sub').textContent, '1.1 acres · 100% paved');
+  assert.deepEqual(hexRows(h), ['parking', 'roads']);
+  assert.deepEqual(groupRows(h, 'Pavement'), [['Est. parking spaces', '120']]);
+  assert.match(p.querySelector('.total-row').textContent, /\$16\.0K/, 'the cost summary\'s year-1 cost is missing');
+  // 4,000 m² and $16.0K over 50 residents.
+  assert.deepEqual(groupRows(h, 'People'), [
+    ['Maintained area per resident', '861 sq ft'], ['Year-1 need per resident', '$320'], ['Population', '50'],
+  ]);
+  assert.deepEqual(groupRows(h, 'Services'), [['Fire response', '3:25 min · Station 4']]);
+});
+
+test('a hex with no stored metrics shows no People or Services group', async () => {
+  const h = load({ data: { 'meta.json': metaJSON, 'hexgrid.geojson': grid, 'hex-cost-summary.json': costSummary } });
+  await h.flush();
+  await h.win.loadCityData();
+  await h.flush();
+  clickHex(h, 'hex:0:1');
+  assert.equal(groupRows(h, 'People'), null);
+  assert.equal(groupRows(h, 'Services'), null);
+  assert.deepEqual(hexRows(h), ['roads']);
+});
+
+// selectAll drags a region over both hexes.
+function selectAll(h) {
+  h.win._map.unproject = ([x]) => (x === 0 ? { lng: -1, lat: -1 } : { lng: 2, lat: 2 });
+  h.$('#region-select-btn').click();
+  const drag = (ev, x) => { for (const fn of h.win.__mapHandlers.get(ev)) fn({ originalEvent: { clientX: x, clientY: x } }); };
+  drag('mousedown', 0);
+  drag('mouseup', 10);
+}
+const highlighted = (h) => {
+  const src = h.win._map.getSource('region-highlight');
+  return src && h.win._map.getLayer('region-highlight') ? Array.from(src.data.features, (f) => f.properties.hex_id).sort() : null;
+};
+
+test('the region card totals land, paving, resources and the Color by metric', async () => {
+  const h = await loadGrid();
+  h.win.selectScope('all', { push: false });
+  h.win.selectHexMetric('fire_response_s', { push: false });
+  selectAll(h);
+  assert.equal(statValue(h, 'Hexes selected'), '2');
+  // A 4,286 m² hex (parking's 3000 m² at 0.7) and a 2,500 m² one (roads'
+  // 500 m² at 0.2), with 4,500 m² paved between them: the share is paved
+  // over land, not the paved-area-weighted mean of the hexes' shares.
+  assert.equal(statValue(h, 'Land area (acres)'), '1.7');
+  assert.equal(statValue(h, 'Paved area (acres)'), '1.1');
+  assert.equal(statValue(h, '% paved (of land)'), '66.3%');
+  assert.equal(statValue(h, 'Est. parking spaces'), '120');
+  // (205 + 300) / 2 s over two equal hexes.
+  assert.equal(statValue(h, 'Fire response (area-weighted mean)'), '4:13 min');
+  const types = h.$$('#stats .region-types tr td:first-child').map((td) => td.textContent);
+  assert.deepEqual(types, ['parking', 'roads']);
+});
+
+test('the region\'s hexes are highlighted until the selection is cleared or the city changes', async () => {
+  const h = await loadGrid();
+  h.win.selectScope('all', { push: false });
+  selectAll(h);
+  assert.deepEqual(highlighted(h), ['hex:0:0', 'hex:0:1']);
+
+  untick(h, 'parking');
+  assert.deepEqual(highlighted(h), ['hex:0:0', 'hex:0:1'], 'a toggle dropped the highlight');
+
+  h.$('#clear-region').click();
+  assert.equal(h.$('#stats .region-detail'), null, 'Clear selection left the region card open');
+  assert.equal(highlighted(h), null, 'Clear selection left the highlight on the map');
+
+  selectAll(h);
+  h.$('#close-region').click();
+  assert.equal(highlighted(h), null, 'closing the card left the highlight on the map');
+
+  selectAll(h);
+  await h.win.loadCityData();
+  await h.flush();
+  assert.equal(highlighted(h), null, 'a city change left the old region highlighted');
 });
