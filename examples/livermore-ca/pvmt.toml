@@ -1,7 +1,10 @@
 # Livermore, CA — simple single-city example
 #
-# Livermore is in Alameda County, so both OpenStreetMap (Overpass) and the
-# Alameda County ArcGIS FeatureServer are available as data sources.
+# Livermore takes its roads, parking and sidewalks from OpenStreetMap
+# (Overpass). It is in Alameda County, whose ArcGIS street centerlines
+# FeatureServer is kept below as a commented-out arcgis_url: compute buffers
+# both networks for a city that sets both, which double-counts paved area
+# (docs/configuration.md, "One road source per city").
 # This is a good starting point for new users.
 
 config_id = "livermore-ca"
@@ -17,4 +20,4 @@ current_budget = 4850000.0
 [[cities]]
 name = "Livermore, CA"
 overpass = true
-arcgis_url = "https://services5.arcgis.com/ROBnTHSNjoZ2Wm1P/arcgis/rest/services/Street_Centerlines/FeatureServer/0/query"
+# arcgis_url = "https://services5.arcgis.com/ROBnTHSNjoZ2Wm1P/arcgis/rest/services/Street_Centerlines/FeatureServer/0/query"

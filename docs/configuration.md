@@ -72,7 +72,9 @@ runs over every city. `--city` picks one, by name or slug. Every city needs a
 
 **Data sources.** `overpass = true` fetches roads, parking and sidewalks from
 OpenStreetMap. `arcgis_url` adds an ArcGIS FeatureServer of road centerlines.
-A city may use both, and features are deduplicated by ID. A city must set at
+Set one road source per city: a city that sets both gets both road networks,
+which overstates its paved area (see
+[One road source per city](#one-road-source-per-city)). A city must set at
 least one of them: `overpass` defaults to false, so a city with neither is
 rejected. An `arcgis_url` must be `https://`, and a private or loopback
 ArcGIS address is refused, unless the city also sets
@@ -104,6 +106,30 @@ state.
 **Census.** By default `pvmt all` also apportions 2020 Census population onto
 the city's hexes: `census` defaults to true, unlike `overpass`. Set
 `census = false` for a city outside the US, where TIGERweb has no blocks.
+
+### One road source per city
+
+pvmt accepts a city with both `overpass = true` and `arcgis_url`, but it does
+not merge the two road networks. Compute buffers every stored road from both
+sources and unions the strips. Two sources rarely draw a street on the same
+line, so where both hold it the union is wider than the street, and that part
+of its pavement is counted twice. In the 14 Alameda County cities, whose
+county centerlines duplicate OSM's streets, both sources together give about
+19% more city-maintained road area than OSM alone, and every figure priced on
+that area (need, break-even, Solvency Score) moves with it. No warning is
+printed.
+
+So give each city one road source. `overpass = true` alone gives it OSM
+roads, parking and sidewalks. `arcgis_url` alone gives it agency roads and no
+parking or sidewalks layer; ArcGIS rows carry no route number, so a state
+highway in the feed is filed as city-maintained. To drop a source from a city
+that already has its data, remove the setting, run `pvmt gc` to delete that
+source's stored rows (with `--sweep-disabled-sources` when the source is
+Overpass), then `pvmt all compute`: compute reads every stored row,
+configured or not. The Alameda County cities in
+[`examples/bay-area-ca`](../examples/bay-area-ca/pvmt.toml) and
+[`examples/livermore-ca`](../examples/livermore-ca/pvmt.toml) use OSM and keep
+the county feed as a commented-out `arcgis_url`.
 
 ### Tags
 

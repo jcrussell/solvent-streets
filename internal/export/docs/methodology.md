@@ -8,12 +8,15 @@ analysis presented in each dashboard.
 - **Road, parking, and sidewalk geometry.** OpenStreetMap via the Overpass
   API, under the Open Database License
   ([ODbL](https://www.openstreetmap.org/copyright)). Parking and sidewalks
-  always come from OSM alone, and so do roads unless the city has an agency
-  source, so coverage inherits OSM's gaps — most notably uneven sidewalk
-  tagging and inconsistent classification of alleys and unpaved service
-  roads.
+  always come from OSM alone, and roads do too in every city that sets no
+  agency source, so coverage inherits OSM's gaps — most notably uneven
+  sidewalk tagging and inconsistent classification of alleys and unpaved
+  service roads.
 - **Agency road centerlines.** Optional ArcGIS FeatureServer layers,
-  configured per city in `pvmt.toml`, merged with the OSM roads.
+  configured per city in `pvmt.toml`. They are not merged with the OSM roads:
+  a city that sets both has both networks buffered, so a street that both
+  sources hold is partly counted twice and the city's paved area is
+  overstated. A city should use one road source.
 - **City boundaries.** OpenStreetMap administrative boundaries, found by a
   Nominatim search for the city's name or fetched by OSM relation id, with
   OSM water subtracted so that cities with lakes or coastline compare fairly.

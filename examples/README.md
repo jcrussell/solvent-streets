@@ -17,8 +17,7 @@ pvmt serve
 ```
 
 **Start with [livermore-ca](livermore-ca/).** It is the smallest config that
-exercises the whole pipeline: one city, with both OpenStreetMap and Alameda
-County's ArcGIS centerlines.
+exercises the whole pipeline: one city, from OpenStreetMap.
 
 **[all](all/)** is the config behind <https://joncrussell.com/solvent-streets/>.
 It declares no cities of its own: it `[[include]]`s every other example into one

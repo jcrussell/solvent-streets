@@ -53,7 +53,7 @@ vuln:
 	go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
 
 # Real-network e2e. Gated by PVMT_E2E_NETWORK=1 so `make test` stays
-# hermetic. Hits Overpass + ArcGIS; 429/504 from upstream is flakiness,
+# hermetic. Hits Overpass and friends; 429/504 from upstream is flakiness,
 # not a code bug. -timeout sits above the test's own 20-minute budget so a
 # slow upstream fails with the stage it ran out in.
 e2e:

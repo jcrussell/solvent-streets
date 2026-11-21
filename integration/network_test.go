@@ -21,8 +21,9 @@ import (
 	"github.com/jcrussell/solvent-streets/pkg/iostreams"
 )
 
-// TestE2ENetwork_Livermore drives the full pipeline against real Overpass
-// + ArcGIS endpoints: all ingest -> all compute -> forecast -> export. It
+// TestE2ENetwork_Livermore drives the full pipeline against the real
+// upstreams examples/livermore-ca uses (Nominatim, Overpass, TIGERweb):
+// all ingest -> all compute -> forecast -> export. It
 // is the only test that exercises the network path; pipeline_test.go
 // short-circuits ingest with fixtures.
 //
@@ -136,7 +137,7 @@ func runStages(t *testing.T, ctx context.Context, s *e2eState) {
 		cmd.SetArgs(args)
 		if err := cmd.ExecuteContext(ctx); err != nil {
 			if ctx.Err() != nil {
-				t.Fatalf("%s (%v): the %v e2e budget ran out; upstream (Overpass/ArcGIS) is slow, not necessarily a code bug: %v\nstderr:\n%s",
+				t.Fatalf("%s (%v): the %v e2e budget ran out; upstream (Overpass) is slow, not necessarily a code bug: %v\nstderr:\n%s",
 					stage, args, e2eBudget, err, s.stderr.String())
 			}
 			t.Fatalf("%s (%v): %v\nstdout:\n%s\nstderr:\n%s",

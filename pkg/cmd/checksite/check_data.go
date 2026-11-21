@@ -211,10 +211,9 @@ func yearsViolation(name string, years []forecast.ScenarioYear) string {
 //
 // This is a WARN, not a FAIL: check-site reads only the built tree and cannot
 // see each example's pvmt.toml, so it can't tell an accidental divergence from
-// an intentional one. Examples legitimately ingest the same city with different
-// sources (e.g. bay-area-ca gives Oakland an arcgis_url + overpass while
-// top-50-cities uses overpass only), which yields different — but correct —
-// paved totals. Surface the divergence for a human to judge without blocking
+// an intentional one. Examples may legitimately ingest the same city with
+// different sources (one with an arcgis_url, another with overpass only),
+// which yields different — but correct — paved totals. Surface the divergence for a human to judge without blocking
 // publish.
 func (r *runner) checkConsistency(s *site) {
 	type seen struct {
