@@ -212,3 +212,19 @@ test('a missing hex-cost-summary.json raises no error banner', async () => {
   // The fixture lacks other files too; only the summary's line matters here.
   assert.doesNotMatch(h.doc.getElementById('error-banner-list').textContent, /hex-cost-summary/, 'a missing summary raised the banner');
 });
+
+test('Color by sits in the map toolbar and the legend is titled by the chosen metric', async () => {
+  const h = await loadGrid({ 'hex-metrics.json': { v: 2, metrics: { population } } });
+  const ctrl = h.$('#map-toolbar #map-color-by');
+  assert.ok(ctrl, 'Color by lives in the map toolbar, not inside the legend');
+  assert.equal(ctrl.hidden, false, 'with several metrics the control is shown');
+  assert.equal(h.$('#legend select'), null, 'the legend holds no selector');
+
+  h.win.selectHexMetric('population');
+  assert.equal(h.$('#legend-title').textContent, 'Population');
+});
+
+test('the legend names the default metric before any choice', async () => {
+  const h = await loadGrid();
+  assert.equal(h.$('#legend-title').textContent, h.$('#hex-metric').selectedOptions[0].textContent);
+});

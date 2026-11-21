@@ -1840,8 +1840,10 @@
             return keys.filter(metricAvailable);
         }
 
-        // populateMetricSelect lists every available metric. With a single
-        // choice the selector hides and the legend title names that metric.
+        // populateMetricSelect lists every available metric in the toolbar's
+        // Color by. With a single choice (or none yet: a city without hex
+        // data) the control hides; the legend title names the metric either
+        // way (renderLegend).
         function populateMetricSelect() {
             const sel = selectById('hex-metric');
             if (!sel) return;
@@ -1855,12 +1857,8 @@
                 sel.appendChild(o);
             });
             sel.value = hexMetric;
-            sel.hidden = keys.length <= 1;
-            const row = sel.closest('.legend-row');
-            // One choice (or none yet: a city without hex data) titles the
-            // legend with that metric, the default when there is none.
-            const only = keys.length <= 1 ? lookupMetric(keys[0] || DEFAULT_METRIC) : null;
-            if (row) row.querySelector('label').textContent = only ? only.label : 'Color by';
+            const ctrl = /** @type {HTMLElement | null} */ (sel.closest('.color-by'));
+            if (ctrl) ctrl.hidden = keys.length <= 1;
         }
 
         // renderLegend redraws the legend bar + labels for the active metric:
@@ -1873,6 +1871,8 @@
             const labels = queryEl('#legend .legend-labels');
             if (!bar || !labels) return;
             const metric = shownMetric();
+            const title = document.getElementById('legend-title');
+            if (title) title.textContent = (metric && metric.label) || '';
             if (!metric) {
                 bar.classList.remove('discrete');
                 bar.style.background = cssVar('--metric-none');

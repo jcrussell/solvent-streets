@@ -104,8 +104,7 @@ type TemplateData struct {
 	IsLiveServer bool
 	// GeneratedDate is the YYYY-MM-DD date this page was rendered.
 	GeneratedDate string
-	// BuildVersion is "<version> (commit <hash>)", the same string
-	// pvmt --version reports (build.Current().Short()).
+	// BuildVersion is the pvmt version that rendered the page (FooterInfo).
 	BuildVersion string
 }
 
@@ -285,10 +284,11 @@ func (d TemplateData) ForecastDefaults() ForecastDefaults {
 func (TemplateData) BandCount() int { return game.BandCount }
 
 // FooterInfo returns the values shown in the page footer: the generation
-// date (YYYY-MM-DD) and the build version string, which matches
-// `pvmt --version` (build.Current().Short()).
+// date (YYYY-MM-DD) and the pvmt version that rendered it. The version
+// alone: a release names its tag, and a development build's version already
+// carries its commit (v0.4.1-532-gb5bbc142).
 func FooterInfo() (generatedDate, buildVersion string) {
-	return time.Now().Format(time.DateOnly), build.Current().Short()
+	return time.Now().Format(time.DateOnly), build.Current().Version
 }
 
 // resourceColorsJSOnce lazily marshals ResourceColors. Lazy so a binary

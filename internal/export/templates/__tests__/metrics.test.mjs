@@ -63,7 +63,7 @@ test('the Color-by selector lists the available derived metrics plus each stored
   // spaces and est. cost are absent: the fixture has no parking or cost
   // summary), then stored metrics.
   assert.deepEqual(opts, ['paved_share', 'paved_area', 'fire_response_s']);
-  assert.equal($('#hex-metric').hidden, false);
+  assert.equal($('#map-color-by').hidden, false);
   const card = $$('#stats .stat-card').find((c) => c.querySelector('h3').textContent === 'Fire response');
   assert.ok(card, 'no metric card rendered from meta.metrics');
   assert.match(card.textContent, /Median per hex\s*8:20/, 'median must render in m:ss, marked per hex');
@@ -130,7 +130,8 @@ test('selecting a metric paints discrete bands guarded for missing values, redra
   assert.equal(byId[h1].metric_v, 700);
   assert.equal(byId[h2].metric_v, undefined, 'a hex the metric does not cover carries no value');
 
-  assert.match($('#legend .legend-row label').textContent, /Color by/);
+  assert.equal($('#legend-title').textContent, $('#hex-metric').selectedOptions[0].textContent,
+    'the legend is titled by the metric it keys');
   // One label per band, centred under its colour block: "≤ first", ranges,
   // "> last"; the exact strings follow the fixture's resolved bands.
   const labels = $$('#legend .legend-labels span').map((s) => s.textContent);
@@ -178,8 +179,8 @@ test('a city without the requested metric falls back to coverage, leaves it off 
   // stored metric.
   const opts = h.$$('#hex-metric option').map((o) => o.value);
   assert.ok(!opts.includes('fire_response_s'), 'an absent stored metric must not be offered');
-  assert.equal(h.$('#hex-metric').hidden, opts.length <= 1);
-  assert.match(h.$('#legend .legend-row label').textContent, opts.length <= 1 ? /Coverage %/ : /Color by/);
+  assert.equal(h.$('#map-color-by').hidden, opts.length <= 1);
+  assert.equal(h.$('#legend-title').textContent, 'Coverage %', 'the fallback metric titles the legend');
   assert.equal(params(h.win).get('metric'), null, 'the address bar must stop claiming the metric');
 });
 

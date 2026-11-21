@@ -168,9 +168,6 @@
         /* Metric legend: one label centred under each colour block. */
         #legend .legend-labels.discrete { display: grid; text-align: center; font-size: 11px; gap: 2px; }
         #legend .legend-labels.discrete span { white-space: nowrap; }
-        #legend .legend-row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
-        #legend .legend-row .legend-title { margin-bottom: 0; }
-        #legend select { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 2px 6px; font-size: 12px; cursor: pointer; }
         /* A metric legend paints discrete bands; the bar background is set by
            renderLegend to hard colour stops. */
         #legend .legend-bar.discrete { border: 1px solid var(--border); }
@@ -195,14 +192,24 @@
             white-space: nowrap;
         }
 
-        /* Drag-to-select region control + rubber-band rectangle */
-        #region-select-btn {
+        /* Map toolbar (top left): Color by and the drag-to-select region
+           control, styled as map controls. */
+        #map-toolbar {
             position: absolute; top: 10px; left: 10px; z-index: 11;
+            display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+            max-width: calc(100% - 20px);
+        }
+        .map-ctrl {
             background: var(--map-ctrl-bg); color: var(--text);
             border: 1px solid var(--map-ctrl-border); border-radius: 4px;
-            padding: 6px 10px; font-size: 13px; cursor: pointer;
+            font-size: 13px;
             box-shadow: 0 1px 3px rgba(0,0,0,0.2);
         }
+        .color-by { display: flex; align-items: center; gap: 6px; padding: 3px 4px 3px 10px; }
+        .color-by[hidden] { display: none; }
+        .color-by label { font-weight: 600; }
+        .color-by select { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 3px 6px; font-size: 13px; cursor: pointer; }
+        #region-select-btn { padding: 6px 10px; cursor: pointer; }
         #region-select-btn[aria-pressed="true"] {
             background: var(--accent, #2563eb); color: #fff; border-color: var(--accent, #2563eb);
         }
@@ -838,8 +845,21 @@
     </div>
     <div id="map-tab" class="tab-content active" data-city-scoped role="tabpanel" aria-labelledby="map-tab-btn">
         <div id="map"></div>
-        <button id="region-select-btn" type="button" aria-pressed="false" disabled
-                title="Drag a rectangle on the map to total the hexes inside it">Select Region</button>
+        <!-- Map toolbar: what the hexes are coloured by, and region select.
+             app.js populates #hex-metric with every registry metric available
+             for the city (the derived pavement colorings in
+             PVMT_CONFIG.hex_metrics plus the stored ones in hex-metrics.json)
+             and hides the control when there is only one. -->
+        <div id="map-toolbar">
+            <div class="map-ctrl color-by" id="map-color-by">
+                <label for="hex-metric">Color by</label>
+                <select id="hex-metric" autocomplete="off">
+                    <option value="paved_share">Coverage %</option>
+                </select>
+            </div>
+            <button id="region-select-btn" class="map-ctrl" type="button" aria-pressed="false" disabled
+                    title="Drag a rectangle on the map to total the hexes inside it">Select Region</button>
+        </div>
         <div id="region-rubberband" hidden></div>
         <div id="panel">
             <h2>{{.HeadingName}}</h2>
@@ -850,16 +870,10 @@
             <div id="stats"></div>
         </div>
         <div id="legend">
-            <!-- "Color by": every registry metric available for the city — the
-                 derived pavement colorings (PVMT_CONFIG.hex_metrics) plus the
-                 stored ones in hex-metrics.json (app.js populates #hex-metric and
-                 redraws the bar + labels from the metric's scale via renderLegend). -->
-            <div class="legend-row">
-                <label class="legend-title" for="hex-metric">Color by</label>
-                <select id="hex-metric" autocomplete="off">
-                    <option value="paved_share">Coverage %</option>
-                </select>
-            </div>
+            <!-- The key for the metric the toolbar's Color by selects:
+                 renderLegend titles it and redraws the bar + labels from the
+                 metric's scale. -->
+            <div class="legend-title" id="legend-title">Coverage %</div>
             <div class="legend-bar"></div>
             <div class="legend-labels">
                 <span>0%</span><span>25%</span><span>50%</span><span>75%</span><span>100%</span>
