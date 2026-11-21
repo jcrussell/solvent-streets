@@ -387,11 +387,11 @@ garages. Per lot, in order of precedence:
 1. The OpenStreetMap `capacity` tag, when it is a plain positive integer
    (a mapper's count). Values like `yes`, `~50` or `50;60` are not counts
    and fall through.
-2. Otherwise the lot's footprint area divided by **30 m² per space**
-   (~325 sq ft). Planning references put a surface lot at 300–400 sq ft
-   per space including drive aisles and circulation; 30 m² sits at the
-   efficient end of that range, so the fallback leans toward
-   over-counting. For structured parking (`parking=multi-storey`,
+2. Otherwise the lot's footprint area divided by **35 m² per space**
+   (~375 sq ft). Planning references put a surface lot at 300–400 sq ft
+   per space including drive aisles and circulation; 35 m² sits in the
+   middle of that range, because a mapped lot polygon also takes in
+   landscaped islands, internal drives and walkways. For structured parking (`parking=multi-storey`,
    `underground`, `rooftop`) the footprint estimate is multiplied by the
    level count from `parking:levels`, `levels` or `building:levels` when
    one is tagged above 1; an untagged garage counts as a single deck.
@@ -572,7 +572,7 @@ encodes; and OSM's station coverage is uneven (see 8).
   first-engine travel time used by the fire response coverage.
 - **VTPI** — Litman, T., *Transportation Cost and Benefit Analysis II —
   Parking Costs*, Victoria Transport Policy Institute. Source for the
-  300–400 sq ft per surface space rule behind the 30 m² parking-space
+  300–400 sq ft per surface space rule behind the 35 m² parking-space
   estimate.
 - [pvmt source](https://github.com/jcrussell/solvent-streets) —
   implementation reference. See

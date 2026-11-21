@@ -7,17 +7,18 @@ import (
 )
 
 // ParkingSpaceAreaM2 is the gross area one surface parking space consumes,
-// including its share of aisles and circulation: 30 m² (~325 sq ft). Planning
+// including its share of aisles and circulation: 35 m² (~375 sq ft). Planning
 // references put a surface lot at 300–400 sq ft per space all-in (VTPI,
 // Transportation Cost and Benefit Analysis II — Parking Costs, Litman; the
-// bare 9×18 ft stall is ~15 m², the rest is drive aisle), so 30 m² sits at the
-// efficient end of that range and errs toward over- rather than under-counting
-// spaces in a lot. A constant rather than a config knob, so changing it is a
+// bare 9×18 ft stall is ~15 m², the rest is drive aisle). 35 m² sits in the
+// middle of that range: an OSM lot polygon takes in landscaped islands,
+// internal drives and walkways, so the efficient end over-counts large
+// campus and retail lots. A constant rather than a config knob, so changing it is a
 // change to stored results: bump config.ComputeEpoch with it. Should it become
 // a knob, add it to the compute-inputs hash (internal/config/hash.go) as an
 // omitempty field whose zero value means this constant, so stored snapshots
 // stay valid.
-const ParkingSpaceAreaM2 = 30.0
+const ParkingSpaceAreaM2 = 35.0
 
 // SpaceSource says how a parking-space estimate was derived.
 type SpaceSource string

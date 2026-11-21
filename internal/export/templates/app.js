@@ -5100,7 +5100,7 @@
                 { key: 'sidewalkToRoadPct', needs: ['roads', 'sidewalks'],  label: 'Walkability (Sidewalk-to-Road Ratio)', award: 'Most Walkable', higher: true, fmt: function(v) { return v.toFixed(1) + '%'; }, color: '#10b981' },
                 { key: 'parkingAreaLarge', needs: ['parking'],  label: 'Parking Infrastructure', award: 'Most Parking', higher: true, fmt: function(v) { return fmtNum(v) + ' ' + areaLargeUnit(); }, color: '#3b82f6' },
                 // No award of its own: "Most Parking" above already crowns parking, and two parking medals would be noise.
-                { key: 'parkingSpaces', needs: ['parking'],  label: 'Parking Spaces (est.)', higher: true, filter: function(m) { return m.parkingSpaces > 0; }, fmt: function(v) { return v.toLocaleString('en-US'); }, color: '#60a5fa', note: 'Estimated vehicle capacity of mapped lots and garages: the OSM capacity tag where present, otherwise lot footprint ÷ 30 m² per space (× levels for structured parking). On-street parking is not counted. Cities computed before the estimate existed are omitted.' },
+                { key: 'parkingSpaces', needs: ['parking'],  label: 'Parking Spaces (est.)', higher: true, filter: function(m) { return m.parkingSpaces > 0; }, fmt: function(v) { return v.toLocaleString('en-US'); }, color: '#60a5fa', note: 'Estimated vehicle capacity of mapped lots and garages: the OSM capacity tag where present, otherwise lot footprint ÷ 35 m² per space (× levels for structured parking). On-street parking is not counted. Cities computed before the estimate existed are omitted.' },
                 { key: 'cityPct', needs: ['roads', 'parking', 'sidewalks'],  label: 'City Ownership Share', award: 'Most City-Owned', higher: true, fmt: function(v) { return v.toFixed(0) + '%'; }, color: '#8b5cf6' },
                 { key: 'blendedDecay', needs: ['roads', 'parking', 'sidewalks'],  label: 'Blended Decay Rate (lower is better)', award: 'Slowest Decay', higher: false, fmt: function(v) { return (v * 100).toFixed(2) + '%/yr'; }, color: '#ef4444' },
                 { key: 'year1PerAreaUnit', needs: ['roads', 'parking', 'sidewalks'],  rowNote: function(m) { return perAreaNote(m, m.year1AreaLarge); }, note: PER_AREA_TIP, label: 'Year 1 Maintenance Cost per ' + areaLargeUnitSingular(), award: 'Lowest Cost per ' + areaLargeUnitSingular(), higher: false, fmt: function(v) { return fmtMoney(v); }, color: '#ec4899' },
@@ -5396,7 +5396,7 @@
                 aggCard('Year-1 Maintenance Need', hasFc ? fmtMoney(regionYear1) : '—', 'Year 1\'s share of the treatment cycle, before any deferred backlog; the hold-steady budget is on Financials'),
                 aggCard(horizon + 'Deferred Backlog', hasFc ? fmtMoney(regionBacklog) : '—', hasFc ? 'Unfunded need accumulated by year ' + horizonYears : 'No forecast data in this region'),
                 aggCard('Year-1 Need per ' + areaLargeUnitSingular(), perArea === null ? '—' : fmtMoney(perArea, { full: true }), 'Year-1 need ÷ ' + fmtNum(fcYear1Area) + ' ' + unit + ' of maintained area (' + scopeName() + ')'),
-                aggCard('Est. Parking Spaces', totalSpaces > 0 ? fmtNum(totalSpaces) : '—', 'Lots and garages: OSM capacity, else footprint ÷ 30 m²/space')
+                aggCard('Est. Parking Spaces', totalSpaces > 0 ? fmtNum(totalSpaces) : '—', 'Lots and garages: OSM capacity, else footprint ÷ 35 m²/space')
             ].join('');
 
             // Forecast divergence note: per-city [forecast] can override
