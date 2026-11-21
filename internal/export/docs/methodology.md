@@ -263,7 +263,8 @@ covers is a claim about streets. They are derived from a
   A do-nothing network defers a full slice every year and crosses around
   year `N`; a city funding a fraction `f` of each slice crosses around
   `N / (1 − f)`, so well-funded cities never reach it and are reported as
-  *solvent through the horizon*. The metric therefore discriminates among
+  *solvent through the horizon* (Compare shows *After* the last forecast
+  year, e.g. "After 2055"). The metric therefore discriminates among
   the genuinely underfunded; on the funded side, **funding gap is the
   primary signal**. Reported only when a current budget is configured.
 

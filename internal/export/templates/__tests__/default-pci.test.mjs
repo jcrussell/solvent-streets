@@ -48,3 +48,19 @@ test('the Financials headline names an assumed PCI', async () => {
   cited.win.renderSolvencyHeadline();
   assert.doesNotMatch(cited.$('#solvency-headline').textContent, /Condition assumed/);
 });
+
+test('the Financials headline names the last forecast year a solvent city reaches', async () => {
+  const solvent = forecastJSON.map((f) => {
+    if (f.resource_type !== 'roads') return f;
+    const rest = { ...f, current_budget: f.break_even_budget * 2 };
+    delete rest.insolvency_year;
+    return rest;
+  });
+  const h = await ready(solvent, 'https://example.test/index.html?tab=financials-tab');
+  h.win.eval('liveSolvency = null');
+  h.win.renderSolvencyHeadline();
+  const lead = h.$('#solvency-headline .lead');
+  const year = h.get('forecastYearOne() + financialsHorizon() - 1');
+  assert.match(lead.textContent, new RegExp('stay solvent through ' + year + '\\.'));
+  assert.match(lead.querySelector('.num').getAttribute('title'), /^Solvent through the \d+-year forecast horizon$/);
+});

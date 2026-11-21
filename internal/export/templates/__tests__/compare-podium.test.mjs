@@ -168,3 +168,20 @@ test('the solvency card lists city-maintained roads before insolvency', async ()
   const labels = Array.from(card.querySelectorAll('.sb-row > span:first-child')).map((s) => s.textContent);
   assert.deepEqual(labels, ['Current Budget', 'Hold-Steady Budget', 'Funding Gap', 'City-Maintained Roads', 'Insolvency']);
 });
+
+test('a solvent city reads "After" its last forecast year, with the horizon in a tooltip', async () => {
+  const h = await renderWith([city('alpha-ca', 120), city('beta-ca', 60, 12)]);
+  const horizon = seedJSON.horizon_years;
+  assert.ok(horizon > 0);
+  const lastYear = h.get('forecastYearOne()') + horizon - 1;
+  const insolvency = (slug) => {
+    const card = cards(h.doc).find((c) => c.dataset.slug === slug);
+    const row = Array.from(card.querySelectorAll('.sb-row')).find((r) => r.firstElementChild.textContent === 'Insolvency');
+    return row.lastElementChild;
+  };
+  const solvent = insolvency('alpha-ca');
+  assert.equal(solvent.textContent, 'After ' + lastYear);
+  assert.equal(solvent.querySelector('[title]').getAttribute('title'), `Solvent through the ${horizon}-year forecast horizon`);
+  assert.equal(insolvency('beta-ca').textContent, 'Year 12');
+  assert.doesNotMatch(h.$('#compare-tab').textContent, /Solvent through horizon/);
+});

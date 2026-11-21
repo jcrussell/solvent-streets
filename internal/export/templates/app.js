@@ -3410,6 +3410,16 @@
             return y > 0 ? y : new Date().getFullYear();
         }
 
+        // solventThroughHTML names a city that stays solvent by the last
+        // forecast year's calendar year, prefix first ("After 2055"), with the
+        // horizon it stands for in a tooltip. cls is an optional class.
+        /** @param {number} horizon @param {string} prefix @param {string} [cls] */
+        function solventThroughHTML(horizon, prefix, cls) {
+            var lastYear = forecastYearOne() + horizon - 1;
+            return '<span' + (cls ? ' class="' + cls + '"' : '') + ' title="Solvent through the ' + horizon +
+                '-year forecast horizon">' + prefix + lastYear + '</span>';
+        }
+
         // Render the roads-only solvency headline above the Financials charts
         // from the per-city forecast.json (the selected city's forecastData).
         // Break-even is always shown; the insolvency year and funding gap are
@@ -3436,7 +3446,7 @@
                     var crossYear = forecastYearOne() + roads.insolvency_year - 1;
                     lead = 'At current funding, ' + name + '’s street-repair backlog grows to an entire treatment cycle of deferred work by <span class="num">' + crossYear + '</span> (year ' + roads.insolvency_year + ').';
                 } else {
-                    lead = 'At current funding, ' + name + '’s streets stay solvent through the forecast horizon.';
+                    lead = 'At current funding, ' + name + '’s streets stay solvent through ' + solventThroughHTML(financialsHorizon(), '', 'num') + '.';
                 }
                 if (gapDollars > 0) {
                     detail = 'Holding the network steady would take <strong>' + fmtMoney(breakEven) + '/yr</strong> — <strong>' + fmtMoney(gapDollars) + ' more</strong> than today’s ' + fmtMoney(roads.current_budget) + ' (streets/roads only).';
@@ -5039,7 +5049,7 @@
             function solvencyBreakdown(m) {
                 var gap = m.fundingGap !== null ? ((m.fundingGap >= 0 ? '+' : '') + m.fundingGap.toFixed(0) + '%') : '—';
                 var insolv = m.currentBudget > 0
-                    ? (m.insolvencyYear ? 'Year ' + m.insolvencyYear : 'Solvent through horizon')
+                    ? (m.insolvencyYear ? 'Year ' + m.insolvencyYear : solventThroughHTML(compareHorizon, 'After '))
                     : '—';
                 return (m.currentBudget > 0 ? '<div class="sb-row"><span>Current Budget</span><span>' + fmtMoney(m.currentBudget) + '/yr</span></div>' : '') +
                     (m.breakEvenBudget > 0 ? '<div class="sb-row"><span>Hold-Steady Budget</span><span>' + fmtMoney(m.breakEvenBudget) + '/yr</span></div>' : '') +
