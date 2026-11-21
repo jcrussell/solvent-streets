@@ -16,10 +16,12 @@ func (r *runner) checkDecays(s *site) {
 
 // maxDecayDrift is the largest relative gap checkDecay accepts between the
 // map's road decay rate and the forecast's. The two agree to about 1.5% at
-// worst on the release site (hex areas are clipped and k is rounded to four
-// figures); a compute left over from a change to the class decay rates, such
-// as a 0.7x recalibration, is off by tens
-// of percent.
+// worst on the release site. The gap is the class mix: the map weights each
+// hex's k by its road area, while the forecast's class cohorts split the
+// scope's road area in proportion to per-class buffered areas, in which a
+// crossing of two classes counts in both. A compute left over from a change
+// to the class decay rates, such as a 0.7x recalibration, is off by tens of
+// percent.
 const maxDecayDrift = 0.05
 
 // decayHexGrid is the part of hexgrid.geojson checkDecay reads: each hex's
