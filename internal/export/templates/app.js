@@ -412,6 +412,7 @@
             if (!sel || CITIES.length === 0) return '';
             const picked = PvmtSelectors.rebuildCitySelect(sel, CITIES, TAG_DIMS, selectedTags, prefer);
             syncNoMatchState();
+            syncFilterStatus();
             return picked;
         }
 
@@ -5009,13 +5010,76 @@
             applyTagFilters(PvmtSelectors.readFilters());
             Router.push();
         }
+        // clearTagFilters drops every tag filter: the no-match panel's
+        // "Clear filters" and the Compare / Aggregate status lines' Clear.
+        function clearTagFilters() {
+            PvmtSelectors.writeFilters({});
+            onTagFilterChange();
+        }
         {
             const clear = document.getElementById('no-match-clear');
-            if (clear) clear.addEventListener('click', () => {
-                PvmtSelectors.writeFilters({});
-                onTagFilterChange();
+            if (clear) clear.addEventListener('click', clearTagFilters);
+            queryAll('.filter-status .filter-clear').forEach(b => b.addEventListener('click', clearTagFilters));
+        }
+
+        // syncFilterStatus shows the active tag filters where they act: an
+        // accent on each set select, their count on the Filter button, and
+        // on Compare and Aggregate "Showing N of M cities · <values>" with a
+        // Clear. Run after every selector rebuild (rebuildCitySelector).
+        function syncFilterStatus() {
+            const active = queryAll('select.tag-filter').filter(el => {
+                const on = /** @type {HTMLSelectElement} */ (el).value !== '';
+                el.classList.toggle('active', on);
+                return on;
+            });
+            const n = active.length;
+            const badge = document.getElementById('filter-count');
+            if (badge) {
+                badge.hidden = n === 0;
+                badge.textContent = String(n);
+            }
+            const btn = document.getElementById('filter-btn');
+            if (btn) btn.setAttribute('aria-label', n > 0 ? 'Filter cities, ' + n + ' active' : 'Filter cities');
+            const labels = active.map(el => {
+                const opt = /** @type {HTMLSelectElement} */ (el).selectedOptions[0];
+                return opt ? opt.textContent : '';
+            });
+            const shown = PvmtSelectors.filterCities(CITIES, selectedTags).length;
+            queryAll('.filter-status').forEach(el => {
+                el.hidden = n === 0;
+                const text = el.querySelector('.filter-status-text');
+                if (text) text.textContent = n > 0 ? 'Showing ' + shown + ' of ' + CITIES.length + ' cities · ' + labels.join(' · ') : '';
             });
         }
+
+        // The Filter button (narrow screens) opens the filters as a
+        // popover: a disclosure like the gear menu, closed by an outside
+        // click or Escape.
+        (function initTagFilterBar() {
+            const bar = document.getElementById('topbar-filters');
+            const btn = document.getElementById('filter-btn');
+            if (!bar || !btn) return;
+            /** @param {boolean} open */
+            function setOpen(open) {
+                bar.classList.toggle('open', open);
+                btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+            }
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                setOpen(!bar.classList.contains('open'));
+            });
+            document.addEventListener('click', (e) => {
+                if (!bar.classList.contains('open')) return;
+                if (e.target instanceof Node && bar.contains(e.target)) return;
+                setOpen(false);
+            });
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape' && bar.classList.contains('open')) {
+                    setOpen(false);
+                    btn.focus();
+                }
+            });
+        })();
 
         // --- Units toggle (gear menu) --------------------------------------
         // Display units are a client-side preference; the data is raw metric, so
@@ -5347,8 +5411,7 @@
                 Router.push();
             });
             // The jump to the charts scrolls the tab rather than following
-            // the fragment, which would add a history entry (as the About
-            // tab's in-page links do).
+            // the fragment, which would add a history entry and a popstate.
             const jump = document.getElementById('compare-jump');
             const charts = document.getElementById('compare-charts');
             if (jump && charts) jump.addEventListener('click', (e) => {

@@ -374,10 +374,59 @@
         #gear-menu .layer-toggle { margin-top: 0; border-top: none; padding-top: 0; }
         #gear-toggles-row { flex-direction: column; align-items: stretch; }
         /* Tag filters (one select per dimension) narrow the city selector on
-           every tab; stacked under their label like the layer toggles. */
-        #gear-cities-row { flex-direction: column; align-items: stretch; }
-        .tag-filters { display: flex; flex-direction: column; gap: 6px; }
+           every tab. In the top bar beside it, styled as it is; below
+           1100px they fold into a popover behind the Filter button, styled
+           as the gear menu. */
+        .topbar-filters { margin-left: auto; align-self: center; display: flex; align-items: center; }
+        .topbar-filters + #city-select { margin-left: 8px; }
+        .tag-filters { display: flex; gap: 6px; }
         .tag-filter[hidden] { display: none; }
+        .tab-bar .tag-filter {
+            background: var(--header-bg); color: var(--header-fg);
+            border: 1px solid var(--header-muted); border-radius: 4px;
+            padding: 4px 8px; font-size: 13px; cursor: pointer; max-width: 160px;
+        }
+        .tab-bar .tag-filter.active { border-color: var(--accent); }
+        .filter-toggle {
+            display: none; align-items: center; gap: 6px; height: 32px; padding: 0 10px;
+            background: none; color: var(--header-fg); font-size: 13px;
+            border: 1px solid var(--header-muted); border-radius: 6px; cursor: pointer;
+        }
+        .filter-toggle:hover { border-color: var(--header-fg); }
+        .filter-count {
+            min-width: 18px; height: 18px; padding: 0 5px; box-sizing: border-box;
+            border-radius: 999px; background: var(--accent); color: #fff;
+            font-size: 11px; font-weight: 700; line-height: 18px; text-align: center;
+        }
+        .filter-count[hidden] { display: none; }
+        .filter-toggle:focus-visible, .filter-clear:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+        @media (max-width: 1100px) {
+            .filter-toggle { display: inline-flex; }
+            .tag-filter-pop {
+                display: none; position: fixed; right: 8px;
+                top: calc(var(--tabbar-h) + 4px + var(--banner-h));
+                background: var(--panel); color: var(--text);
+                border: 1px solid var(--border); border-radius: 8px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+                padding: 12px; min-width: 220px; z-index: 1100;
+            }
+            .topbar-filters.open .tag-filter-pop { display: block; }
+            .tag-filter-pop .tag-filters { flex-direction: column; }
+            .tab-bar .tag-filter-pop .tag-filter { background: var(--bg); color: var(--text); border-color: var(--border); max-width: none; }
+            .tab-bar .tag-filter-pop .tag-filter.active { border-color: var(--accent); }
+        }
+        /* The filters' effect on Compare and Aggregate, with a way out. */
+        .filter-status {
+            display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 4px 8px;
+            margin: -20px 0 24px; font-size: 13px; color: var(--text-muted);
+        }
+        .filter-status[hidden] { display: none; }
+        .filter-clear {
+            background: none; border: none; padding: 0; color: var(--link);
+            font-size: 13px; font-weight: 600; cursor: pointer;
+        }
+        .filter-clear::before { content: "·"; color: var(--text-muted); font-weight: 400; margin-right: 8px; }
+        .filter-clear:hover { text-decoration: underline; }
         .gear-menu select {
             background: var(--bg);
             color: var(--text);
@@ -890,6 +939,15 @@
             <a class="nav-link" href="{{if .IsLiveServer}}/play{{else}}play.html{{end}}" title="Play the Solvent Streets game">Play &#9656;</a>
         </div>
         {{if .Cities}}
+        {{if .HasTagFilters}}
+        <!-- The city tag filters, beside the selector they narrow. On a
+             narrow screen they fold behind the Filter button, which counts
+             the active ones (app.js initTagFilterBar, syncFilterStatus). -->
+        <div class="topbar-filters" id="topbar-filters">
+            <button type="button" class="filter-toggle" id="filter-btn" aria-expanded="false" aria-controls="tag-filter-pop">Filter<span class="filter-count" id="filter-count" hidden></span></button>
+            <div class="tag-filter-pop" id="tag-filter-pop">{{template "tag_filters" .}}</div>
+        </div>
+        {{end}}
         {{template "city_select" .}}
         {{end}}
         <button class="gear-toggle" id="gear-btn"
@@ -899,12 +957,6 @@
                 {{if not .Cities}}style="margin-left:auto;"{{end}}>&#9881;</button>
     </div>
     <div class="gear-menu" id="gear-menu" role="group" aria-label="Settings" hidden>
-        {{if .HasTagFilters}}
-        <div class="gear-row" id="gear-cities-row">
-            <span class="gear-label">Cities</span>
-            {{template "tag_filters" .}}
-        </div>
-        {{end}}
         <div class="gear-row" id="gear-scope-row" hidden>
             <span class="gear-label" title="Which roads, parking and sidewalks the figures cover: those the city maintains, or every jurisdiction's">Jurisdiction</span>
             <div class="jurisdiction-toggle" id="scope-toggle" role="group" aria-label="Jurisdiction">
@@ -1153,6 +1205,7 @@
                 <h2>City Showdown</h2>
                 <div class="compare-sub">How does your city's pavement stack up?</div>
             </div>
+            {{if .HasTagFilters}}<div class="filter-status" hidden><span class="filter-status-text"></span><button type="button" class="filter-clear">Clear</button></div>{{end}}
             <div class="compare-loading" id="compare-loading">Loading city data...</div>
             <div id="compare-content" style="display:none;">
                 <!-- How many tiles each section shows (app.js
@@ -1202,6 +1255,7 @@
                 <h2>Region Rollup</h2>
                 <div class="compare-sub">The whole network as one fiscal entity — what does it cost to keep solvent?</div>
             </div>
+            {{if .HasTagFilters}}<div class="filter-status" hidden><span class="filter-status-text"></span><button type="button" class="filter-clear">Clear</button></div>{{end}}
             <div class="compare-loading" id="aggregate-loading">Loading region data...</div>
             <div id="aggregate-content" style="display:none;">
                 <div class="agg-note" id="aggregate-divergence-note" hidden></div>

@@ -206,14 +206,25 @@ func TestCitySelectorOptgroups(t *testing.T) {
 		t.Errorf("expected San Jose option to render twice (Bay Area + Top 50), got %d", n)
 	}
 
-	// The gear menu's Cities row holds one filter per dimension: the group
+	// The top bar holds one filter per dimension beside the city selector,
+	// outside the gear menu (one home for them): the group
 	// filter lists each value once (not once per city), the state filter lists
 	// its values by bare label. The legacy #tag-scope is gone.
 	if strings.Contains(out, `id="tag-scope"`) {
 		t.Error("legacy #tag-scope selector must not render")
 	}
-	if !strings.Contains(out, `id="gear-cities-row"`) {
-		t.Error("missing gear-menu Cities row")
+	bar := strings.Index(out, `id="topbar-filters"`)
+	if bar < 0 {
+		t.Fatal("missing the top-bar tag filters")
+	}
+	if gear := strings.Index(out, `id="gear-menu"`); gear < 0 || bar > gear {
+		t.Error("the tag filters are not in the top bar, ahead of the gear menu")
+	}
+	if strings.Contains(out, `id="gear-cities-row"`) {
+		t.Error("the gear menu still carries a Cities row")
+	}
+	if n := strings.Count(out, `class="filter-status"`); n != 2 {
+		t.Errorf("expected a filter status line on Compare and Aggregate, got %d", n)
 	}
 	if !strings.Contains(out, `class="tag-filter" data-dim="group"`) || !strings.Contains(out, `class="tag-filter" data-dim="state"`) {
 		t.Error("missing a tag-filter select for the group or state dimension")
@@ -267,8 +278,10 @@ func TestCitySelector_NoFilterRowWithoutChoice(t *testing.T) {
 	if err := tmpl.Execute(&buf, td); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
-	if strings.Contains(buf.String(), `id="gear-cities-row"`) {
-		t.Error("Cities row rendered although no filter offers a choice")
+	for _, id := range []string{`id="topbar-filters"`, `id="filter-btn"`, `class="filter-status"`, `class="tag-filter"`} {
+		if strings.Contains(buf.String(), id) {
+			t.Errorf("%s rendered although no filter offers a choice", id)
+		}
 	}
 
 	mixed := []CityInfo{
@@ -284,8 +297,8 @@ func TestCitySelector_NoFilterRowWithoutChoice(t *testing.T) {
 		t.Fatalf("execute: %v", err)
 	}
 	out := buf.String()
-	if !strings.Contains(out, `id="gear-cities-row"`) {
-		t.Error("Cities row missing although the group dimension offers a choice")
+	if !strings.Contains(out, `id="topbar-filters"`) {
+		t.Error("tag filters missing although the group dimension offers a choice")
 	}
 	if !strings.Contains(out, `data-dim="state" aria-label="Filter cities by State" title="Show only cities in this State" autocomplete="off" hidden>`) {
 		t.Error("single-value state filter must render hidden")

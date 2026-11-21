@@ -145,8 +145,10 @@ A tag is either a `dimension:value` pair or a plain label. A plain label
 belongs to the `group` dimension. A dimension name is a lowercase identifier,
 and the value is everything after the first colon. The `group` dimension
 builds the selector's sections. Every dimension with at least two values gets
-a filter in the gear menu. Filters combine with AND, apply on every tab, and
-are recorded in the URL as `?tag=dimension:value`. Every city whose name ends
+a filter ("Any State") in the top bar beside the city selector, behind a
+**Filter** button on a narrow screen. Filters combine with AND, apply on
+every tab, and are recorded in the URL as `?tag=dimension:value`. Compare and
+Aggregate say how many cities a filter leaves and offer to clear it. Every city whose name ends
 in a comma and a US state, DC or territory postal code (`"Livermore, CA"`)
 also gets a `state:XX` tag at export, unless it sets a `state:` tag itself.
 Any other code (`"Toronto, ON"`) derives no tag; set one explicitly if you want it. Malformed tags are rejected at load, for example

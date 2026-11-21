@@ -70,7 +70,7 @@ test('tag filters round-trip through the URL on every tab', async () => {
   const { win, $, flush } = load({ data: fullData });
   await flush();
 
-  // The filters live in the gear menu and apply everywhere, so they
+  // The filters live in the top bar and apply everywhere, so they
   // serialize on the Map tab too. Both dimensions are present: "group" from
   // the explicit tags, "state" derived from the ", XX" name suffix.
   win.selectTab('map-tab');
