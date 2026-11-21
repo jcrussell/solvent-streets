@@ -219,17 +219,21 @@
             display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
             max-width: calc(100% - 20px);
         }
+        /* One height for every toolbar control (--map-ctrl-h), border
+           included, so Color by and Select Region line up. */
         .map-ctrl {
+            --map-ctrl-h: 32px;
+            box-sizing: border-box; height: var(--map-ctrl-h);
             background: var(--map-ctrl-bg); color: var(--text);
             border: 1px solid var(--map-ctrl-border); border-radius: 4px;
-            font-size: 13px;
+            font: inherit; font-size: 13px; line-height: 1.2;
             box-shadow: 0 1px 3px rgba(0,0,0,0.2);
         }
-        .color-by { display: flex; align-items: center; gap: 6px; padding: 3px 4px 3px 10px; }
+        .color-by { display: flex; align-items: center; gap: 6px; padding: 0 3px 0 10px; }
         .color-by[hidden] { display: none; }
         .color-by label { font-weight: 600; }
-        .color-by select { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 3px 6px; font-size: 13px; cursor: pointer; }
-        #region-select-btn { padding: 6px 10px; cursor: pointer; }
+        .color-by select { box-sizing: border-box; height: calc(var(--map-ctrl-h) - 8px); background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 0 6px; font-size: 13px; line-height: 1.2; cursor: pointer; }
+        #region-select-btn { display: inline-flex; align-items: center; padding: 0 10px; cursor: pointer; }
         #region-select-btn[aria-pressed="true"] {
             background: var(--accent, #2563eb); color: #fff; border-color: var(--accent, #2563eb);
         }
