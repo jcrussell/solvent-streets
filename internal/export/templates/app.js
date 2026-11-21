@@ -5438,7 +5438,7 @@
 
             // Two scores: the primary Solvency Score (fiscal — the project's headline
             // question) and a secondary Infrastructure Index (a descriptive asset
-            // composite). See methodology.md.
+            // composite). See docs/methodology.md.
             function normalize(arr, key, higherBetter) {
                 var vals = arr.map(function(m) { return m[key]; });
                 var mn = Math.min.apply(null, vals), mx = Math.max.apply(null, vals);

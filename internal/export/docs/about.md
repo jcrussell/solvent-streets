@@ -34,7 +34,7 @@ today's budget. A city that cites no budget cannot be scored and shows N/A.
 The **insolvency year** is the year a city's postponed repairs add up to a
 whole repair cycle's worth of work, the point at which, in the model, it can
 no longer catch up. A well-funded city may never reach it.
-[How both are computed](methodology.md#solvency-metrics-streetsroads-only).
+[How both are computed](../../../docs/methodology.md#solvency-metrics-streetsroads-only).
 
 ### Keep in mind
 
@@ -50,11 +50,11 @@ no longer catch up. A well-funded city may never reach it.
 - **Today's dollars.** Costs include no inflation.
 
 See all the [assumptions and
-limitations](methodology.md#assumptions-and-limitations).
+limitations](../../../docs/methodology.md#assumptions-and-limitations).
 
 ### Learn more
 
-- [Full methodology →](methodology.md): every model, setting and source.
+- [Full methodology →](../../../docs/methodology.md): every model, setting and source.
 - [Validation](../../../docs/validation.md): how the estimates compare with
   cities' published figures.
 - [README](../../../README.md) and the

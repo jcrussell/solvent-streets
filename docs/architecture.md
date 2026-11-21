@@ -10,7 +10,7 @@ from the newest snapshot (or the one `--snapshot` names).
 `pvmt forecast` reads the latest compute. Every reader simulates the forecast
 when it runs, so nothing forecast-related is ever stored. This page explains how each stage is built and why. What the models
 *mean* (decay, cost, solvency, fire response, population) is in the
-[methodology](../internal/export/docs/methodology.md), and every setting is in
+[methodology](methodology.md), and every setting is in
 [configuration.md](configuration.md).
 
 ```mermaid

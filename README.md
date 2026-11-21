@@ -64,7 +64,7 @@ once the `.deb` is installed (the tarballs carry the same manpages).
 configs to start from. When something fails, the error's hint has a matching
 section in [troubleshooting](docs/troubleshooting.md); when a release needs
 action from you, [upgrading](docs/upgrading.md) says what. The
-[methodology](internal/export/docs/methodology.md) explains the models behind
+[methodology](docs/methodology.md) explains the models behind
 the dashboard (whose About tab is a short summary of it), and
 [validation](docs/validation.md) tests them against published city data. To
 work on the code, start with [CONTRIBUTING.md](CONTRIBUTING.md) and

@@ -11,7 +11,7 @@ set: PCI, budget, backlog, treatment output and condition distribution. Every
 figure has a source (see [Sources](#sources)).
 
 What the model *is* is described in the
-[methodology](../internal/export/docs/methodology.md). This page is the
+[methodology](methodology.md). This page is the
 evidence for it. The parts that can be checked offline are re-run on every CI
 build by [`pvmt validate`](#7-what-is-gated-and-what-remains-open).
 
@@ -170,7 +170,7 @@ sources:
 - Historical FHWA guidance.
 - Berkeley's StreetSaver schedule, which is *loaded* with ADA, soft-cost and
   contingency allowances (see the
-  [methodology](../internal/export/docs/methodology.md#bare-construction-cost-vs-loaded-program-cost)).
+  [methodology](methodology.md#bare-construction-cost-vs-loaded-program-cost)).
 
 The conversions used are 1 lane-mile = 5,886 m² and 1 SY = 0.836 m².
 
@@ -192,7 +192,7 @@ the 12-year cycle (§5), already reproduce Berkeley's loaded hold-steady rate,
 $5.67 per m² a year against its $5.6. Multiplying the tiers by 1.5 would put
 that rate at about $8.50, 52% above it. A city whose program costs genuinely
 run higher has `cost_multiplier` (see the
-[methodology](../internal/export/docs/methodology.md#bare-construction-cost-vs-loaded-program-cost)).
+[methodology](methodology.md#bare-construction-cost-vs-loaded-program-cost)).
 
 ## 4. Condition spread
 
@@ -216,7 +216,7 @@ mean, so only the official, internally consistent distributions are
 tabulated.
 
 The forecast prices an assumed spread around the configured average (see the
-[methodology](../internal/export/docs/methodology.md#condition-spread)). It
+[methodology](methodology.md#condition-spread)). It
 moves Berkeley's break-even from about $4.7 to $5.67 per m² a year. A single-peaked
 spread cannot reproduce Berkeley's barbell, though, so the correction is
 partial, and only measured per-segment condition would close the gap.
@@ -234,7 +234,7 @@ evidence on cycle length:
 
 The model schedules 1/N of the network each year, with N = 12, the middle of
 the 10–14-year municipal range (see the
-[methodology](../internal/export/docs/methodology.md#treatment-cycle)). The
+[methodology](methodology.md#treatment-cycle)). The
 cycle has to be in the model. Pricing the whole network every year (N = 1)
 multiplies every break-even by 12, which would put Berkeley at about $68 per m²
 a year against its real $5.6. The insolvency threshold would shrink to a

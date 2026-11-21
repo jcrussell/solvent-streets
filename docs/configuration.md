@@ -354,20 +354,20 @@ url = "https://overpass.private.coffee/api/interpreter"
 
 The forecast models each road class's condition decaying over the horizon,
 priced by PCI-banded cost tiers, against the city's budget. What each setting
-means is explained in the [methodology](../internal/export/docs/methodology.md).
+means is explained in the [methodology](methodology.md).
 Every setting except `horizon_years` goes in `[forecast]` or a city's
 `[cities.forecast]`. `horizon_years` is top-level only (see below the table):
 
 | Key | Default | Range | Sets |
 |---|---|---|---|
-| `initial_pci` | 85 | (0, 100] | the network's average starting condition ([Data sources](../internal/export/docs/methodology.md#data-sources)) |
-| `decay_rate` | per class | 0–1 | the annual decay constant `k` of a typical road; every road class scales with it, and parking and sidewalks keep their own rates ([Decay model](../internal/export/docs/methodology.md#decay-model)) |
-| `growth_rate` | 0 | −0.5–0.5 | linear annual growth of paved area as a fraction, not a percentage (`0.01` is 1% a year); a per-city `0` overrides the top level ([Area growth](../internal/export/docs/methodology.md#area-growth)) |
+| `initial_pci` | 85 | (0, 100] | the network's average starting condition ([Data sources](methodology.md#data-sources)) |
+| `decay_rate` | per class | 0–1 | the annual decay constant `k` of a typical road; every road class scales with it, and parking and sidewalks keep their own rates ([Decay model](methodology.md#decay-model)) |
+| `growth_rate` | 0 | −0.5–0.5 | linear annual growth of paved area as a fraction, not a percentage (`0.01` is 1% a year); a per-city `0` overrides the top level ([Area growth](methodology.md#area-growth)) |
 | `horizon_years` | 30 | 1–200 | the forecast horizon in years, one per config |
-| `cost_tiers` | 3 tiers | PCI 0–101 | treatment cost per m² by PCI band ([Cost model](../internal/export/docs/methodology.md#cost-model)) |
-| `cost_multiplier` | 1.0 | 0–5 | a factor on every tier's cost, not a percentage: 1.0 prices the tiers as written and 1.5 raises every cost by half ([Bare construction cost vs. loaded program cost](../internal/export/docs/methodology.md#bare-construction-cost-vs-loaded-program-cost)) |
-| `treatment_cycle_years` | 12 | 1–40 | the share of the network treated per year, 1/N ([Treatment cycle](../internal/export/docs/methodology.md#treatment-cycle)) |
-| `current_budget` | unset | ≥ 0 | the annual pavement budget in dollars; it enables `insolvency_year` and `funding_gap` ([Solvency metrics](../internal/export/docs/methodology.md#solvency-metrics-streetsroads-only)) |
+| `cost_tiers` | 3 tiers | PCI 0–101 | treatment cost per m² by PCI band ([Cost model](methodology.md#cost-model)) |
+| `cost_multiplier` | 1.0 | 0–5 | a factor on every tier's cost, not a percentage: 1.0 prices the tiers as written and 1.5 raises every cost by half ([Bare construction cost vs. loaded program cost](methodology.md#bare-construction-cost-vs-loaded-program-cost)) |
+| `treatment_cycle_years` | 12 | 1–40 | the share of the network treated per year, 1/N ([Treatment cycle](methodology.md#treatment-cycle)) |
+| `current_budget` | unset | ≥ 0 | the annual pavement budget in dollars; it enables `insolvency_year` and `funding_gap` ([Solvency metrics](methodology.md#solvency-metrics-streetsroads-only)) |
 
 A tier is one `[[forecast.cost_tiers]]` table with `min_pci`, `max_pci`,
 `cost_per_sqm` and a `label`: `min_pci` must be below `max_pci`, `cost_per_sqm`
@@ -375,7 +375,7 @@ must be positive and the label must not be empty. Bands must not overlap; a
 gap between them is allowed, and a PCI in the gap is priced at the nearest
 band. Setting tiers replaces the
 road defaults entirely, and sidewalks are priced at 0.6× the same tiers
-([Cost model](../internal/export/docs/methodology.md#cost-model)).
+([Cost model](methodology.md#cost-model)).
 Except for `growth_rate`, a `0` means "use the default". The browser forecast
 and Play check the exported settings against these same ranges, so a config
 that loads exports a site whose forecast runs. The default tiers and
@@ -418,7 +418,7 @@ overpass = true
 
 `turnout_s` and `travel_threshold_s` are in seconds. `[[services]]` overrides
 only the fields it sets, and an explicit `0` counts as set. The defaults and their sources are in the
-[methodology](../internal/export/docs/methodology.md#service-coverage-fire-response).
+[methodology](methodology.md#service-coverage-fire-response).
 A hand-placed facility is routed from exactly like a mapped one. Mapped
 stations are fetched up to 5 km beyond the boundary's bounding box, with the
 roads in that margin, so a station in that margin, hand-placed or mapped, is

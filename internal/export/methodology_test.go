@@ -18,9 +18,13 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/forecast"
 )
 
-// methodologyFile is the full methodology, read on GitHub. The dashboard
-// does not embed it; the About tab links into it.
-const methodologyFile = "docs/methodology.md"
+// methodologyRepoPath is the full methodology's path in the repository,
+// read on GitHub. The dashboard does not embed it; the About tab links into
+// it. methodologyFile is the same file relative to this package.
+const (
+	methodologyRepoPath = "docs/methodology.md"
+	methodologyFile     = "../../" + methodologyRepoPath
+)
 
 // aboutMarkers are prose markers unique to the About source of truth. If
 // any disappear from the rendered output, the markdown embed or the render
@@ -162,13 +166,13 @@ func TestRepoRef(t *testing.T) {
 // in the repository at the given ref, and every link that leaves the page
 // opens in a new tab.
 func TestRenderAboutLinks(t *testing.T) {
-	src := []byte("[a](methodology.md#color-by) [b](../../../README.md) [c](#local) [d](https://example.com/x)")
+	src := []byte("[a](../../../docs/methodology.md#color-by) [b](../../../README.md) [c](#local) [d](https://example.com/x)")
 	html, err := renderAbout(src, "v1.2.3")
 	if err != nil {
 		t.Fatalf("renderAbout: %v", err)
 	}
 	for _, want := range []string{
-		`<a href="https://github.com/jcrussell/solvent-streets/blob/v1.2.3/internal/export/docs/methodology.md#color-by" target="_blank" rel="noopener">a</a>`,
+		`<a href="https://github.com/jcrussell/solvent-streets/blob/v1.2.3/docs/methodology.md#color-by" target="_blank" rel="noopener">a</a>`,
 		`<a href="https://github.com/jcrussell/solvent-streets/blob/v1.2.3/README.md" target="_blank" rel="noopener">b</a>`,
 		`<a href="#local">c</a>`,
 		`<a href="https://example.com/x" target="_blank" rel="noopener">d</a>`,
@@ -195,7 +199,7 @@ func TestMethodologyAnchorsResolve(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AboutHTML: %v", err)
 	}
-	methodologyURL := repoURL + "/blob/" + repoRef(build.Current().Version) + "/" + path.Join(aboutDir, path.Base(methodologyFile))
+	methodologyURL := repoURL + "/blob/" + repoRef(build.Current().Version) + "/" + methodologyRepoPath
 	sectionLinks := 0
 	for _, m := range regexp.MustCompile(`href="([^"]+)"`).FindAllStringSubmatch(string(about), -1) {
 		u, err := url.Parse(m[1])
@@ -232,8 +236,8 @@ func TestMethodologyAnchorsResolve(t *testing.T) {
 		if err != nil || u.Scheme != "" || u.Path == "" {
 			continue
 		}
-		// about.md sits in docs/ beside this test's package directory.
-		if _, err := os.Stat(path.Join(path.Dir(methodologyFile), u.Path)); err != nil {
+		// about.md sits in docs/ inside this test's package directory.
+		if _, err := os.Stat(path.Join("docs", u.Path)); err != nil {
 			t.Errorf("about.md links %s, which is not in the repository: %v", m[1], err)
 		}
 	}

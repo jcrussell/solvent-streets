@@ -39,7 +39,7 @@ var aboutMarkdown []byte
 const repoURL = "https://github.com/jcrussell/solvent-streets"
 
 // aboutDir is about.md's directory in the repository: its relative links
-// (methodology.md#color-by, ../../../README.md) resolve against it, as they
+// (../../../docs/methodology.md#color-by, ../../../README.md) resolve against it, as they
 // do when GitHub renders the file.
 const aboutDir = "internal/export/docs"
 
@@ -84,7 +84,7 @@ func renderAbout(src []byte, ref string) (template.HTML, error) {
 	return template.HTML(buf.String()), nil
 }
 
-// repoLinks rewrites each relative link (methodology.md#color-by) to the
+// repoLinks rewrites each relative link (../../../docs/methodology.md#color-by) to the
 // file's page on GitHub at ref, and opens every link that leaves the page in
 // a new tab. In-page links (#heading) are left as they are.
 type repoLinks struct{ ref string }
