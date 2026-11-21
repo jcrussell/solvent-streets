@@ -189,7 +189,8 @@ The pages and what each owns:
 | [docs/configuration.md](docs/configuration.md) | every `pvmt.toml` setting, env var and directory, and what invalidates stored results |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | errors, one section per hint, and silent symptoms |
 | [docs/upgrading.md](docs/upgrading.md) | the steps each release needs |
-| [methodology](internal/export/docs/methodology.md) | what the models mean, as shown on the site |
+| [methodology](internal/export/docs/methodology.md) | what the models mean, in full |
+| [about](internal/export/docs/about.md) | the dashboard's About tab: a plain-language summary that links to the methodology |
 | [docs/validation.md](docs/validation.md) | the evidence that the models match real cities |
 | [examples/](examples/README.md) | which example to start from; each config's header comment describes that config |
 | `--help` (`make gendocs`) | each command's flags and usage |
