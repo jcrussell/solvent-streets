@@ -193,6 +193,9 @@ func httpClientFactory(f *cmdutil.Factory) func() (*http.Client, error) {
 			cacheDir,
 			cacheTTL,
 		)
+		if f.IOStreams != nil {
+			transport.Warn = f.IOStreams.ErrOut
+		}
 		return &http.Client{
 			Transport:     transport,
 			Timeout:       0,

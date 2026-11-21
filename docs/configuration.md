@@ -295,6 +295,12 @@ Point it at another public instance when that one is busy or down (see
 `PVMT_OVERPASS_URL` overrides it for one run without editing the file, and it
 applies with no `pvmt.toml` too.
 
+Cached responses are keyed on the full URL, so a run against one instance does
+not reuse responses cached from another. When a request misses but the cache
+holds the same request under another endpoint, the run fetches it live and
+warns once, naming the endpoint the cache holds it under, so a rebuild meant to
+come from the cache can be re-run with that endpoint set.
+
 The URL must be `https://`, name its host by DNS name rather than an IP
 address, carry no credentials, query string or fragment, and end in
 `/interpreter` (the API endpoint, not the instance's web page). A file value

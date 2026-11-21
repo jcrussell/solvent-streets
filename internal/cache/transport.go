@@ -63,6 +63,11 @@ type CachingTransport struct {
 	Wrapped http.RoundTripper
 	Dir     string
 	TTL     time.Duration
+	// Warn, when set, receives a warning the first time a miss is for a
+	// request the cache holds under another endpoint (checkElsewhere).
+	Warn io.Writer
+
+	elsewhere elsewhere
 }
 
 // DefaultTTL is how long a cached response is served before it is asked for
@@ -138,6 +143,7 @@ func (t *CachingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	// meta, send a conditional request — a 304 lets us refresh the
 	// timestamp without re-downloading the body, which is the cheap
 	// path against Overpass and ArcGIS on repeat runs.
+	t.checkElsewhere(req, bodyBytes, haveCache)
 	if haveCache {
 		req = withConditionalValidators(req, meta)
 	}
