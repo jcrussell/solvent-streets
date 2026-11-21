@@ -345,6 +345,16 @@
         .solvency-headline .lead .num { color: var(--accent); }
         .solvency-headline .detail { font-size: 14px; color: var(--text-muted); margin-top: 8px; }
         .default-pci { color: var(--text-muted); cursor: help; }
+        /* The default-PCI flag on a Compare score card (defaultPCIBadge):
+           a quiet pill in the corner, clear of the centred medal. */
+        .score-card .default-pci-badge {
+            position: absolute; top: 10px; right: 10px;
+            min-width: 22px; height: 22px; padding: 0 7px; box-sizing: border-box;
+            border: 1px solid var(--border-strong); border-radius: 999px;
+            background: var(--panel-2); color: var(--text-muted);
+            font-size: 13px; font-weight: 600; line-height: 20px; text-align: center;
+            cursor: help;
+        }
         .headlines { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-bottom: 32px; }
         .headline-card {
             background: var(--panel);

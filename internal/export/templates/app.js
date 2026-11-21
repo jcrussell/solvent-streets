@@ -4796,6 +4796,16 @@
                 ? ' <span class="default-pci" title="' + DEFAULT_PCI_NOTE + '" aria-label="' + DEFAULT_PCI_NOTE + '">†</span>'
                 : '';
         }
+        // defaultPCIBadge is the same flag on a Compare score card: a pill in
+        // the card's top-right corner, where it reads at a glance beside the
+        // medal and score. A leaderboard row has no corner and keeps the
+        // inline mark.
+        /** @param {{defaultPCI?: boolean}} m */
+        function defaultPCIBadge(m) {
+            return m && m.defaultPCI
+                ? '<span class="default-pci-badge" role="img" title="' + DEFAULT_PCI_NOTE + '" aria-label="' + DEFAULT_PCI_NOTE + '">†</span>'
+                : '';
+        }
 
         function extractMetrics(city) {
             var m = { name: city.name, slug: city.slug };
@@ -5038,8 +5048,9 @@
                 var medal = podium ? medals[m.rank - 1] : (opts.ranked ? '#' + m.rank : '');
                 var cls = podium ? (' ' + rankClasses[m.rank - 1]) : '';
                 return '<div class="score-card' + cls + (opts.muted ? ' score-card-muted' : '') + '" data-slug="' + esc(m.slug || '') + '">' +
+                    defaultPCIBadge(m) +
                     '<div class="rank-medal' + (podium ? '' : ' rank-num') + '">' + medal + '</div>' +
-                    '<div class="city-name">' + esc(m.name) + defaultPCIMark(m) + '</div>' +
+                    '<div class="city-name">' + esc(m.name) + '</div>' +
                     '<div class="score-value">' + opts.value + '</div>' +
                     '<div class="score-label">' + opts.label + '</div>' +
                     '<div class="score-breakdown">' + opts.breakdown + '</div>' +

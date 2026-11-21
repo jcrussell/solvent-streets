@@ -28,8 +28,17 @@ async function ready(forecast = forecastJSON, url = undefined) {
 test('Compare marks only the cities whose PCI is assumed, and explains the mark', async () => {
   const h = await ready();
   h.win.renderCompare([city('Alpha', true), city('Beta', false)]);
+  // On a card the mark is a corner badge, not text after the name.
   const names = h.$$('#solvency-cards .city-name').map((el) => el.textContent);
-  assert.deepEqual(names.slice().sort(), ['Alpha †', 'Beta']);
+  assert.deepEqual(names.slice().sort(), ['Alpha', 'Beta']);
+  const card = (name) => h.$$('#solvency-cards .score-card').find((c) => c.querySelector('.city-name').textContent === name);
+  const badge = card('Alpha').querySelector(':scope > .default-pci-badge');
+  assert.ok(badge, 'the default-PCI city has no card badge');
+  assert.equal(badge.textContent, '†');
+  assert.match(badge.getAttribute('aria-label'), /^Condition assumed/);
+  assert.equal(badge.getAttribute('title'), badge.getAttribute('aria-label'));
+  assert.equal(card('Beta').querySelector('.default-pci-badge'), null, 'a city with a cited PCI is badged');
+  assert.equal(h.$$('#solvency-cards .default-pci').length, 0, 'a card still carries the inline mark');
   assert.equal(h.win.document.getElementById('default-pci-note').hidden, false);
   assert.ok(h.$$('#leaderboard-list .default-pci').length > 0, 'the leaderboard does not mark Alpha');
 
