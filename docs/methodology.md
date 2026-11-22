@@ -323,9 +323,9 @@ The site reports two areas, and each keeps one name on every tab:
 - **Paved footprint** is the ground pavement covers: roads, parking and
   sidewalks buffered and unioned, so where a sidewalk or lot meets a road the
   overlap counts once. It is used only for itself (the Map's City Summary)
-  and for the city's **Paved share**, which divides it by the city's area
-  (the per-hex paved share coloring adds each resource's share instead; see
-  [Color by](#color-by)).
+  and for the city's **Paved Share**, which divides it by the city's area
+  (the per-hex **Maintained share** coloring adds each resource's share
+  instead; see [Color by](#color-by)).
 - **Maintained area** is the resources' areas summed as the forecast prices
   them, so a sidewalk beside a road counts in both. Over all three
   resources it is never smaller than the footprint. Everything priced or
@@ -425,10 +425,10 @@ are hex-clipped the same way). Limitations:
 The map's **Color by** selector offers every per-hex metric available for
 the city. The map legend shows the chosen coloring's one-line definition.
 
-- **Paved share** (the default): the share of the hex's land the toggled
+- **Maintained share** (the default): the share of the hex's land the toggled
   resources cover. Each resource's share is added and the total capped at
   100%, so where a sidewalk overlaps a road the hex reads a little high. The
-  city-wide paved share uses the paved footprint instead.
+  city's **Paved Share** uses the paved footprint instead.
 - **Maintained area**: the toggled resources' area inside the hex, each
   counted as the forecast prices it (see [Area figures](#area-figures)).
 - **Parking spaces**: estimated parking spaces, shared among hexes by how

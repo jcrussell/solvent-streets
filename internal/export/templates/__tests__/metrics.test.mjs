@@ -177,7 +177,7 @@ test('a city without the requested metric falls back to coverage, leaves it off 
   const opts = h.$$('#hex-metric option').map((o) => o.value);
   assert.ok(!opts.includes('fire_response_s'), 'an absent stored metric must not be offered');
   assert.equal(h.$('#map-color-by').hidden, opts.length <= 1);
-  assert.equal(h.$('#legend-title').textContent, 'Paved share', 'the fallback metric titles the legend');
+  assert.equal(h.$('#legend-title').textContent, h.win.lookupMetric('maintained_share').label, 'the fallback metric titles the legend');
   assert.equal(params(h.win).get('metric'), null, 'the address bar must stop claiming the metric');
 });
 
@@ -247,7 +247,7 @@ test('golden: % Paved paint bands, legend labels and definition', async () => {
     assert.equal(f.properties.metric_v, f.properties.share, 'every pavement hex paints its own share');
   }
   assert.deepEqual($$('#legend .legend-labels span').map((s) => s.textContent), ['≤ 5%', '5%–10%', '10%–20%', '20%–30%', '30%–50%', '> 50%']);
-  assert.equal($('#legend-title').textContent, 'Paved share');
+  assert.equal($('#legend-title').textContent, win.lookupMetric('maintained_share').label);
   assert.match($('#legend-def').textContent, /^Share of the hex's land/, 'the legend defines the coloring');
   assert.equal($('#legend-def').hidden, false);
 });

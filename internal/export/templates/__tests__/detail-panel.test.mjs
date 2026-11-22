@@ -313,8 +313,8 @@ test('the region shows the city panel\'s cards: summary, each resource, each met
   // 500 m² at 0.2), with 4,500 m² paved between them: the share is paved
   // over land, not the paved-area-weighted mean of the hexes' shares.
   assert.equal(statValue(h, 'Land area (acres)'), '1.7');
-  assert.equal(statValue(h, 'Paved area (acres)'), '1.1');
-  assert.equal(statValue(h, 'Paved share (of land)'), '66.3%');
+  assert.equal(statValue(h, 'Maintained area (acres)'), '1.1');
+  assert.equal(statValue(h, 'Maintained share (of land)'), '66.3%');
   assert.equal(statValue(h, 'Year-1 need'), '$21.0K');
   const titles = h.$$('#stats .stat-card h3').map((e) => e.firstChild.textContent);
   assert.deepEqual(titles.slice(0, 3), ['Selected Region', 'parking', 'roads']);

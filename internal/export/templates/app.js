@@ -1592,7 +1592,7 @@
                         return;
                     }
                     tooltip.innerHTML =
-                        '<strong>Paved share:</strong> ' + (p.share != null ? Math.round(p.share * 100) : 0) + '%<br>' +
+                        '<strong>Maintained share:</strong> ' + (p.share != null ? Math.round(p.share * 100) : 0) + '%<br>' +
                         '<strong>Maintained area:</strong> ' + fmtArea(p.area || 0) + '<br>' +
                         '<strong>Year-1 need:</strong> ' + fmtMoney(p.year1_need || 0) +
                         (p.spaces > 0 ? '<br><strong>Parking spaces:</strong> ' + Math.round(p.spaces).toLocaleString('en-US') : '') +
@@ -2412,8 +2412,8 @@
                     '<h3>Selected Region<button class="close-btn" id="close-region" type="button" aria-label="Close region selection">&times;</button></h3>' +
                     statRow('Hexes selected', fmtNum(selected.length)) +
                     statRow('Land area (' + areaLargeUnit() + ')', fmtNum1(toAreaLarge(land))) +
-                    statRow('Paved area (' + areaLargeUnit() + ')', fmtNum1(toAreaLarge(sumArea))) +
-                    statRow('Paved share (of land)', pct.toFixed(1) + '%') +
+                    statRow('Maintained area (' + areaLargeUnit() + ')', fmtNum1(toAreaLarge(sumArea))) +
+                    statRow('Maintained share (of land)', pct.toFixed(1) + '%') +
                     (hasCost ? statRow('Year-1 need', fmtMoney(sumCost)) : '') +
                     '<button type="button" class="region-clear" id="clear-region">Clear selection</button>' +
                     '</div>' +

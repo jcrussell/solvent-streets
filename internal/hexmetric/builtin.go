@@ -18,10 +18,10 @@ func init() {
 	Register(Spec{
 		// The default "Color by" metric. It stays out of the URL.
 		Key:    metric.MaintainedShare,
-		Label:  "Paved share",
+		Label:  "Maintained share",
 		Group:  GroupPavement,
 		Order:  1,
-		Source: "Share of the hex's land the toggled resources cover, each resource's share added together and capped at 100%.",
+		Source: "Share of the hex's land the toggled resources cover, each resource's share added together (so overlaps count once per resource) and capped at 100%.",
 		Format: FormatPercent,
 		Scale: Scale{
 			Kind: KindSequential, Transform: TransformLinear,

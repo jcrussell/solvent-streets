@@ -48,7 +48,7 @@ year only when it comes within the 30-year forecast.
 The map's **Color by** menu shades each hexagon by one measure, and its
 legend says what that measure is.
 
-- **Paved share** (the default): how much of the hexagon is road, parking
+- **Maintained share** (the default): how much of the hexagon is road, parking
   lot or sidewalk.
 - **Maintained area**: that pavement's area, as the forecast prices it.
 - **Parking spaces**: estimated parking spaces.
