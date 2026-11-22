@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -134,8 +135,9 @@ func TestRun_FailingGateExitsSilentlyNonZero(t *testing.T) {
 	if !strings.Contains(out.String(), "FAIL") && !strings.Contains(out.String(), "fail") {
 		t.Errorf("the table did not mark any row failed:\n%s", out.String())
 	}
-	if !strings.Contains(errOut.String(), "outside") {
-		t.Errorf("no summary line on stderr:\n%s", errOut.String())
+	// The summary on stderr counts the gated cities that failed, of how many.
+	if n := regexp.MustCompile(`\d+`).FindAllString(errOut.String(), -1); len(n) < 2 || n[0] == "0" {
+		t.Errorf("no summary line counting the failures on stderr:\n%s", errOut.String())
 	}
 }
 

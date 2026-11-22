@@ -84,9 +84,50 @@ func TestRunCompute_NoFeatures(t *testing.T) {
 	if !errors.Is(err, cmdutil.ErrNoResults) {
 		t.Fatalf("expected ErrNoResults, got: %v", err)
 	}
-	if !strings.Contains(errBuf.String(), "ingest") {
-		t.Errorf("stderr should suggest running ingest, got: %s", errBuf.String())
+	// The hint's command retries exactly this city's missing layer.
+	if want := "pvmt --city " + testCity.Slug() + " roads ingest"; !strings.Contains(errBuf.String(), want) {
+		t.Errorf("stderr should hint %q, got: %s", want, errBuf.String())
 	}
+}
+
+// resultBlock is one "<slug>: <label>:" block of a compute's stdout.
+type resultBlock struct {
+	label string
+	lines []string
+}
+
+// resultBlocks parses a compute's stdout into its result blocks and reports
+// the lines that belong to none: stdout is data only, so there should be
+// none. A block is a ResultHeader line followed by indented lines.
+func resultBlocks(out, slug string) (blocks []resultBlock, stray []string) {
+	for line := range strings.SplitSeq(out, "\n") {
+		label, isHeader := strings.CutPrefix(line, slug+": ")
+		switch {
+		case strings.TrimSpace(line) == "":
+		case isHeader && strings.HasSuffix(label, ":"):
+			blocks = append(blocks, resultBlock{label: strings.TrimSuffix(label, ":")})
+		case strings.HasPrefix(line, "  ") && len(blocks) > 0:
+			last := &blocks[len(blocks)-1]
+			last.lines = append(last.lines, line)
+		default:
+			stray = append(stray, line)
+		}
+	}
+	return blocks, stray
+}
+
+// blockLabeled returns the block whose label is label, failing the test when
+// stdout has none.
+func blockLabeled(t *testing.T, out, slug, label string) resultBlock {
+	t.Helper()
+	blocks, _ := resultBlocks(out, slug)
+	for _, b := range blocks {
+		if b.label == label {
+			return b
+		}
+	}
+	t.Fatalf("stdout has no %q block:\n%s", label, out)
+	return resultBlock{}
 }
 
 func TestRunCompute_Success(t *testing.T) {
@@ -129,11 +170,16 @@ func TestRunCompute_Success(t *testing.T) {
 		t.Fatal(err)
 	}
 	output := stdout.String()
-	if !strings.Contains(output, "sq ft") {
-		t.Errorf("expected area output with imperial units, got: %s", output)
+	total, ok, _ := results.LoadTotal(context.Background(), store, resource.TypeRoads)
+	if !ok || total.Area <= 0 {
+		t.Fatalf("expected the roads city totals to be saved, got %+v", total)
 	}
-	if _, ok, _ := results.LoadTotal(context.Background(), store, resource.TypeRoads); !ok {
-		t.Error("expected the roads city totals to be saved")
+	// The report shows the saved area in the configured (imperial) units.
+	if want := units.FormatArea(total.Area, units.Imperial); !strings.Contains(output, want) {
+		t.Errorf("stdout lacks the saved area in imperial units (%s), got: %s", want, output)
+	}
+	if metricArea := units.FormatArea(total.Area, units.Metric); strings.Contains(output, metricArea) {
+		t.Errorf("stdout shows the area in metric units (%s) under --units imperial: %s", metricArea, output)
 	}
 }
 
@@ -167,25 +213,33 @@ func TestRunCompute_ChatterToErrOut(t *testing.T) {
 	out := stdout.String()
 	errStr := errBuf.String()
 
-	// Progress chatter must be on ErrOut and NOT on stdout.
-	chatter := []string{
-		"Loading",
-		"Total:",
-		"Generated",
-		"hexes with coverage",
+	// stdout is result blocks and nothing else: every line is a city-named
+	// header or an indented line of the block under it.
+	blocks, stray := resultBlocks(out, testCity.Slug())
+	if len(blocks) == 0 || len(stray) > 0 {
+		t.Errorf("stdout should be result blocks only; got %d blocks and stray lines %q:\n%s", len(blocks), stray, out)
 	}
-	for _, c := range chatter {
-		if !strings.Contains(errStr, c) {
-			t.Errorf("chatter %q missing from ErrOut:\n%s", c, errStr)
-		}
-		if strings.Contains(out, c) {
-			t.Errorf("chatter %q leaked onto stdout:\n%s", c, out)
-		}
+	// The result data, the saved area, is on stdout and not on stderr.
+	total, ok, _ := results.LoadTotal(context.Background(), store, resource.TypeRoads)
+	if !ok {
+		t.Fatal("no roads total saved")
 	}
-
-	// Result DATA must be on stdout.
-	if !strings.Contains(out, "Results") || !strings.Contains(out, "Area:") {
-		t.Errorf("expected result data on stdout, got:\n%s", out)
+	area := units.FormatArea(total.Area, units.Metric)
+	if !strings.Contains(out, area) || strings.Contains(errStr, area) {
+		t.Errorf("the area %s should be on stdout only:\nstdout: %s\nstderr: %s", area, out, errStr)
+	}
+	// Progress is on stderr, and none of it leaked: the streams share no line.
+	if strings.TrimSpace(errStr) == "" {
+		t.Error("no progress on stderr")
+	}
+	onStdout := map[string]bool{}
+	for line := range strings.SplitSeq(out, "\n") {
+		onStdout[strings.TrimSpace(line)] = true
+	}
+	for line := range strings.SplitSeq(errStr, "\n") {
+		if l := strings.TrimSpace(line); l != "" && onStdout[l] {
+			t.Errorf("progress line %q is also on stdout", l)
+		}
 	}
 }
 
@@ -484,17 +538,27 @@ func TestRunCompute_MaintainedOnlySuppressesAllCohortBreakdown(t *testing.T) {
 		t.Fatalf("compute: %v", err)
 	}
 	out := stdout.String()
-	// Each result block's header names the city: "<slug>: Cohort breakdown:"
-	// is the all-jurisdiction header, "<slug>: City cohort breakdown:" the
-	// city one.
+	// Each result block's header names the city. The fixture has one city
+	// road and one state road, so an all-jurisdiction block would show both:
+	// with --maintained-only every block is the city's, a results block and
+	// a cohort breakdown, and neither counts the state road.
 	slug := testCity.Slug()
-	if strings.Contains(out, "\n"+slug+": Cohort breakdown:") {
-		t.Errorf("--maintained-only should suppress the all-jurisdiction cohort breakdown, got:\n%s", out)
+	blocks, stray := resultBlocks(out, slug)
+	if len(blocks) != 2 || len(stray) > 0 {
+		t.Fatalf("got %d blocks (stray %q), want the city's results and cohort breakdown:\n%s", len(blocks), stray, out)
 	}
-	for _, want := range []string{"\n" + slug + ": City cohort breakdown:\n", "\n" + slug + ": roads Results (city only):\n"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("stdout lacks the city-named header %q:\n%s", want, out)
-		}
+	cityTotal, ok, _ := results.LoadTotal(context.Background(), store, resource.TypeRoads.With(resource.ScopeCity))
+	allTotal, okAll, _ := results.LoadTotal(context.Background(), store, resource.TypeRoads)
+	if !ok || !okAll || cityTotal.Area >= allTotal.Area {
+		t.Fatalf("fixture: want a city total below the all total, got %+v and %+v", cityTotal, allTotal)
+	}
+	if all := units.FormatArea(allTotal.Area, units.Metric); strings.Contains(out, all) {
+		t.Errorf("--maintained-only should suppress the all-jurisdiction blocks, but stdout shows their area %s:\n%s", all, out)
+	}
+	// docs/upgrading.md shows the results header's shape verbatim.
+	res := blockLabeled(t, out, slug, "roads Results (city only)")
+	if city := units.FormatArea(cityTotal.Area, units.Metric); !strings.Contains(strings.Join(res.lines, "\n"), city) {
+		t.Errorf("city results block lacks the city area %s:\n%s", city, out)
 	}
 }
 
@@ -574,7 +638,8 @@ func TestRunCompute_InvalidBoundaryWarns(t *testing.T) {
 		t.Fatalf("compute: %v", err)
 	}
 	stderr := errBuf.String()
-	if !strings.Contains(stderr, "boundary") || !strings.Contains(stderr, testCity.Name) {
+	// "warning: " is the prefix every warning carries (internal/warn).
+	if !strings.Contains(stderr, "warning: ") || !strings.Contains(stderr, testCity.Name) {
 		t.Errorf("expected a boundary warning naming the city, got stderr:\n%s", stderr)
 	}
 }
@@ -674,6 +739,8 @@ func TestRunCompute_CanceledDiscardsRun(t *testing.T) {
 	}
 }
 
+var errDBDown = errors.New("db connection failed")
+
 func TestRunCompute_DBError(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
 	f := &cmdutil.Factory{
@@ -686,7 +753,7 @@ func TestRunCompute_DBError(t *testing.T) {
 			return testCity, nil
 		},
 		CityDB: func() (db.Store, error) {
-			return nil, fmt.Errorf("db connection failed")
+			return nil, errDBDown
 		},
 	}
 	rt := &resource.Pavement{}
@@ -699,8 +766,8 @@ func TestRunCompute_DBError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for DB failure")
 	}
-	if !strings.Contains(err.Error(), "database") {
-		t.Errorf("expected database error, got: %s", err.Error())
+	if !errors.Is(err, errDBDown) {
+		t.Errorf("expected the database open error, got: %s", err.Error())
 	}
 }
 
@@ -795,10 +862,20 @@ func TestRunCompute_ParkingEstimatesSpaces(t *testing.T) {
 	if len(spaces) != 2 {
 		t.Errorf("expected exactly the two parking space subjects, got %v", slices.Collect(maps.Keys(spaces)))
 	}
-	if !strings.Contains(stdout.String(), "Spaces:    ~65 (estimated)") {
-		t.Errorf("expected the prose summary to report ~65 estimated spaces, got:\n%s", stdout.String())
+	// The report shows the estimate: both results blocks carry a line with
+	// the 65 beyond the feature count and the three area lines a resource
+	// without spaces prints (TestRunCompute_RoadsCarryNoSpaces).
+	for _, label := range []string{"parking Results (all)", "parking Results (city only)"} {
+		b := blockLabeled(t, stdout.String(), testCity.Slug(), label)
+		if len(b.lines) != resultLinesWithoutSpaces+1 || !strings.Contains(b.lines[len(b.lines)-1], "65") {
+			t.Errorf("%s block should end with a line reporting 65 spaces, got %q", label, b.lines)
+		}
 	}
 }
+
+// resultLinesWithoutSpaces is the size of a results block for a resource
+// with no space estimate: the feature count and the area in three units.
+const resultLinesWithoutSpaces = 4
 
 // TestRunCompute_RoadsCarryNoSpaces: the estimate is a parking concept, so a
 // roads compute writes no spaces anywhere and prints no Spaces line.
@@ -841,7 +918,10 @@ func TestRunCompute_RoadsCarryNoSpaces(t *testing.T) {
 			t.Errorf("roads compute saved a per-hex parking_spaces row %+v", m)
 		}
 	}
-	if strings.Contains(stdout.String(), "Spaces:") {
+	// The report has no spaces line either: the block is the feature count
+	// and the three area lines, and the tagged capacity appears nowhere.
+	b := blockLabeled(t, stdout.String(), testCity.Slug(), "roads Results (all)")
+	if len(b.lines) != resultLinesWithoutSpaces || strings.Contains(stdout.String(), "99") {
 		t.Errorf("roads output must not report spaces:\n%s", stdout.String())
 	}
 }

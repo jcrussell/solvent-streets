@@ -18,10 +18,12 @@ func TestBaselineViolation_ChecksBothScopes(t *testing.T) {
 	if msg := baselineViolation(export.ForecastExport{Baseline: decaying, CityBaseline: &decaying}); msg != "" {
 		t.Errorf("sound baselines flagged: %s", msg)
 	}
-	if msg := baselineViolation(export.ForecastExport{Baseline: decaying, CityBaseline: &improving}); !strings.HasPrefix(msg, "city_baseline PCI increased") {
+	// The message opens with the forecast.json key of the series that broke
+	// the rule.
+	if msg := baselineViolation(export.ForecastExport{Baseline: decaying, CityBaseline: &improving}); !strings.HasPrefix(msg, "city_baseline ") {
 		t.Errorf("an improving city_baseline = %q, want it named", msg)
 	}
-	if msg := baselineViolation(export.ForecastExport{Baseline: improving}); !strings.HasPrefix(msg, "baseline PCI increased") {
+	if msg := baselineViolation(export.ForecastExport{Baseline: improving}); !strings.HasPrefix(msg, "baseline ") {
 		t.Errorf("an improving baseline = %q, want it named", msg)
 	}
 }

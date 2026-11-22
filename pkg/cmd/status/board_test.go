@@ -3,6 +3,7 @@ package status
 import (
 	"context"
 	"errors"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -135,11 +136,24 @@ func TestBoard_TableAndExitStatus(t *testing.T) {
 			t.Errorf("table lacks %q:\n%s", want, out)
 		}
 	}
-	if strings.Contains(out, "lakeside-ca  census_blocks") {
+	// A city/layer pair has a row when some line starts with those two cells.
+	hasRow := func(city, layer string) bool {
+		for line := range strings.SplitSeq(out, "\n") {
+			if f := strings.Fields(line); len(f) >= 2 && f[0] == city && f[1] == layer {
+				return true
+			}
+		}
+		return false
+	}
+	if !hasRow("albany-ca", "census_blocks") {
+		t.Errorf("no census row for the city that has census on:\n%s", out)
+	}
+	if hasRow("lakeside-ca", "census_blocks") {
 		t.Errorf("census listed for a city that opted out:\n%s", out)
 	}
-	if !strings.Contains(errOut, "1 of 2 cities incomplete") {
-		t.Errorf("summary missing: %q", errOut)
+	// The summary counts the incomplete cities and all of them, on stderr.
+	if got := regexp.MustCompile(`\d+`).FindAllString(errOut, -1); !slices.Equal(got, []string{"1", "2"}) {
+		t.Errorf("summary counts = %v, want 1 incomplete of 2 cities: %q", got, errOut)
 	}
 
 	opts, _ = boardOpts(t, cities[1:])

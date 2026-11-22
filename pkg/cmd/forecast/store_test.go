@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"math"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -246,11 +247,27 @@ func TestForecast_NoCityScopeFallsBackToEveryJurisdiction(t *testing.T) {
 			t.Errorf("row %v, want scope all over the stored 100000 m²", r)
 		}
 	}
-	if !strings.Contains(stderr, "No city-maintained pavement is computed for this city, so the forecast covers every jurisdiction") {
-		t.Errorf("no note that the forecast fell back to every jurisdiction; stderr:\n%s", stderr)
+	// The fallback is announced: one note on stderr, apart from the
+	// warnings about the resources with nothing computed ("warning: " is
+	// cmdutil.Warnf's prefix), beside the rows on stdout.
+	notes := func(stderr string) (notes []string) {
+		for line := range strings.SplitSeq(stderr, "\n") {
+			if strings.TrimSpace(line) != "" && !strings.HasPrefix(line, "warning: ") {
+				notes = append(notes, line)
+			}
+		}
+		return notes
 	}
-	// Asked for every jurisdiction, there is nothing to say.
-	if _, stderr := runForecastJSONStderr(t, cfg, city, store, "--scope", "all"); strings.Contains(stderr, "No city-maintained") {
-		t.Errorf("--scope all printed the fallback note:\n%s", stderr)
+	if got := notes(stderr); len(got) != 1 {
+		t.Errorf("stderr notes = %q, want one saying the forecast fell back to every jurisdiction", got)
+	}
+	// Asked for every jurisdiction, there is nothing to say, and the rows
+	// are the same ones.
+	allRows, stderr := runForecastJSONStderr(t, cfg, city, store, "--scope", "all")
+	if got := notes(stderr); len(got) != 0 {
+		t.Errorf("--scope all printed a note: %q", got)
+	}
+	if !reflect.DeepEqual(allRows, rows) {
+		t.Errorf("--scope all rows = %v, want the fallback's rows %v", allRows, rows)
 	}
 }

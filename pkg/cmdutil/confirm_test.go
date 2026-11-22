@@ -50,8 +50,10 @@ func TestConfirmDestructiveNoCancels(t *testing.T) {
 	if !errors.Is(err, ErrCancel) {
 		t.Fatalf("got %v, want ErrCancel", err)
 	}
-	if !strings.Contains(errOut.String(), "Canceled.") {
-		t.Errorf("stderr %q should contain Canceled.", errOut.String())
+	// ErrCancel exits 0 and prints no error, so the cancel is acknowledged
+	// here, on stderr.
+	if strings.TrimSpace(errOut.String()) == "" {
+		t.Error("declining printed nothing on stderr; the cancel should be acknowledged")
 	}
 }
 
@@ -71,8 +73,13 @@ func TestConfirmDestructiveAbortCancels(t *testing.T) {
 	if !errors.Is(err, ErrCancel) {
 		t.Fatalf("got %v, want ErrCancel for aborted prompt", err)
 	}
-	if !strings.Contains(errOut.String(), "Canceled.") {
-		t.Errorf("stderr %q should contain Canceled.", errOut.String())
+	// Ctrl+C on the prompt is the same graceful cancel as answering no, and
+	// reads the same.
+	declined, _, _, declinedErr := iostreams.Test()
+	declined.SetStdinTTY(true)
+	_ = ConfirmDestructive(context.Background(), declined, &fakePrompter{confirmVal: false}, false, "?", "refused")
+	if errOut.String() == "" || errOut.String() != declinedErr.String() {
+		t.Errorf("stderr = %q, want what declining prints, %q", errOut.String(), declinedErr.String())
 	}
 }
 

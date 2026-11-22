@@ -3,7 +3,6 @@ package checksite
 import (
 	"fmt"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/jcrussell/solvent-streets/internal/export"
@@ -19,8 +18,8 @@ func TestCheckSite_VersionsMatch(t *testing.T) {
 		t.Fatalf("a site at the current formats failed: %v\n%s", err, out)
 	}
 	for _, name := range []string{export.CompareFileName, export.HexGridFileName, export.HexMetricsFileName} {
-		if !strings.Contains(out, "PASS") || !strings.Contains(out, name+" is format v") {
-			t.Errorf("no versions PASS for %s:\n%s", name, out)
+		if len(find(out, "PASS", chkVersions, name)) != 1 || len(find(out, "", chkVersions, name)) != 1 {
+			t.Errorf("want one versions verdict for %s, a PASS:\n%s", name, out)
 		}
 	}
 }
@@ -41,7 +40,9 @@ func TestCheckSite_VersionMismatchFails(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := buildValidRootSite(t)
 			writeJSONFile(t, tc.path(dir), map[string]any{"v": tc.want - 1})
-			assertFails(t, dir, fmt.Sprintf("%s is format v%d, the page reads v%d — re-export with this pvmt", tc.name, tc.want-1, tc.want))
+			// The failure names the file, the version it has and the one
+			// the page reads.
+			assertFails(t, dir, chkVersions, tc.name, fmt.Sprintf("v%d,", tc.want-1), fmt.Sprintf("v%d ", tc.want))
 		})
 	}
 }

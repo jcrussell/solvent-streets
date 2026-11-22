@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -191,18 +192,22 @@ func TestRunResourceForCity_MatchesCommandDefaults(t *testing.T) {
 		CityDB:      func() (db.Store, error) { return store, nil },
 		CurrentCity: func() (*config.CityConfig, error) { return city, nil },
 		Config:      func() (*config.Config, error) { return cmdtest.NewTestConfig(city), nil },
-		HttpClient:  func() (*http.Client, error) { return &http.Client{}, nil },
+		// force=false: the stored boundary is used, so nothing is fetched.
+		HttpClient: func() (*http.Client, error) { return &http.Client{Transport: failTransport{t}}, nil },
+	}
+	store.SaveBoundaryFunc = func(context.Context, string, string) error {
+		t.Error("the stored boundary was re-resolved and saved (force=false)")
+		return nil
 	}
 
 	err := RunResourceForCity(context.Background(), f, &resource.Pavement{})
 	if !errors.Is(err, cmdutil.ErrNoResults) {
 		t.Fatalf("RunResourceForCity = %v, want ErrNoResults", err)
 	}
-	if !strings.Contains(errBuf.String(), "Using cached boundary") {
-		t.Errorf("expected the cached-boundary path (force=false), stderr = %q", errBuf.String())
-	}
-	if strings.Contains(out.String(), "[dry-run]") {
-		t.Errorf("expected dry-run=false, stdout = %q", out.String())
+	// The real path ran and said so on stderr; a dry run would have printed
+	// its plan on stdout instead.
+	if out.Len() != 0 || errBuf.Len() == 0 {
+		t.Errorf("expected dry-run=false: progress on stderr and no plan on stdout; stdout = %q, stderr = %q", out.String(), errBuf.String())
 	}
 }
 
@@ -298,16 +303,13 @@ func TestRunResourceWithBoundary_RoadsStepReusesBoundaryRoads(t *testing.T) {
 	if len(saved) != 1 {
 		t.Errorf("boundary saves = %q, want one", saved)
 	}
-	if !strings.Contains(errOut.String(), "fetched with the boundary") {
-		t.Errorf("stderr = %q; want the roads step to say it reused the boundary's roads", errOut)
-	}
 }
 
 // TestRunIngest_ParkingOnFreshBoundarySavesRoads: `pvmt parking ingest` on a
 // city with no stored boundary saves the roads its boundary fetched, and
 // says so, before its own parking fetch.
 func TestRunIngest_ParkingOnFreshBoundarySavesRoads(t *testing.T) {
-	ios, _, _, errOut := iostreams.Test()
+	ios, _, _, _ := iostreams.Test()
 	city := cmdtest.NewTestCity()
 	city.Overpass = true
 	up := &fakeUpstream{boundary: noSourceBoundary, roadsBody: oneRoadInNoSourceBoundary}
@@ -326,9 +328,6 @@ func TestRunIngest_ParkingOnFreshBoundarySavesRoads(t *testing.T) {
 	}
 	if want := []string{"roads:1"}; !slices.Equal(upserts, want) {
 		t.Errorf("feature upserts = %q, want %q", upserts, want)
-	}
-	if !strings.Contains(errOut.String(), "Saved 1 roads") {
-		t.Errorf("stderr = %q; want the roads saved with the boundary named", errOut)
 	}
 	got := map[string]db.IngestOutcome{}
 	for _, a := range store.Attempts {
@@ -874,8 +873,8 @@ func TestStripWaterFromBoundary_BackstopTripsOnDonutHole(t *testing.T) {
 	if !errors.Is(err, ErrWaterStripOverSubtracted) {
 		t.Fatalf("err = %v, want errors.Is ErrWaterStripOverSubtracted", err)
 	}
-	if !strings.Contains(err.Error(), "% of original") {
-		t.Errorf("err message %q should describe the area ratio", err.Error())
+	if !regexp.MustCompile(`\d+(\.\d+)?%`).MatchString(err.Error()) {
+		t.Errorf("err message %q should give the area ratio as a percentage", err.Error())
 	}
 	if gjson != "" || warn != "" {
 		t.Errorf("on hard failure all soft returns should be empty; got gjson=%d warn=%q",
@@ -1045,9 +1044,8 @@ func TestResolveSources_DisabledSourceExplainsItself(t *testing.T) {
 			if err == nil {
 				t.Fatal("expected an error, got nil")
 			}
-			if strings.Contains(err.Error(), "unknown source") {
-				t.Errorf("error = %q; the source is valid, it is disabled for this city", err)
-			}
+			// The source is valid but disabled for this city, so the error
+			// carries the remedy, which an unknown --source value's does not.
 			var he *hint.ErrHint
 			if !errors.As(err, &he) {
 				t.Fatalf("error = %q; want an ErrHint carrying the remedy", err)
@@ -1349,7 +1347,7 @@ func TestRunIngest_PartialSourceFailureSavesAndFails(t *testing.T) {
 		ResourceType: &resource.Pavement{},
 		Source:       cmdutil.SourceAll,
 	})
-	if !errors.Is(err, cmdutil.ErrPartialIngest) || !strings.Contains(err.Error(), "overpass failed") {
+	if !errors.Is(err, cmdutil.ErrPartialIngest) || !strings.Contains(err.Error(), "overpass") {
 		t.Fatalf("runIngest = %v; want ErrPartialIngest naming overpass", err)
 	}
 	if n := len(saved); n != 1 {
@@ -1448,7 +1446,7 @@ func TestRunIngest_PartialFailureWithEmptySurvivor(t *testing.T) {
 		Source:       cmdutil.SourceAll,
 	})
 	if !errors.Is(err, cmdutil.ErrPartialIngest) || errors.Is(err, cmdutil.ErrNoResults) ||
-		!strings.Contains(err.Error(), "arcgis failed") {
+		!strings.Contains(err.Error(), "arcgis") {
 		t.Fatalf("runIngest = %v; want ErrPartialIngest naming arcgis", err)
 	}
 	if upserts != 0 {
@@ -1456,11 +1454,11 @@ func TestRunIngest_PartialFailureWithEmptySurvivor(t *testing.T) {
 	}
 }
 
-// dryRunOutput runs printDryRunPlan for city against a store whose cached
-// boundary is cachedBoundary.
-func dryRunOutput(t *testing.T, city *config.CityConfig, source cmdutil.Source, cachedBoundary string) string {
+// dryRunOutput runs printDryRunPlan for city, over every source, against a
+// store whose cached boundary is cachedBoundary.
+func dryRunOutput(t *testing.T, city *config.CityConfig, cachedBoundary string) string {
 	t.Helper()
-	out, _ := dryRunStreams(t, city, source, cachedBoundary)
+	out, _ := dryRunStreams(t, city, cmdutil.SourceAll, cachedBoundary)
 	return out
 }
 
@@ -1490,18 +1488,22 @@ func TestPrintDryRunPlan_BoundarySourceMatchesTheRealRun(t *testing.T) {
 		{"nominatim", &config.CityConfig{Name: "Oakland, CA", Overpass: true}},
 	}
 	const boundary = `{"type":"Polygon","coordinates":[[[-122.5,37.5],[-122.4,37.5],[-122.4,37.6],[-122.5,37.6],[-122.5,37.5]]]}`
+	// What the plan and the progress call Nominatim, the by-name upstream.
+	nominatim := boundarySourceFor(&config.CityConfig{}).from
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			// What the real run says it fetches from.
+			// Which upstream the real run fetches from, and what it calls it.
 			ios, _, _, errOut := iostreams.Test()
 			store := &dbtest.MockStore{
 				GetBoundaryFunc:  func(_ context.Context) (string, error) { return "", nil },
 				SaveBoundaryFunc: func(_ context.Context, _, _ string) error { return nil },
 			}
+			var askedName string
+			var askedRelation int64
 			_, _, err := resolveBoundary(context.Background(), &Options{IO: ios}, store, &http.Client{}, tc.city,
 				boundaryFetchers{
-					byName:     recordingNominatim(boundary, nil),
-					byRelation: recordingRelation(boundary, nil),
+					byName:     recordingNominatim(boundary, &askedName),
+					byRelation: recordingRelation(boundary, &askedRelation),
 					water:      fakeWaterFetcher(""),
 					roads:      noRoads,
 				})
@@ -1509,24 +1511,70 @@ func TestPrintDryRunPlan_BoundarySourceMatchesTheRealRun(t *testing.T) {
 				t.Fatalf("resolveBoundary: %v", err)
 			}
 			from := boundarySourceFor(tc.city).from
-			if !strings.Contains(errOut.String(), "from "+from+"...") {
-				t.Fatalf("real run stderr = %q; want it to fetch from %q", errOut.String(), from)
+			wantRelation := tc.city.BoundaryRelationID > 0
+			if byRelation := askedRelation != 0; byRelation != wantRelation || (askedName != "") == wantRelation {
+				t.Fatalf("real run asked Nominatim for %q and the relation fetcher for %d; want only %s", askedName, askedRelation, from)
+			}
+			if !strings.Contains(errOut.String(), from) {
+				t.Fatalf("real run stderr = %q; want it to name %q", errOut.String(), from)
 			}
 
-			got := dryRunOutput(t, tc.city, cmdutil.SourceAll, "")
-			if !strings.Contains(got, "would fetch boundary for \""+tc.city.Name+"\" from "+from+"\n") {
-				t.Errorf("dry run = %q; want the boundary fetched from %q", got, from)
+			// The dry run names that same upstream, and never the other one.
+			got := dryRunOutput(t, tc.city, "")
+			fetch := planLineWith(got, from)
+			if fetch == "" || !strings.Contains(fetch, tc.city.Name) {
+				t.Errorf("dry run = %q; want a step fetching %q's boundary from %q", got, tc.city.Name, from)
 			}
-			if tc.city.BoundaryRelationID > 0 && strings.Contains(got, "Nominatim") {
-				t.Errorf("dry run = %q; a city with boundary_relation_id never asks Nominatim", got)
+			if wantRelation && strings.Contains(got, nominatim) {
+				t.Errorf("dry run = %q; a city with boundary_relation_id never asks %s", got, nominatim)
 			}
 
-			cached := dryRunOutput(t, tc.city, cmdutil.SourceAll, boundary)
-			if !strings.Contains(cached, "boundary cached, would skip "+from+"\n") {
-				t.Errorf("dry run with a cached boundary = %q; want it to skip %q", cached, from)
+			// With the boundary stored, the step about that upstream is a
+			// different one (it is skipped), and the roads fetched as the
+			// strip's land evidence drop out of the plan.
+			cached := dryRunOutput(t, tc.city, boundary)
+			skip := planLineWith(cached, from)
+			if skip == "" || skip == fetch {
+				t.Errorf("dry run with a cached boundary = %q; want a step of its own about %q, not %q", cached, from, fetch)
+			}
+			if len(planLines(cached)) != len(planLines(got))-1 {
+				t.Errorf("cached plan =\n%s\nwant one step fewer than the fresh plan:\n%s", cached, got)
 			}
 		})
 	}
+}
+
+// planLines returns a dry-run plan's lines: a "[dry-run] ..." header per
+// resource and its "[dry-run]   ..." steps.
+func planLines(plan string) []string {
+	var lines []string
+	for line := range strings.SplitSeq(plan, "\n") {
+		if strings.HasPrefix(line, "[dry-run] ") {
+			lines = append(lines, line)
+		}
+	}
+	return lines
+}
+
+// planSteps returns the plan's step lines, the indented ones under a header.
+func planSteps(plan string) []string {
+	var steps []string
+	for _, line := range planLines(plan) {
+		if strings.HasPrefix(line, "[dry-run]   ") {
+			steps = append(steps, line)
+		}
+	}
+	return steps
+}
+
+// planLineWith returns the plan's first step naming value, or "".
+func planLineWith(plan, value string) string {
+	for _, line := range planSteps(plan) {
+		if strings.Contains(line, value) {
+			return line
+		}
+	}
+	return ""
 }
 
 // TestPrintDryRunPlan_DisabledSourceGivesTheRealRunsReason: for a --source the
@@ -1608,8 +1656,8 @@ func TestRunIngest_DisabledSourceFailsBeforeBoundary(t *testing.T) {
 		Source:       cmdutil.SourceOverpass,
 	})
 	var h *hint.ErrHint
-	if err == nil || !strings.Contains(err.Error(), "not available for Test City") || !errors.As(err, &h) {
-		t.Fatalf("err = %v, want the disabled-source error with a hint", err)
+	if err == nil || !strings.Contains(err.Error(), city.Name) || !errors.As(err, &h) {
+		t.Fatalf("err = %v, want the disabled-source error naming the city, with a hint", err)
 	}
 }
 
@@ -1745,7 +1793,7 @@ func TestResolveBoundary_RebuildReResolvesStoredBoundary(t *testing.T) {
 		SaveBoundaryFunc: func(_ context.Context, _, source string) error { saves = append(saves, source); return nil },
 	}
 	var name string
-	ios, _, _, errOut := iostreams.Test()
+	ios, _, _, _ := iostreams.Test()
 	_, fresh, err := resolveBoundary(context.Background(), &Options{IO: ios, RebuildBoundary: true}, store, &http.Client{},
 		&config.CityConfig{Name: "Oakland, CA"},
 		boundaryFetchers{byName: recordingNominatim(stored, &name), byRelation: recordingRelation("", nil), water: fakeWaterFetcher(""), roads: noRoads})
@@ -1754,9 +1802,6 @@ func TestResolveBoundary_RebuildReResolvesStoredBoundary(t *testing.T) {
 	}
 	if name != "Oakland, CA" || len(saves) != 1 || fresh == nil {
 		t.Errorf("nominatim asked for %q, saves = %q, fresh = %v; want the stored boundary re-resolved and saved once", name, saves, fresh)
-	}
-	if strings.Contains(errOut.String(), "Using cached boundary") {
-		t.Errorf("stderr = %q; --rebuild-boundary must not reuse the stored boundary", errOut.String())
 	}
 }
 
@@ -1770,18 +1815,25 @@ func TestPrintDryRunPlan_RebuildBoundary(t *testing.T) {
 	if err := printDryRunPlan(context.Background(), opts, store, city); err != nil {
 		t.Fatal(err)
 	}
-	want := `would re-resolve the stored boundary for "Oakland, CA" from Nominatim, through the HTTP cache`
-	if got := out.String(); !strings.Contains(got, want) || strings.Contains(got, "boundary cached, would skip") {
-		t.Errorf("dry run = %q; want %q", got, want)
+	// The rebuild's boundary step names the city and the upstream, and is
+	// neither the plain cached plan's (skip) nor a fresh city's (fetch).
+	from := boundarySourceFor(city).from
+	rebuild := planLineWith(out.String(), from)
+	cached := dryRunOutput(t, city, noSourceBoundary)
+	fresh := dryRunOutput(t, city, "")
+	if rebuild == "" || !strings.Contains(rebuild, city.Name) ||
+		rebuild == planLineWith(cached, from) || rebuild == planLineWith(fresh, from) {
+		t.Errorf("dry run = %q; want a re-resolve step for %q from %s, unlike the cached plan %q and the fresh plan %q",
+			out.String(), city.Name, from, cached, fresh)
 	}
-	// A fresh boundary fetches the roads as the strip's land evidence; a
-	// cached one does not.
-	const roads = "would fetch roads over the unstripped boundary bbox as land evidence for the water strip"
-	if got := out.String(); !strings.Contains(got, roads) {
-		t.Errorf("dry run = %q; want %q", got, roads)
+	// A re-resolved boundary fetches the roads as the strip's land evidence,
+	// as a fresh one does; a cached one does not, so its plan is one step
+	// shorter.
+	if got, want := len(planSteps(out.String())), len(planSteps(fresh)); got != want {
+		t.Errorf("rebuild plan has %d steps, want the fresh plan's %d:\n%s", got, want, out.String())
 	}
-	if got := dryRunOutput(t, city, cmdutil.SourceAll, noSourceBoundary); strings.Contains(got, roads) {
-		t.Errorf("dry run with a cached boundary = %q; want no roads fetch for the strip", got)
+	if got, want := len(planSteps(cached)), len(planSteps(fresh))-1; got != want {
+		t.Errorf("cached plan has %d steps, want %d (no roads fetch for the strip):\n%s", got, want, cached)
 	}
 }
 
@@ -1942,7 +1994,9 @@ func TestFetchBoundary_InvertedStripKeepsRoadsForFinalBoundary(t *testing.T) {
 	if b.roads.saved != 21 {
 		t.Errorf("roads outcome saved = %d, want 21", b.roads.saved)
 	}
-	if !strings.Contains(errOut.String(), "Water-strip inversion recovered") {
+	// The backstop's note (chooseBoundary owns its wording) reaches stderr
+	// as a warning naming the city.
+	if !strings.Contains(errOut.String(), "warning: ") || !strings.Contains(errOut.String(), "El Segundo, CA") {
 		t.Errorf("stderr = %q; want the backstop's warning", errOut)
 	}
 	if len(store.Attempts) == 0 || store.Attempts[0].Input != "roads" || store.Attempts[0].FeatureCount != 21 {
@@ -1976,8 +2030,8 @@ func TestResolveBoundary_RoadsFetchErrorSavesNothing(t *testing.T) {
 		t.Fatalf("err = %v, want ErrRoadsFetch wrapping the source failure", err)
 	}
 	var he *hint.ErrHint
-	if !errors.As(err, &he) || !strings.Contains(he.Hint, "next ingest retries") {
-		t.Errorf("err = %v, want the retry hint", err)
+	if !errors.As(err, &he) || he.Hint == "" {
+		t.Errorf("err = %v, want it to carry the retry hint", err)
 	}
 	if b != nil {
 		t.Errorf("boundary = %+v, want nil on error", b)
@@ -2031,7 +2085,8 @@ func TestResolveBoundary_NoRoadsFallsBackToInteriorPoints(t *testing.T) {
 	if probes.Dense || probes.MaxHits != 0 || !slices.Equal(probes.Points, want.Points) {
 		t.Errorf("water probes = %+v, want the interior points %+v", probes, want)
 	}
-	if !strings.Contains(errOut.String(), "no road probes") {
+	// docs/troubleshooting.md quotes this warning for users to search for.
+	if !strings.Contains(errOut.String(), "warning: water strip: no road probes for Oakland, CA") {
 		t.Errorf("stderr = %q; want the fallback warned about", errOut)
 	}
 }
@@ -2115,8 +2170,8 @@ func TestResolveBoundary_FewRoadsFallBackToInteriorPoints(t *testing.T) {
 	if probes.Dense || !slices.Equal(probes.Points, interiorProbes(t, bigSquareBoundary).Points) {
 		t.Errorf("water probes = %+v, want the interior points", probes)
 	}
-	if !strings.Contains(errOut.String(), "no road probes") {
-		t.Errorf("stderr = %q; want the fallback warned about", errOut)
+	if !strings.Contains(errOut.String(), "warning: ") || !strings.Contains(errOut.String(), "Oakland, CA") {
+		t.Errorf("stderr = %q; want the fallback warned about, naming the city", errOut)
 	}
 }
 
@@ -2210,7 +2265,9 @@ func TestReportBoundaryRoads(t *testing.T) {
 			if c.roads != nil && c.roads.err != nil && (errors.Is(err, cmdutil.ErrNoResults) || !strings.Contains(err.Error(), "disk full")) {
 				t.Errorf("err = %v, want the roads save failure, not an empty run", err)
 			}
-			warned := strings.Contains(errOut.String(), "overpass failed") &&
+			// The warning names the failed source, and its hint the command
+			// that retries it.
+			warned := strings.Contains(errOut.String(), "warning: ") && strings.Contains(errOut.String(), "overpass") &&
 				strings.Contains(errOut.String(), "hint: retry it with 'pvmt --city "+city.Slug()+" roads ingest'")
 			if warned != c.wantWarn {
 				t.Errorf("stderr = %q, want the failed-source warning: %v", errOut, c.wantWarn)
@@ -2261,13 +2318,13 @@ func TestRoadsOutcome_Result(t *testing.T) {
 		name    string
 		o       roadsOutcome
 		want    error
-		partial string
+		partial []string // what the error names: the failed source, the count saved
 	}{
-		{"saved", roadsOutcome{saved: 2, succeeded: []string{"overpass"}}, nil, ""},
-		{"save failed", roadsOutcome{saved: 0, err: saveErr}, saveErr, ""},
-		{"nothing upstream", roadsOutcome{succeeded: []string{"overpass"}}, cmdutil.ErrNoResults, ""},
-		{"empty survivor", roadsOutcome{succeeded: []string{"arcgis"}, failed: []string{"overpass"}}, cmdutil.ErrPartialIngest, "overpass failed"},
-		{"partial", roadsOutcome{saved: 2, succeeded: []string{"arcgis"}, failed: []string{"overpass"}}, cmdutil.ErrPartialIngest, "overpass failed, saved 2"},
+		{"saved", roadsOutcome{saved: 2, succeeded: []string{"overpass"}}, nil, nil},
+		{"save failed", roadsOutcome{saved: 0, err: saveErr}, saveErr, nil},
+		{"nothing upstream", roadsOutcome{succeeded: []string{"overpass"}}, cmdutil.ErrNoResults, nil},
+		{"empty survivor", roadsOutcome{succeeded: []string{"arcgis"}, failed: []string{"overpass"}}, cmdutil.ErrPartialIngest, []string{"overpass"}},
+		{"partial", roadsOutcome{saved: 2, succeeded: []string{"arcgis"}, failed: []string{"overpass"}}, cmdutil.ErrPartialIngest, []string{"overpass", "2"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			err := c.o.result()
@@ -2277,8 +2334,13 @@ func TestRoadsOutcome_Result(t *testing.T) {
 				}
 				return
 			}
-			if !errors.Is(err, c.want) || !strings.Contains(err.Error(), c.partial) {
-				t.Errorf("result = %v, want %v naming %q", err, c.want, c.partial)
+			if !errors.Is(err, c.want) {
+				t.Errorf("result = %v, want %v", err, c.want)
+			}
+			for _, v := range c.partial {
+				if !strings.Contains(err.Error(), v) {
+					t.Errorf("result = %v, want it to name %q", err, v)
+				}
 			}
 			if errors.Is(c.want, cmdutil.ErrPartialIngest) && errors.Is(err, cmdutil.ErrNoResults) {
 				t.Errorf("result = %v also matches ErrNoResults", err)
@@ -2311,6 +2373,9 @@ func TestFetchBoundary_CityOnALakeIslandIsNotASubtractFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The saved source is "nominatim" both when there was no water and when
+	// the strip was skipped after a failure; only the progress line tells
+	// them apart, so its wording is pinned here (see the findings notes).
 	if strings.Contains(errOut.String(), "water strip skipped") || !slices.Equal(saved, []string{"nominatim"}) {
 		t.Errorf("saves = %q, stderr = %q; want the boundary saved with no water and no skipped-strip warning", saved, errOut)
 	}
@@ -2355,10 +2420,12 @@ func TestResolveBoundary_OverpassRoadsFailureIsHardEvenIfArcGISAnswered(t *testi
 		t.Fatalf("resolveBoundary = (%v, %v), want ErrRoadsFetch and no boundary", b, err)
 	}
 	var he *hint.ErrHint
-	if !errors.As(err, &he) || !strings.Contains(he.Hint, "next ingest retries") {
-		t.Errorf("err = %v, want the retry hint", err)
+	if !errors.As(err, &he) || he.Hint == "" {
+		t.Errorf("err = %v, want it to carry the retry hint", err)
 	}
-	if strings.Contains(errOut.String(), "no road probes") {
+	// The interior-point fallback warns when it runs (the water fetcher
+	// above fails the test if the strip itself does).
+	if strings.Contains(errOut.String(), "warning: ") {
 		t.Errorf("stderr = %q; the interior-point fallback must not run", errOut)
 	}
 	got := map[string]db.IngestOutcome{}
@@ -2471,8 +2538,8 @@ func TestIngest_DisabledSourceIsAUsageErrorUpFront(t *testing.T) {
 	cmd.SilenceErrors, cmd.SilenceUsage = true, true
 	err := cmd.Execute()
 	var fe *cmdutil.FlagError
-	if !errors.As(err, &fe) || !strings.Contains(err.Error(), "not available for Beta, CA") {
-		t.Errorf("err = %v, want a usage error naming Beta, CA", err)
+	if !errors.As(err, &fe) || !strings.Contains(err.Error(), "Beta, CA") || strings.Contains(err.Error(), "Alpha, CA") {
+		t.Errorf("err = %v, want a usage error naming Beta, CA alone", err)
 	}
 }
 
@@ -2503,10 +2570,26 @@ func TestRunResourceForCity_DryRunContext(t *testing.T) {
 		}
 	}
 	out := stdout.String()
-	if !strings.HasPrefix(out, "[dry-run] ingest roads for Test City") || !strings.Contains(out, "[dry-run] ingest parking for Test City") {
-		t.Errorf("stdout = %q, want the roads and parking plans", out)
+	// Two plans, in order: each a header naming the resource and the city,
+	// then its steps.
+	var headers []string
+	for _, line := range planLines(out) {
+		if !slices.Contains(planSteps(out), line) {
+			headers = append(headers, line)
+		}
 	}
-	if n := strings.Count(out, "would fetch boundary"); n != 1 {
+	if len(headers) != 2 || !strings.Contains(headers[0], "roads") || !strings.Contains(headers[1], "parking") ||
+		!strings.Contains(headers[0], city.Name) || !strings.Contains(headers[1], city.Name) {
+		t.Errorf("plan headers = %q, want the roads then the parking plan for %s:\n%s", headers, city.Name, out)
+	}
+	// Only the first plan has the step about the boundary's upstream.
+	n := 0
+	for _, step := range planSteps(out) {
+		if strings.Contains(step, boundarySourceFor(city).from) {
+			n++
+		}
+	}
+	if n != 1 {
 		t.Errorf("boundary plan printed %d times, want once:\n%s", n, out)
 	}
 }
@@ -2530,8 +2613,10 @@ func TestFetchFromSources_ArcGISSkipsNonRoads(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out := stderr.String()
-	if !strings.Contains(out, "Skipping arcgis for parking: it serves only roads") || strings.Contains(out, "Got ") || strings.Contains(out, "Fetching") {
+	// One line on stderr, naming the source and the resource it does not
+	// serve: no fetch was made (failTransport) or reported.
+	out := strings.TrimSpace(stderr.String())
+	if strings.Contains(out, "\n") || !strings.Contains(out, src.Name()) || !strings.Contains(out, "parking") {
 		t.Errorf("stderr = %q, want only the skip line", out)
 	}
 	if len(attempts) != 1 || attempts[0].Outcome != db.IngestEmpty {

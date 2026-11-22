@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -62,12 +63,21 @@ func TestPinNewest_PinsNewestAnyHash(t *testing.T) {
 		t.Errorf("pinned read = (%+v, %v), want the newest snapshot's 999 whatever its hash", r, err)
 	}
 	got := warn.String()
-	if want := fmt.Sprintf("snapshot %q was created under other settings", newest.Name); !strings.Contains(got, want) ||
-		!strings.Contains(got, "exporting it as created") {
+	// docs/troubleshooting.md quotes this warning, with export's ending, for
+	// users to search for; this is the one test that pins its wording.
+	if want := fmt.Sprintf("warning: Test City: snapshot %q was created under other settings (hash another-config, now %s)", newest.Name, hash); !strings.Contains(got, want) ||
+		!strings.Contains(got, "; exporting it as created\n") {
 		t.Errorf("warnings = %q; want the other-settings warning for snapshot %d", got, newest.ID)
 	}
-	if !strings.Contains(got, "warning: Test City: the latest compute has roads not yet snapshotted") {
-		t.Errorf("warnings = %q; want a note that roads is not yet snapshotted", got)
+	// A second warning says the latest compute's roads are not in it.
+	var lines []string
+	for line := range strings.SplitSeq(got, "\n") {
+		if strings.HasPrefix(line, "warning: ") {
+			lines = append(lines, line)
+		}
+	}
+	if len(lines) != 2 || !strings.Contains(lines[1], "Test City") || !strings.Contains(lines[1], "roads") {
+		t.Errorf("warnings = %q; want a second one naming Test City's unsnapshotted roads", lines)
 	}
 }
 
@@ -111,8 +121,8 @@ func TestPinNewest_RefusesCitiesWithNoSnapshot(t *testing.T) {
 	if strings.Contains(h.Hint, "Done") || strings.Contains(h.Hint, "Unbounded") {
 		t.Errorf("hint %q names a city with a snapshot or one the export skips", h.Hint)
 	}
-	if !strings.Contains(err.Error(), "2 cities have none") {
-		t.Errorf("err = %q, want the count of cities with none", err)
+	if !regexp.MustCompile(`\b2\b`).MatchString(err.Error()) {
+		t.Errorf("err = %q, want the count of cities with none, 2", err)
 	}
 	if pins != 0 {
 		t.Errorf("a refused export pinned %d cities, want none", pins)
@@ -253,8 +263,8 @@ var paved = []db.SnapshotPart{{Part: "roads", RunID: 1}}
 func TestRequirePavement(t *testing.T) {
 	entry := CityEntry{City: config.CityConfig{Name: "Test City"}}
 	err := RequirePavement(entry, &db.SnapshotCity{ID: 3, Parts: []db.SnapshotPart{{Part: "service:fire"}}})
-	if err == nil || !strings.Contains(err.Error(), "no pavement") || !strings.Contains(err.Error(), "service:fire") {
-		t.Errorf("err = %v, want one naming the missing pavement compute", err)
+	if err == nil || !strings.Contains(err.Error(), "Test City") || !strings.Contains(err.Error(), "service:fire") {
+		t.Errorf("err = %v, want one naming the city and the parts the snapshot does hold", err)
 	}
 	if err := RequirePavement(entry, &db.SnapshotCity{ID: 4, Parts: paved}); err != nil {
 		t.Errorf("paved snapshot: %v", err)

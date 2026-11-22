@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
+	"slices"
 	"strings"
 	"testing"
 
@@ -168,7 +169,11 @@ func TestDiff_Table(t *testing.T) {
 	if !strings.HasPrefix(lines[1], "beta\tremoved\t") || !strings.HasPrefix(lines[2], "gamma\tadded\t") {
 		t.Errorf("rows = %q, want beta removed then gamma added", lines[1:])
 	}
-	if !strings.Contains(errOut, "v1 (compute epoch") || !strings.Contains(errOut, "1 city in both, 2 only in one") {
+	// The header line names both snapshots, each with its compute epoch,
+	// then counts the 1 city in both and the 2 in only one.
+	header, _, _ := strings.Cut(errOut, "\n")
+	n := numbersIn(header, "v1", "v2")
+	if !strings.Contains(header, "v1") || !strings.Contains(header, "v2") || len(n) != 4 || !slices.Equal(n[2:], []string{"1", "2"}) {
 		t.Errorf("header = %q", errOut)
 	}
 }
@@ -249,7 +254,9 @@ func TestDiff_SameSnapshot(t *testing.T) {
 // TestDiff_NoCityInBoth exits 3 (ErrNoResults); an unknown name is an error.
 func TestDiff_NoCityInBoth(t *testing.T) {
 	fx := newDiffFixture(t)
-	if _, errOut, err := fx.run(t, "v1", "v3"); !errors.Is(err, cmdutil.ErrNoResults) || !strings.Contains(errOut, "no city is in both v1 and v3") {
+	// The warning names the two snapshots that share no city.
+	if _, errOut, err := fx.run(t, "v1", "v3"); !errors.Is(err, cmdutil.ErrNoResults) ||
+		!strings.Contains(errOut, "warning: ") || !strings.Contains(errOut, "v1") || !strings.Contains(errOut, "v3") {
 		t.Errorf("v1 vs v3: err = %v, stderr %q; want ErrNoResults", err, errOut)
 	}
 	if _, _, err := fx.run(t, "v1", "nope"); !isUnknownSnapshot(err, "nope") {

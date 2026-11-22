@@ -25,7 +25,8 @@ func TestDashboardTablistAria(t *testing.T) {
 	}
 	out := buf.String()
 
-	if !strings.Contains(out, `class="tab-tabs" role="tablist" aria-label="Sections"`) {
+	// The tab row is a tablist with an accessible name, whatever it says.
+	if !regexp.MustCompile(`class="tab-tabs" role="tablist" aria-label="[^"]+"`).MatchString(out) {
 		t.Error("tab-tabs missing role=tablist + aria-label")
 	}
 
@@ -229,11 +230,14 @@ func TestCitySelectorOptgroups(t *testing.T) {
 	if !strings.Contains(out, `class="tag-filter" data-dim="group"`) || !strings.Contains(out, `class="tag-filter" data-dim="state"`) {
 		t.Error("missing a tag-filter select for the group or state dimension")
 	}
-	if !strings.Contains(out, `aria-label="Filter cities by Group"`) {
-		t.Error("group filter missing its aria-label")
+	// The group filter's accessible name names its dimension, and its first
+	// option, the default, is the empty value that filters nothing.
+	group := tagFilterTag(t, out, "group")
+	if !regexp.MustCompile(`aria-label="[^"]*Group[^"]*"`).MatchString(group) {
+		t.Errorf("group filter %s has no aria-label naming its dimension", group)
 	}
-	if !strings.Contains(out, `<option value="">Any Group</option>`) {
-		t.Error("group filter missing its 'Any' default option")
+	if !regexp.MustCompile(regexp.QuoteMeta(group) + `<option value="">[^<]*Group[^<]*</option>`).MatchString(out) {
+		t.Error("group filter does not open with an empty-value default option naming its dimension")
 	}
 	if n := strings.Count(out, `<option value="Bay Area">Bay Area</option>`); n != 1 {
 		t.Errorf("expected one Bay Area filter option, got %d", n)
@@ -241,7 +245,7 @@ func TestCitySelectorOptgroups(t *testing.T) {
 	if n := strings.Count(out, `<option value="state:CA">CA</option>`); n != 1 {
 		t.Errorf("expected one state:CA filter option labelled CA, got %d", n)
 	}
-	if strings.Contains(out, `data-dim="group" aria-label="Filter cities by Group" title="Show only cities in this Group" autocomplete="off" hidden`) {
+	if tagFilterHidden(group) {
 		t.Error("the two-value group filter must not be hidden")
 	}
 
@@ -300,9 +304,29 @@ func TestCitySelector_NoFilterRowWithoutChoice(t *testing.T) {
 	if !strings.Contains(out, `id="topbar-filters"`) {
 		t.Error("tag filters missing although the group dimension offers a choice")
 	}
-	if !strings.Contains(out, `data-dim="state" aria-label="Filter cities by State" title="Show only cities in this State" autocomplete="off" hidden>`) {
+	if !tagFilterHidden(tagFilterTag(t, out, "state")) {
 		t.Error("single-value state filter must render hidden")
 	}
+	if tagFilterHidden(tagFilterTag(t, out, "group")) {
+		t.Error("the two-value group filter must not be hidden")
+	}
+}
+
+// tagFilterTag returns the opening <select> tag of the first tag filter for
+// dimension dim in the rendered page.
+func tagFilterTag(t *testing.T, out, dim string) string {
+	t.Helper()
+	tag := regexp.MustCompile(`<select class="tag-filter" data-dim="` + regexp.QuoteMeta(dim) + `"[^>]*>`).FindString(out)
+	if tag == "" {
+		t.Fatalf("no tag-filter select for the %s dimension", dim)
+	}
+	return tag
+}
+
+// tagFilterHidden reports whether a tag filter's opening tag carries the
+// hidden attribute.
+func tagFilterHidden(tag string) bool {
+	return regexp.MustCompile(`\shidden(\s|>|=)`).MatchString(tag)
 }
 
 // TestLayerTogglesInGearMenu asserts the #toggles container lives inside the
@@ -359,7 +383,8 @@ func TestRegionSelectControl(t *testing.T) {
 	if !strings.Contains(out, `id="region-select-btn"`) {
 		t.Error("missing region-select button")
 	}
-	if !strings.Contains(out, `>Select Region<`) {
+	// The button has visible text as its accessible name, whatever it says.
+	if !regexp.MustCompile(`<button id="region-select-btn"[^>]*>\s*[^<\s][^<]*</button>`).MatchString(out) {
 		t.Error("region-select button label missing")
 	}
 	if !strings.Contains(out, `id="region-rubberband"`) {

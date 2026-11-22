@@ -834,8 +834,10 @@ overpass = true
 			t.Fatalf("load: %v", err)
 		}
 		w := onlyWarning(t, cfg)
-		if !strings.Contains(w, "different tier sets") {
-			t.Errorf("warning should say the sets differ, not compare counts\ngot: %s", w)
+		// The warning names the diverging key; the count pair below, equal
+		// on both sides, would explain nothing.
+		if !strings.Contains(w, "forecast.cost_tiers") {
+			t.Errorf("warning should name forecast.cost_tiers as what differs\ngot: %s", w)
 		}
 		if strings.Contains(w, "(2 vs 2 tiers)") {
 			t.Errorf("warning prints an identical-looking count pair\ngot: %s", w)
@@ -1965,8 +1967,8 @@ func TestInclude_OneHorizon(t *testing.T) {
 				t.Fatal("load succeeded; want a horizon mismatch")
 			}
 			if !errors.Is(err, ErrInvalidConfig) || !strings.Contains(err.Error(), "../a/pvmt.toml") ||
-				!strings.Contains(err.Error(), "one forecast horizon") {
-				t.Errorf("err = %v; want ErrInvalidConfig naming the include and the rule", err)
+				!strings.Contains(err.Error(), "forecast.horizon_years") {
+				t.Errorf("err = %v; want ErrInvalidConfig naming the include and the setting", err)
 			}
 		})
 	}

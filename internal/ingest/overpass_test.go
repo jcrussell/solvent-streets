@@ -708,13 +708,15 @@ func TestFetch_TooLargeMarkerSkipsTheFullRequestOnRepeat(t *testing.T) {
 	src := &OverpassSource{BBox: bbox}
 
 	var buf bytes.Buffer
-	ctx := logs.WithLogger(context.Background(), slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})))
+	ctx := logs.WithLogger(context.Background(), slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})))
 	first, err := src.Fetch(ctx, client, resource.ByType(resource.TypeRoads))
 	if err != nil || len(first) != 4 || upstream != 5 {
 		t.Fatalf("first fetch = %d features, %v after %d upstream requests; want 4 from 1 oversized + 4 quadrants", len(first), err, upstream)
 	}
-	if !strings.Contains(buf.String(), "splitting into quadrants") {
-		t.Errorf("log = %q; want the split logged", buf.String())
+	// The one split, of the whole bbox, is an Info record with its depth and
+	// its reason.
+	if splits := recordsWith(logRecords(t, &buf), "depth", "reason"); len(splits) != 1 || splits[0]["depth"] != 1.0 || splits[0]["level"] != "INFO" {
+		t.Errorf("log = %q; want the split logged once, at depth 1", buf.String())
 	}
 	again, err := src.Fetch(ctx, client, resource.ByType(resource.TypeRoads))
 	if err != nil || len(again) != 4 || upstream != 5 {

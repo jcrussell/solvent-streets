@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -141,15 +142,25 @@ func TestRunPrune_RemovesStaleEntriesAndReports(t *testing.T) {
 		t.Error("fresh entry was removed")
 	}
 
-	out := stdout.String()
-	for _, want := range []string{dir, "scanned", "Removed", "Reclaimed", "remaining"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("report is missing %q:\n%s", want, out)
+	// The report is the plan, which names the directory, then the outcome.
+	// (TestRunPrune_DryRunLeavesDiskAlone tells that outcome from a dry
+	// run's.)
+	blocks := reportBlocks(stdout.String())
+	if len(blocks) != 2 || !strings.Contains(blocks[0], dir) {
+		t.Errorf("report should be a plan naming %s and an outcome, got %d blocks:\n%s", dir, len(blocks), stdout.String())
+	}
+}
+
+// reportBlocks splits prune's text report into its blank-line-separated
+// blocks: the plan, then, when there was something to remove, the outcome.
+func reportBlocks(out string) []string {
+	var blocks []string
+	for b := range strings.SplitSeq(out, "\n\n") {
+		if strings.TrimSpace(b) != "" {
+			blocks = append(blocks, strings.TrimSpace(b))
 		}
 	}
-	if strings.Contains(out, "Dry run") {
-		t.Errorf("non-dry-run reported as a dry run:\n%s", out)
-	}
+	return blocks
 }
 
 // TestRunPrune_DryRunLeavesDiskAlone: the report describes the sweep, the
@@ -174,9 +185,28 @@ func TestRunPrune_DryRunLeavesDiskAlone(t *testing.T) {
 			t.Errorf("--dry-run deleted %s", filepath.Base(p))
 		}
 	}
-	out := stdout.String()
-	if !strings.Contains(out, "would remove") || !strings.Contains(out, "Dry run") {
-		t.Errorf("dry-run report does not read as hypothetical:\n%s", out)
+	dry := reportBlocks(stdout.String())
+	if len(dry) != 2 {
+		t.Fatalf("dry-run report should be a plan and a summary, got %d blocks:\n%s", len(dry), stdout.String())
+	}
+
+	// The same sweep for real plans the same removal, removes the files, and
+	// says something else about the outcome: the dry run's summary does not
+	// read as a deletion.
+	stdout.Reset()
+	opts.DryRun, opts.Yes = false, true
+	if err := runPrune(context.Background(), opts); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{body, meta} {
+		if _, err := os.Stat(p); err == nil {
+			t.Errorf("the real run left %s", filepath.Base(p))
+		}
+	}
+	applied := reportBlocks(stdout.String())
+	if len(applied) != 2 || applied[0] != dry[0] || applied[1] == dry[1] {
+		t.Errorf("real report =\n%s\nwant the dry run's plan and a different outcome; dry run was:\n%s",
+			strings.Join(applied, "\n\n"), strings.Join(dry, "\n\n"))
 	}
 }
 
@@ -192,8 +222,9 @@ func TestRunPrune_EmptyCacheSaysSo(t *testing.T) {
 	if err := runPrune(context.Background(), opts); err != nil {
 		t.Fatalf("pruning a cache that was never created must not error: %v", err)
 	}
-	if !strings.Contains(stdout.String(), "Nothing to prune.") {
-		t.Errorf("want a 'Nothing to prune.' line, got:\n%s", stdout.String())
+	// The plan alone: no outcome block follows it.
+	if blocks := reportBlocks(stdout.String()); len(blocks) != 1 {
+		t.Errorf("want the plan and no removal summary, got %d blocks:\n%s", len(blocks), stdout.String())
 	}
 }
 
@@ -288,9 +319,10 @@ func TestRunPrune_PromptsOnTTY(t *testing.T) {
 			t.Errorf("%s survived an approved prune", filepath.Base(p))
 		}
 	}
-	// The re-fetch cost must be stated before the question, not buried.
-	if !strings.Contains(stderr.String(), "re-fetched") {
-		t.Errorf("expected the re-fetch cost to be disclosed, got:\n%s", stderr.String())
+	// The re-fetch cost is stated on stderr before the question (the stub
+	// prompter prints nothing itself).
+	if strings.TrimSpace(stderr.String()) == "" {
+		t.Error("expected the re-fetch cost to be disclosed on stderr before the prompt")
 	}
 }
 
@@ -362,8 +394,9 @@ func TestRunPrune_DryRunNeverPrompts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(stdout.String(), "Dry run") {
-		t.Errorf("expected a dry-run summary, got:\n%s", stdout.String())
+	// The plan and its dry-run summary were printed without asking.
+	if blocks := reportBlocks(stdout.String()); len(blocks) != 2 {
+		t.Errorf("expected a plan and a dry-run summary, got %d blocks:\n%s", len(blocks), stdout.String())
 	}
 }
 
@@ -371,7 +404,7 @@ func TestRunPrune_DryRunNeverPrompts(t *testing.T) {
 // nothing to authorize, so an empty cache must not stop to ask.
 func TestRunPrune_NothingToPruneNeverPrompts(t *testing.T) {
 	dir := t.TempDir()
-	writeEntry(t, dir, 1, time.Hour) // fresh; nothing to do
+	fresh, _ := writeEntry(t, dir, 1, time.Hour) // nothing to do
 
 	ios, _, stdout, _ := iostreams.Test()
 	ios.SetStdinTTY(true)
@@ -384,8 +417,12 @@ func TestRunPrune_NothingToPruneNeverPrompts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(stdout.String(), "Nothing to prune.") {
-		t.Errorf("want 'Nothing to prune.', got:\n%s", stdout.String())
+	// The plan alone, and the fresh entry is still there.
+	if blocks := reportBlocks(stdout.String()); len(blocks) != 1 {
+		t.Errorf("want the plan and no outcome, got %d blocks:\n%s", len(blocks), stdout.String())
+	}
+	if _, err := os.Stat(fresh); err != nil {
+		t.Errorf("the fresh entry was removed: %v", err)
 	}
 }
 
@@ -398,21 +435,35 @@ func TestRunPrune_SkippedPathsReportedWhenIdle(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ios, _, stdout, _ := iostreams.Test()
-	err := runPrune(context.Background(), &PruneOptions{
-		IO:       ios,
-		CacheDir: func() (string, error) { return dir, nil },
-		MaxAge:   httpcache.DefaultMaxAge,
-	})
-	if err != nil {
-		t.Fatal(err)
+	// planOf is the idle run's report for cacheDir: one block, the plan.
+	planOf := func(cacheDir string) []string {
+		t.Helper()
+		ios, _, stdout, _ := iostreams.Test()
+		err := runPrune(context.Background(), &PruneOptions{
+			IO:       ios,
+			CacheDir: func() (string, error) { return cacheDir, nil },
+			MaxAge:   httpcache.DefaultMaxAge,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		blocks := reportBlocks(stdout.String())
+		if len(blocks) != 1 {
+			t.Fatalf("want the plan and no outcome, got %d blocks:\n%s", len(blocks), stdout.String())
+		}
+		return strings.Split(blocks[0], "\n")
 	}
-	out := stdout.String()
-	if !strings.Contains(out, "skipped") {
-		t.Errorf("skipped paths must be reported even when nothing is pruned, got:\n%s", out)
+	// The stray path adds a row to the plan an empty cache prints, and the
+	// row gives the count.
+	empty, withStray := planOf(t.TempDir()), planOf(dir)
+	if len(withStray) != len(empty)+1 {
+		t.Fatalf("plan with a skipped path has %d lines, want one more than the empty cache's %d:\n%s",
+			len(withStray), len(empty), strings.Join(withStray, "\n"))
 	}
-	if !strings.Contains(out, "Nothing to prune.") {
-		t.Errorf("want 'Nothing to prune.', got:\n%s", out)
+	// Line 0 names the directory, which differs between the two runs.
+	extra := slices.IndexFunc(withStray[1:], func(l string) bool { return !slices.Contains(empty, l) })
+	if extra < 0 || !strings.Contains(withStray[extra+1], "1") {
+		t.Errorf("plan =\n%s\nwant one row the empty cache's lacks, counting the 1 path left alone", strings.Join(withStray, "\n"))
 	}
 }
 

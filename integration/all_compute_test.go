@@ -81,6 +81,9 @@ func TestAllCompute_SharedGridMatchesStandalone(t *testing.T) {
 
 	// (3) Perf signal: shared once, not rebuilt per resource. These are
 	// progress lines, so they land on ErrOut (chatter), not Out (data).
+	// The progress wording is pinned because the command exposes no other
+	// sign of which path built the grid: the stored results are equal by
+	// design (1), and no counter or log attribute records a grid build.
 	if !strings.Contains(errA.String(), "Reusing shared clipped hex grid") {
 		t.Errorf("all compute did not report reusing a shared grid; got:\n%s", errA.String())
 	}

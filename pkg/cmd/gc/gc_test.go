@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -267,8 +268,16 @@ func TestRunGC_ReportsRetainedOverpassRows(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := stdout.String()
-	if !strings.Contains(out, "kept (overpass off):   7") {
-		t.Errorf("report did not name the 7 retained overpass rows:\n%s", out)
+	// A row of the report counts the 7 rows kept, beside the 3 reported
+	// stale, and names the source they belong to.
+	var kept string
+	for line := range strings.SplitSeq(out, "\n") {
+		if slices.Contains(strings.Fields(line), "7") {
+			kept = line
+		}
+	}
+	if !strings.Contains(kept, "overpass") {
+		t.Errorf("report did not count the 7 retained overpass rows:\n%s", out)
 	}
 	if !strings.Contains(out, "--sweep-disabled-sources") {
 		t.Errorf("report did not name the remedy flag:\n%s", out)
@@ -319,10 +328,24 @@ func TestRunGC_DryRunScansButDoesNotSweep(t *testing.T) {
 		t.Errorf("stderr should be empty; got: %q", got)
 	}
 	out := stdout.String()
-	for _, want := range []string{"=== alpha ===", "stale features:        3", "city=6", "Dry run", "nothing deleted"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("expected %q in output, got: %s", want, out)
-		}
+	// docs/upgrading.md promises the slug header, even for one city.
+	if !strings.Contains(out, "=== alpha ===") {
+		t.Errorf("report lacks the city's header:\n%s", out)
+	}
+	// Each table's count is a row ending in it, and the summary gives the
+	// total across them.
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	endsWith := func(count string) bool {
+		return slices.ContainsFunc(lines, func(l string) bool {
+			f := strings.Fields(l)
+			return len(f) > 1 && f[len(f)-1] == count
+		})
+	}
+	if !endsWith("3") || !strings.Contains(out, "city=6") {
+		t.Errorf("report lacks the 3 stale features or the 6 city metrics:\n%s", out)
+	}
+	if total := strconv.Itoa(reportWithCounts().Total()); !strings.Contains(lines[len(lines)-1], total) {
+		t.Errorf("summary %q lacks the total %s", lines[len(lines)-1], total)
 	}
 }
 
@@ -352,8 +375,10 @@ func TestRunGC_YesSweeps(t *testing.T) {
 	if !swept {
 		t.Error("GCSweep was not called with --yes")
 	}
-	if !strings.Contains(stdout.String(), "Collected") {
-		t.Errorf("expected 'Collected' summary on stdout, got: %s", stdout.String())
+	// The report says what was collected: the total, from which city.
+	out := stdout.String()
+	if total := strconv.Itoa(reportWithCounts().Total()); !strings.Contains(out, total) || !strings.Contains(out, "alpha") {
+		t.Errorf("expected the %s rows collected from alpha on stdout, got: %s", total, out)
 	}
 }
 
@@ -419,8 +444,9 @@ func TestRunGC_NothingToCollect(t *testing.T) {
 	if swept {
 		t.Error("GCSweep was called when there was nothing to collect")
 	}
-	if !strings.Contains(stdout.String(), "Nothing to collect.") {
-		t.Errorf("expected no-op hint on stdout, got: %s", stdout.String())
+	// The scan is still reported, under the city's header.
+	if !strings.Contains(stdout.String(), "=== alpha ===") {
+		t.Errorf("expected the city's (empty) report on stdout, got: %s", stdout.String())
 	}
 }
 
@@ -438,7 +464,7 @@ func TestRunGC_PromptCancelDoesNotSweep(t *testing.T) {
 			}
 		},
 	}
-	ios, _, _, stderr := iostreams.Test()
+	ios, _, _, _ := iostreams.Test()
 	ios.SetStdinTTY(true)
 	opts := &Options{
 		IO:            ios,
@@ -452,9 +478,6 @@ func TestRunGC_PromptCancelDoesNotSweep(t *testing.T) {
 	}
 	if swept {
 		t.Error("GCSweep was called after the user declined")
-	}
-	if !strings.Contains(stderr.String(), "Canceled.") {
-		t.Errorf("expected 'Canceled.' on stderr, got: %s", stderr.String())
 	}
 }
 

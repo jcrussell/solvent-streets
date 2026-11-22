@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -74,6 +75,8 @@ func TestRunCreate_OneRefusalRefusesTheSnapshot(t *testing.T) {
 	if !errors.Is(err, cmdutil.ErrSilent) {
 		t.Fatalf("err = %v, want ErrSilent", err)
 	}
+	// docs/troubleshooting.md shows a refused create's output verbatim, so
+	// this one test pins it whole.
 	want := `alpha: refused: roads re-ingested 2026-11-14 10:02 UTC after the combined and roads computes
 refused "v1": 1 of 2 cities refused; nothing was created
 `
@@ -97,7 +100,8 @@ func TestRunCreate_NothingComputedNeedsACompute(t *testing.T) {
 	if !cmdutil.OnlyPrereqs(err) || !errors.As(err, &h) || h.Hint != "run 'pvmt --city alpha all compute' first" {
 		t.Fatalf("err = %v, want a missing prerequisite naming alpha's compute", err)
 	}
-	if !strings.HasPrefix(stdout.String(), "alpha: refused: nothing computed") || stderr.Len() != 0 {
+	// The row's reason is the store's sentinel, whatever it says.
+	if !strings.HasPrefix(stdout.String(), "alpha: refused: "+db.ErrNothingComputed.Error()+"\n") || stderr.Len() != 0 {
 		t.Errorf("stdout = %q, stderr = %q; want the refusal, and its hint only on the error", stdout, stderr)
 	}
 
@@ -122,8 +126,9 @@ func TestRunCreate_Created(t *testing.T) {
 	if err := runCreate(context.Background(), opts); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := stdout.String(), "created v1: 2 cities\n"; got != want {
-		t.Errorf("output = %q, want %q", got, want)
+	// One line on stdout, naming the snapshot and counting its 2 cities.
+	if got := stdout.String(); strings.Count(got, "\n") != 1 || !strings.Contains(got, "v1") || !slices.Equal(numbersIn(got, "v1"), []string{"2"}) {
+		t.Errorf("output = %q, want one line naming v1 and its 2 cities", got)
 	}
 }
 
@@ -196,8 +201,8 @@ func TestCreate_JSON(t *testing.T) {
 	if a["city"] != "alpha" || a["status"] != "refused" || a["hint"] != "pvmt --city alpha all compute" || a["snapshot"] != nil {
 		t.Errorf("alpha row = %v, want refused with the all compute hint", a)
 	}
-	if reasons, _ := a["reasons"].([]any); len(reasons) != 1 || !strings.Contains(reasons[0].(string), "nothing computed") {
-		t.Errorf("alpha reasons = %v", a["reasons"])
+	if reasons, _ := a["reasons"].([]any); len(reasons) != 1 || reasons[0] != db.ErrNothingComputed.Error() {
+		t.Errorf("alpha reasons = %v, want the nothing-computed reason alone", a["reasons"])
 	}
 
 	// All coherent: one created row per city, naming the snapshot.
@@ -277,17 +282,26 @@ func TestRunCreate_RealStore(t *testing.T) {
 	}
 	out, err := run("v1")
 	snaps, _ := store.ListSnapshots(ctx)
-	if err != nil || len(snaps) != 1 || out != "created v1: 1 city\n" {
-		t.Fatalf("coherent city: (%q, %v), want created", out, err)
+	if err != nil || len(snaps) != 1 || snaps[0].Name != "v1" || !strings.Contains(out, "v1") || !slices.Equal(numbersIn(out, "v1"), []string{"1"}) {
+		t.Fatalf("coherent city: (%q, %v), snapshots %+v; want v1 created over 1 city", out, err, snaps)
 	}
-	if _, err = run("v1"); !errors.Is(err, db.ErrSnapshotExists) && (err == nil || !strings.Contains(err.Error(), "already exists")) {
-		t.Fatalf("second create of v1: err = %v, want already exists", err)
+	// runCreate does not wrap db.ErrSnapshotExists, so the taken name is
+	// recognized by its hint's command, and by nothing new being stored.
+	var taken *hint.ErrHint
+	if _, err = run("v1"); !errors.As(err, &taken) || !strings.Contains(taken.Hint, "'pvmt snapshots delete v1'") {
+		t.Fatalf("second create of v1: err = %v, want a refusal hinting 'pvmt snapshots delete v1'", err)
+	}
+	if again, _ := store.ListSnapshots(ctx); len(again) != 1 {
+		t.Fatalf("second create of v1 left %d snapshots, want 1", len(again))
 	}
 
 	roads(`{"type":"LineString","coordinates":[[0,0],[2,2]]}`)
 	out, err = run("v2")
-	if !errors.Is(err, cmdutil.ErrSilent) || !strings.HasPrefix(out, "alpha: refused: roads re-ingested ") ||
-		!strings.Contains(out, "after the combined and roads computes\n") || !strings.Contains(out, "hint: run 'pvmt --city alpha all compute'\n") {
+	// The refusal row names the re-ingested input, and the hint the compute
+	// that clears it.
+	row, _, _ := strings.Cut(out, "\n")
+	if !errors.Is(err, cmdutil.ErrSilent) || !strings.HasPrefix(row, "alpha: refused: ") || !strings.Contains(row, "roads") ||
+		!strings.Contains(out, "hint: run 'pvmt --city alpha all compute'\n") {
 		t.Errorf("after a roads re-ingest: (%q, %v), want refused with the all compute hint", out, err)
 	}
 	snaps, err = store.ListSnapshots(ctx)
@@ -300,8 +314,12 @@ func TestRunCreate_RealStore(t *testing.T) {
 	// every ingested resource never computed.
 	cfg.Grid.HexEdgeM = 150
 	out, err = run("v2")
-	if !cmdutil.OnlyPrereqs(err) || !strings.HasPrefix(out, "alpha: refused: nothing computed under the current settings") ||
-		!strings.Contains(out, "was computed, but not under the current settings") || strings.Contains(out, "never computed") {
+	// The row's one reason is the nothing-computed sentinel, with no
+	// per-resource reasons beside it, and the hint is the shared
+	// stale-settings one.
+	row, _, _ = strings.Cut(out, "\n")
+	if !cmdutil.OnlyPrereqs(err) || row != "alpha: refused: "+db.ErrNothingComputed.Error() ||
+		!strings.Contains(out, "hint: "+cfg.StaleHint(&cfg.Cities[0])+"\n") {
 		t.Errorf("after a settings change: (%q, %v), want the nothing-computed refusal with the stale-settings hint", out, err)
 	}
 }

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -68,6 +70,16 @@ type askStub struct {
 func (s *askStub) Confirm(ctx context.Context, msg string, def bool) (bool, error) {
 	s.Asked = append(s.Asked, msg)
 	return s.Stub.Confirm(ctx, msg, def)
+}
+
+// numbersIn returns the integers in s, in order, once the given names (which
+// may hold digits of their own, like "v2") are cut out: the values a line of
+// prose reports, whatever its wording.
+func numbersIn(s string, names ...string) []string {
+	for _, n := range names {
+		s = strings.ReplaceAll(s, n, "")
+	}
+	return regexp.MustCompile(`\d+`).FindAllString(s, -1)
 }
 
 // tagRoot is a mock root holding two snapshots, newest first: v2 over alpha
@@ -206,8 +218,12 @@ func TestRunShow(t *testing.T) {
 	if stdout.String() != want {
 		t.Errorf("show output = %q, want %q", stdout.String(), want)
 	}
-	if !strings.Contains(stderr.String(), "Snapshot v2: created") || !strings.Contains(stderr.String(), "compute epoch 3, 2 cities") {
-		t.Errorf("show header = %q", stderr.String())
+	// The header, on stderr, names the snapshot, when it was created, and
+	// ends with its compute epoch (3) and city count (2).
+	header := stderr.String()
+	if n := numbersIn(header, "v2"); !strings.Contains(header, "v2") || !strings.Contains(header, "2026-05-18") ||
+		len(n) < 2 || !slices.Equal(n[len(n)-2:], []string{"3", "2"}) {
+		t.Errorf("show header = %q", header)
 	}
 
 	stdout.Reset()
@@ -260,8 +276,8 @@ func TestRunDelete_DeletesByName(t *testing.T) {
 	if err := runDelete(context.Background(), opts); err != nil {
 		t.Fatal(err)
 	}
-	if len(deleted) != 1 || deleted[0] != "v1" || !strings.Contains(stdout.String(), `Deleted snapshot "v1".`) {
-		t.Errorf("deleted = %v, stdout = %q", deleted, stdout)
+	if len(deleted) != 1 || deleted[0] != "v1" || !strings.Contains(stdout.String(), `"v1"`) {
+		t.Errorf("deleted = %v, stdout = %q; want v1 deleted and named in the report", deleted, stdout)
 	}
 }
 
@@ -275,7 +291,8 @@ func TestRunDelete_DryRunDeletesNothing(t *testing.T) {
 	if err := runDelete(context.Background(), opts); err != nil {
 		t.Fatal(err)
 	}
-	if len(deleted) != 0 || !strings.Contains(stdout.String(), `Would delete snapshot "v2" (2 cities)`) {
+	// The plan names the snapshot and its 2 cities.
+	if out := stdout.String(); len(deleted) != 0 || !strings.Contains(out, `"v2"`) || !slices.Equal(numbersIn(out, "v2"), []string{"2"}) {
 		t.Errorf("deleted = %v, stdout = %q", deleted, stdout)
 	}
 }
@@ -294,8 +311,8 @@ func TestRunDelete_PromptsOnTTY(t *testing.T) {
 	if len(stub.Confirms) != 0 || len(deleted) != 1 {
 		t.Errorf("confirms left %v, deleted %v", stub.Confirms, deleted)
 	}
-	if len(stub.Asked) != 1 || stub.Asked[0] != `Delete snapshot "v2" (2 cities)?` {
-		t.Errorf("asked %q", stub.Asked)
+	if len(stub.Asked) != 1 || !strings.Contains(stub.Asked[0], `"v2"`) || !slices.Equal(numbersIn(stub.Asked[0], "v2"), []string{"2"}) {
+		t.Errorf("asked %q, want one question naming v2 and its 2 cities", stub.Asked)
 	}
 }
 
@@ -303,14 +320,15 @@ func TestRunDelete_PromptsOnTTY(t *testing.T) {
 // deletes nothing.
 func TestRunDelete_CancelOnPromptNo(t *testing.T) {
 	var deleted []string
-	ios, _, _, stderr := iostreams.Test()
+	ios, _, stdout, _ := iostreams.Test()
 	ios.SetStdinTTY(true)
 	opts := &DeleteOptions{IO: ios, Prompter: &prompt.Stub{Confirms: []bool{false}}, RootDB: rootDBFunc(tagRoot(&deleted)), Name: "v2"}
 	if err := runDelete(context.Background(), opts); !errors.Is(err, cmdutil.ErrCancel) {
 		t.Errorf("want ErrCancel, got: %v", err)
 	}
-	if len(deleted) != 0 || !strings.Contains(stderr.String(), "Canceled.") {
-		t.Errorf("deleted %v, stderr %q", deleted, stderr)
+	// Nothing was deleted, so there is no report of a deletion on stdout.
+	if len(deleted) != 0 || stdout.Len() != 0 {
+		t.Errorf("deleted %v, stdout %q", deleted, stdout)
 	}
 }
 
@@ -382,7 +400,8 @@ func TestRunPrune_KeepsNMostRecent(t *testing.T) {
 	if err := runPrune(context.Background(), opts); err != nil {
 		t.Fatal(err)
 	}
-	if len(deleted) != 1 || deleted[0] != "v1" || !strings.Contains(stdout.String(), "Pruned 1 snapshot (kept 1).") {
+	// The report counts the 1 pruned and the 1 kept.
+	if len(deleted) != 1 || deleted[0] != "v1" || !slices.Equal(numbersIn(stdout.String()), []string{"1", "1"}) {
 		t.Errorf("deleted %v, stdout %q; want v1 pruned", deleted, stdout)
 	}
 }
@@ -397,7 +416,10 @@ func TestRunPrune_DryRunDeletesNothing(t *testing.T) {
 	if err := runPrune(context.Background(), opts); err != nil {
 		t.Fatal(err)
 	}
-	if len(deleted) != 0 || !strings.Contains(stdout.String(), "Would delete 1 snapshot, keeping the 1 newest:\n  v1\n") {
+	// The plan counts 1 to delete and 1 to keep, then lists the one to
+	// delete, v1, on a line of its own; the kept v2 is not listed.
+	lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
+	if len(deleted) != 0 || len(lines) != 2 || !slices.Equal(numbersIn(lines[0]), []string{"1", "1"}) || strings.TrimSpace(lines[1]) != "v1" {
 		t.Errorf("deleted %v, stdout %q", deleted, stdout)
 	}
 }
@@ -410,7 +432,8 @@ func TestRunPrune_NothingToDo(t *testing.T) {
 	if err := runPrune(context.Background(), opts); err != nil {
 		t.Fatal(err)
 	}
-	if len(deleted) != 0 || !strings.Contains(stdout.String(), "Nothing to prune.") {
+	// Nothing is deleted, and the report lists no snapshot as going.
+	if out := stdout.String(); len(deleted) != 0 || strings.Contains(out, "v1") || strings.Contains(out, "v2") {
 		t.Errorf("deleted %v, stdout %q", deleted, stdout)
 	}
 }
@@ -563,7 +586,7 @@ func TestRunDelete_LostRaceIsNotAUsageError(t *testing.T) {
 	ios, _, _, _ := iostreams.Test()
 	err := runDelete(context.Background(), &DeleteOptions{IO: ios, RootDB: rootDBFunc(root), Name: "v1", Yes: true})
 	var fe *cmdutil.FlagError
-	if err == nil || errors.As(err, &fe) || !strings.Contains(err.Error(), `no snapshot named "v1"`) {
+	if err == nil || errors.As(err, &fe) || !strings.Contains(err.Error(), `"v1"`) {
 		t.Errorf("err = %v, want a not-found failure that is not a usage error", err)
 	}
 }

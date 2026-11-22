@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"log/slog"
-	"strings"
 	"testing"
 
 	"github.com/jcrussell/solvent-streets/internal/db"
@@ -27,7 +26,7 @@ func TestRowsFromArcGISPage_DropsGeometryTheStoreRefuses(t *testing.T) {
 		t.Fatal(err)
 	}
 	var buf bytes.Buffer
-	ctx := logs.WithLogger(context.Background(), slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	ctx := logs.WithLogger(context.Background(), slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	rows, rawIDs := rowsFromArcGISPage(ctx, page, "OBJECTID", "arcgis", 0)
 	if len(rawIDs) != 4 {
 		t.Errorf("raw ids = %v, want all 4 (pagination counts the raw page)", rawIDs)
@@ -35,9 +34,10 @@ func TestRowsFromArcGISPage_DropsGeometryTheStoreRefuses(t *testing.T) {
 	if len(rows) != 2 || rows[0].ID != "arcgis:1" || rows[1].ID != "arcgis:4" {
 		t.Fatalf("rows = %+v, want arcgis:1 and arcgis:4", rows)
 	}
-	log := buf.String()
-	if !strings.Contains(log, "unusable geometry") || !strings.Contains(log, "count=2") || !strings.Contains(log, "example_id=arcgis:2") {
-		t.Errorf("warning = %q, want the dropped count and an example id", log)
+	// One record counts the dropped rows and names one of them.
+	if dropped := recordsWith(logRecords(t, &buf), "count", "example_id"); len(dropped) != 1 ||
+		dropped[0]["count"] != 2.0 || dropped[0]["example_id"] != "arcgis:2" {
+		t.Errorf("log = %q, want one record with the dropped count 2 and the example id arcgis:2", buf.String())
 	}
 
 	root, err := db.Open(context.Background(), ":memory:")

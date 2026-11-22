@@ -3,6 +3,8 @@ package serve
 import (
 	"context"
 	"errors"
+	"maps"
+	"slices"
 	"strings"
 	"testing"
 
@@ -75,22 +77,51 @@ func TestPinEntries(t *testing.T) {
 		t.Errorf("Latest = %v / %v, want each city's latest compute kept for ?snapshot=latest", entries[2].Latest, entries[3].Latest)
 	}
 	got := out.String()
-	if strings.Count(got, "warning:") != 4 || strings.Contains(got, "Fresh City") {
-		t.Errorf("want two warnings for Stale City and one each for Draft and Empty City, none for Fresh City; got:\n%s", got)
-	}
-	for _, want := range []string{
-		`Stale City: snapshot "v3" was created under other settings`,
-		// The picker's Latest compute is empty.
-		"Stale City has nothing computed under the current settings",
-		"Draft City has no snapshot; serving its latest compute (not snapshotted)",
-		"run 'pvmt snapshots create <name>' to publish it",
-		"no snapshot for Empty City; serving it without data",
-		"Empty City has never been computed",
-	} {
-		if !strings.Contains(got, want) {
-			t.Errorf("output lacks %q; got:\n%s", want, got)
+	// Two warnings for Stale City (its snapshot's settings, and the empty
+	// latest compute the picker offers), one each for Draft and Empty City,
+	// none for Fresh City.
+	warned := map[string]int{}
+	for _, w := range warnings(got) {
+		for _, e := range entries {
+			if strings.Contains(w, e.City.Name) {
+				warned[e.City.Name]++
+			}
 		}
 	}
+	if want := map[string]int{"Stale City": 2, "Draft City": 1, "Empty City": 1}; !maps.Equal(warned, want) || len(warnings(got)) != 4 {
+		t.Errorf("warnings per city = %v, want %v; got:\n%s", warned, want, got)
+	}
+	// Stale City's first is export's settings warning for its newest
+	// snapshot (whose wording internal/export owns).
+	if w := entries[1].SnapshotSettingsWarning(&entries[1].Snapshots[0]); w == "" || !strings.Contains(got, "warning: "+w) {
+		t.Errorf("output lacks Stale City's settings warning %q; got:\n%s", w, got)
+	}
+	// Draft City's names the command that publishes its latest compute.
+	if w := warningsNaming(got, "Draft City"); len(w) != 1 || !strings.Contains(w[0], "'pvmt snapshots create <name>'") {
+		t.Errorf("Draft City's warning %q lacks the snapshots create command", w)
+	}
+}
+
+// warnings returns the "warning: ..." lines of a startup's stderr.
+func warnings(out string) []string {
+	var ws []string
+	for line := range strings.SplitSeq(out, "\n") {
+		if strings.HasPrefix(line, "warning: ") {
+			ws = append(ws, line)
+		}
+	}
+	return ws
+}
+
+// warningsNaming returns the warnings that name every one of subjects.
+func warningsNaming(out string, subjects ...string) []string {
+	var ws []string
+	for _, w := range warnings(out) {
+		if !slices.ContainsFunc(subjects, func(s string) bool { return !strings.Contains(w, s) }) {
+			ws = append(ws, w)
+		}
+	}
+	return ws
 }
 
 // TestPinEntries_StaleLatestWarns: a latest compute
@@ -114,8 +145,9 @@ func TestPinEntries_StaleLatestWarns(t *testing.T) {
 	if err := pinEntries(context.Background(), entries, &out); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "Moved City's latest compute is stale: roads (boundary re-ingested") {
-		t.Errorf("no stale-latest warning:\n%s", out.String())
+	// The warning names the city, the stale part and the input that moved.
+	if len(warningsNaming(out.String(), "Moved City", "roads", "boundary")) != 1 {
+		t.Errorf("no stale-latest warning naming Moved City's roads and the boundary:\n%s", out.String())
 	}
 }
 
@@ -133,13 +165,12 @@ func TestPinEntries_RefusesWithNothingToServe(t *testing.T) {
 		return exportpkg.CityEntry{Config: cfg, City: city, Slug: city.Slug(), Store: store}
 	}
 	for _, tc := range []struct {
-		name     string
-		entries  []exportpkg.CityEntry
-		command  string
-		contains string
+		name    string
+		entries []exportpkg.CityEntry
+		command string // the hint's: what to run first
 	}{
-		{"fresh database", []exportpkg.CityEntry{entry("A", ""), entry("B", "")}, "pvmt all ingest", "none of the 2 cities has a boundary stored"},
-		{"never computed", []exportpkg.CityEntry{entry("A", `{"type":"Polygon"}`)}, "pvmt all compute", "A has no snapshot or latest compute"},
+		{"fresh database", []exportpkg.CityEntry{entry("A", ""), entry("B", "")}, "pvmt all ingest"},
+		{"never computed", []exportpkg.CityEntry{entry("A", `{"type":"Polygon"}`)}, "pvmt all compute"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var out strings.Builder
@@ -148,8 +179,8 @@ func TestPinEntries_RefusesWithNothingToServe(t *testing.T) {
 				t.Fatalf("err = %v, want a PrereqError (exit 3)", err)
 			}
 			h, ok := errors.AsType[*hint.ErrHint](err)
-			if !ok || !strings.Contains(h.Hint, tc.command) || !strings.Contains(err.Error(), tc.contains) {
-				t.Errorf("err = %v (hint %v), want %q naming %q", err, h, tc.contains, tc.command)
+			if !ok || !strings.Contains(h.Hint, tc.command) {
+				t.Errorf("err = %v (hint %v), want the hint to name %q", err, h, tc.command)
 			}
 			if out.Len() != 0 {
 				t.Errorf("a refused serve warned:\n%s", out.String())
@@ -211,9 +242,12 @@ func TestPinNamed(t *testing.T) {
 	if len(entries[0].Latest) != 1 || len(entries[0].Snapshots) != 2 {
 		t.Errorf("A City kept latest %v and snapshots %v, want both read", entries[0].Latest, entries[0].Snapshots)
 	}
-	if got := out.String(); !strings.Contains(got, `A City: snapshot "v1" was created under other settings`) ||
-		!strings.Contains(got, "serving it as created") || strings.Contains(got, "B City") {
-		t.Errorf("warnings = %q, want only A City's other-settings warning", got)
+	// One warning: export's settings warning for A City's v1, with the
+	// ending docs/troubleshooting.md quotes for serve.
+	a := entries[0]
+	want := "warning: " + a.SnapshotSettingsWarning(&db.SnapshotCity{ID: 1, Name: "v1", ConfigHash: "0ld0ld0ld0ld0ld0"}) + "; serving it as created"
+	if got := warnings(out.String()); len(got) != 1 || got[0] != want {
+		t.Errorf("warnings = %q, want only A City's other-settings warning %q", got, want)
 	}
 
 	err := pinNamed(context.Background(), build(), "v2", &out)

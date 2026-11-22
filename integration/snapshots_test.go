@@ -139,8 +139,11 @@ func TestSnapshots_FrozenAfterReingestAndConfigEdit(t *testing.T) {
 
 	stderr.Reset()
 	dirB := runExport(t, ctx, f, stderr)
-	if got := stderr.String(); !strings.Contains(got, "was created under other settings") || !strings.Contains(got, "exporting it as created") {
-		t.Errorf("export B lacks the other-settings warning:\n%s", got)
+	// The warning (internal/export owns its wording) names the city and the
+	// hash of the settings as they are now.
+	city := &cfg.Cities[0]
+	if got := stderr.String(); !strings.Contains(got, "warning: "+city.Name+": ") || !strings.Contains(got, cfg.CityHash(city)) {
+		t.Errorf("export B lacks the other-settings warning naming %s and the current hash %s:\n%s", city.Name, cfg.CityHash(city), got)
 	}
 
 	hexes := 0
@@ -198,6 +201,9 @@ func TestSnapshotsCreate_RefusesStale(t *testing.T) {
 	cmd.SetArgs([]string{"create", "stale"})
 	err := cmd.ExecuteContext(ctx)
 	out := stdout.String() + stderr.String()
+	// The refusal row ("<slug>: refused: <reasons>", which
+	// docs/troubleshooting.md shows) names the stale part, and the hint the
+	// compute that clears it.
 	if !errors.Is(err, cmdutil.ErrSilent) || !strings.Contains(out, "grid-city: refused:") ||
 		!strings.Contains(out, "combined") || !strings.Contains(out, "hint: run 'pvmt --city grid-city all compute'") {
 		t.Fatalf("create after a roads-only recompute = (%v)\n%s\nwant refused, naming the combined pass and all compute", err, out)

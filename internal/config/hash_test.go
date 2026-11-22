@@ -740,7 +740,9 @@ func TestCityHash_PinnedValue(t *testing.T) {
 func TestStaleHint(t *testing.T) {
 	plain := &Config{Cities: []CityConfig{{Name: "Reno, NV", Overpass: true}}}
 	h := plain.StaleHint(&plain.Cities[0])
-	if !strings.Contains(h, "not under the current settings") || !strings.Contains(h, "pvmt --city reno-nv all compute") {
+	// docs/troubleshooting.md quotes "<slug> was computed, but not under the
+	// current settings"; this is the one test that pins it.
+	if !strings.HasPrefix(h, "reno-nv was computed, but not under the current settings") || !strings.Contains(h, "pvmt --city reno-nv all compute") {
 		t.Errorf("stale hint = %q", h)
 	}
 

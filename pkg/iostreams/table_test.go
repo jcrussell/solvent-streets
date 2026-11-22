@@ -193,8 +193,10 @@ func TestFormatTimestamp(t *testing.T) {
 	if !strings.HasPrefix(got, wantPrefix) || !strings.HasSuffix(got, ")") {
 		t.Errorf("TTY suffix shape: got %q, want %q…)", got, wantPrefix)
 	}
-	if !strings.Contains(got, "hours ago") {
-		t.Errorf("TTY suffix content: got %q, want a 'hours ago' fragment", got)
+	// The suffix is the age, RelativeTime's rendering of the same instant.
+	at, _ := time.Parse(time.RFC3339, recent)
+	if suffix := strings.TrimSuffix(strings.TrimPrefix(got, wantPrefix), ")"); suffix != RelativeTime(at) || !strings.Contains(suffix, "2") {
+		t.Errorf("TTY suffix content: got %q, want the 2-hour age %q", suffix, RelativeTime(at))
 	}
 }
 
@@ -209,8 +211,9 @@ func TestFormatTimestamp_TTYUnparseableFallsBackToZeroTime(t *testing.T) {
 	if !strings.HasPrefix(got, "not-a-timestamp (") {
 		t.Errorf("malformed input prefix: got %q, want %q", got, "not-a-timestamp (…)")
 	}
-	if !strings.HasSuffix(got, "days ago)") {
-		t.Errorf("malformed input suffix: got %q, want suffix %q", got, "days ago)")
+	// The suffix is the zero time's age, as RelativeTime renders it.
+	if want := "(" + RelativeTime(time.Time{}) + ")"; !strings.HasSuffix(got, want) {
+		t.Errorf("malformed input suffix: got %q, want suffix %q", got, want)
 	}
 }
 

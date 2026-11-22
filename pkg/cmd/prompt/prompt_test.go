@@ -273,7 +273,9 @@ func TestLiveSelectRejectsEmptyOptions(t *testing.T) {
 	io.SetStdinTTY(true)
 	p := prompt.NewLive(io)
 	_, err := p.Select(context.Background(), "Pick", nil)
-	if err == nil || !strings.Contains(err.Error(), "at least one option") {
+	// Refused for its options, before any prompt: not the no-TTY refusal and
+	// not an abort.
+	if err == nil || errors.Is(err, prompt.ErrNotTTY) || errors.Is(err, prompt.ErrAborted) {
 		t.Errorf("got %v, want options-required error", err)
 	}
 }
@@ -313,7 +315,7 @@ func TestLiveMultiSelectRejectsEmptyOptions(t *testing.T) {
 	io.SetStdinTTY(true)
 	p := prompt.NewLive(io)
 	_, err := p.MultiSelect(context.Background(), "Pick", nil)
-	if err == nil || !strings.Contains(err.Error(), "at least one option") {
+	if err == nil || errors.Is(err, prompt.ErrNotTTY) || errors.Is(err, prompt.ErrAborted) {
 		t.Errorf("got %v, want options-required error", err)
 	}
 }

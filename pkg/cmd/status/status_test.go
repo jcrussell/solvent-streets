@@ -13,6 +13,7 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/db/dbtest"
+	"github.com/jcrussell/solvent-streets/internal/geo"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/internal/results"
 	"github.com/jcrussell/solvent-streets/internal/units"
@@ -157,20 +158,124 @@ func TestRunStatus_CitySummary(t *testing.T) {
 		t.Fatal(err)
 	}
 	output := stdout.String()
-	if !strings.Contains(output, "City Summary") {
-		t.Errorf("expected City Summary on stdout, got: %s", output)
+	cityArea, err := geo.BoundaryArea(context.Background(), boundaryGJSON)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(output, "City Area:") {
-		t.Errorf("expected City Area on stdout, got: %s", output)
+	const paved = 46452.0
+	// The summary is a section of its own after the table, holding the
+	// boundary's area and the paved figures computed from it.
+	summary := sectionWith(statusSections(output), units.FormatAreaLarge(cityArea, units.Imperial))
+	if summary == nil {
+		t.Fatalf("no section on stdout holds the city area %s:\n%s", units.FormatAreaLarge(cityArea, units.Imperial), output)
 	}
-	// No combined compute row is stubbed here, so the paved figure is the
-	// per-resource sum and carries the double-count asterisk.
-	if !strings.Contains(output, "Paved Area*:") {
-		t.Errorf("expected Paved Area (fallback, asterisked) on stdout, got: %s", output)
+	// No combined compute row is stubbed here, so the paved figures are the
+	// per-resource sum, and each one's label carries the double-count
+	// asterisk.
+	for _, value := range []string{
+		units.FormatAreaLarge(paved, units.Imperial),
+		fmt.Sprintf("%.1f%%", paved/cityArea*100),
+	} {
+		line := lineWith(summary.lines, value)
+		if line == "" {
+			t.Errorf("summary lacks the paved figure %s:\n%s", value, output)
+			continue
+		}
+		if label, _, _ := strings.Cut(line, value); !strings.Contains(label, "*") {
+			t.Errorf("fallback figure %s is not asterisked: %q", value, line)
+		}
 	}
-	if !strings.Contains(output, "Paved Share*:") {
-		t.Errorf("expected Paved Share (fallback, asterisked) on stdout, got: %s", output)
+}
+
+// TestRunStatus_NoBoundaryNoSummary: without a stored boundary there is no
+// city area to compare against, so no section follows the table.
+func TestRunStatus_NoBoundaryNoSummary(t *testing.T) {
+	store := &dbtest.MockStore{CityMetrics: eachResourceTotals()}
+	ios, _, stdout, _ := iostreams.Test()
+	ios.SetTTY(true)
+	f := &cmdutil.Factory{
+		IOStreams:  ios,
+		UnitSystem: func() units.System { return units.Metric },
+		CityDB:     func() (db.Store, error) { return store, nil },
 	}
+	cmd := NewCmdStatus(f, nil, nil)
+	cmd.SetArgs([]string{})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if secs := statusSections(stdout.String()); len(secs) != 0 {
+		t.Errorf("sections without a boundary: %+v", secs)
+	}
+}
+
+// statusSection is one "=== [<slug>: ]<title> ===" block of status's stdout.
+type statusSection struct {
+	header string // the text between the markers
+	lines  []string
+}
+
+// statusSections returns the sections that follow status's table, in order.
+// The "=== ... ===" header shape is what docs/upgrading.md shows users.
+func statusSections(out string) []statusSection {
+	var secs []statusSection
+	for line := range strings.SplitSeq(out, "\n") {
+		if h, ok := strings.CutPrefix(line, "=== "); ok && strings.HasSuffix(h, " ===") {
+			secs = append(secs, statusSection{header: strings.TrimSuffix(h, " ===")})
+			continue
+		}
+		if len(secs) > 0 && strings.TrimSpace(line) != "" {
+			last := &secs[len(secs)-1]
+			last.lines = append(last.lines, line)
+		}
+	}
+	return secs
+}
+
+// sectionWith returns the first section with a line containing value, so a
+// test finds a section by the data it holds, not by its title.
+func sectionWith(secs []statusSection, value string) *statusSection {
+	for i := range secs {
+		if lineWith(secs[i].lines, value) != "" {
+			return &secs[i]
+		}
+	}
+	return nil
+}
+
+// lineWith returns the first line containing value, or "".
+func lineWith(lines []string, value string) string {
+	for _, l := range lines {
+		if strings.Contains(l, value) {
+			return l
+		}
+	}
+	return ""
+}
+
+// rowFor returns the first line whose first field is key, or "".
+func rowFor(lines []string, key string) string {
+	for _, l := range lines {
+		if f := strings.Fields(l); len(f) > 0 && f[0] == key {
+			return l
+		}
+	}
+	return ""
+}
+
+// snapshotMarks returns the marks the snapshot history puts after hash on
+// its line ("(a, b)" is two), or nil when the line is unmarked. ok is false
+// when no line lists hash.
+func snapshotMarks(out, hash string) (marks []string, ok bool) {
+	line := lineWith(strings.Split(out, "\n"), hash)
+	if line == "" {
+		return nil, false
+	}
+	_, rest, _ := strings.Cut(line, hash)
+	rest = strings.Trim(strings.TrimSpace(rest), "()")
+	if rest == "" {
+		return nil, true
+	}
+	return strings.Split(rest, ", "), true
 }
 
 // TestRunStatus_ComputeReadErrorFails: a failed read of the compute totals
@@ -288,8 +393,11 @@ func TestRunStatus_CitySummary_SingleResourceIgnoresCombined(t *testing.T) {
 	}
 	// The single resource's own area (30000 m2 = 0.03 km2 = 3 ha), not the
 	// combined 999999 union (which would render ~100 ha / 1 sq km of paved).
-	if !strings.Contains(out, "Paved Area:   3.00 ha") {
-		t.Errorf("expected single-resource paved area (3.00 ha), not the combined union, got: %s", out)
+	if want := units.FormatAreaLarge(30000, units.Metric); !strings.Contains(out, want) {
+		t.Errorf("expected single-resource paved area (%s), not the combined union, got: %s", want, out)
+	}
+	if union := units.FormatAreaLarge(999999, units.Metric); strings.Contains(out, union) {
+		t.Errorf("single-resource summary shows the combined union %s: %s", union, out)
 	}
 }
 
@@ -431,8 +539,10 @@ func TestRunStatus_StaleSnapshotsSayWhy(t *testing.T) {
 	if want := "hint: " + cfg.StaleHint(city); !strings.Contains(out, want) {
 		t.Errorf("stderr lacks the shared stale-snapshot hint %q:\n%s", want, out)
 	}
-	if out := stdout.String(); !strings.Contains(out, "0ld0ld0ld0ld0ld0") || strings.Contains(out, "(current settings)") {
-		t.Errorf("snapshot history should list the old hash, unmarked:\n%s", out)
+	// The only snapshot is the newest, so it carries that one mark and not
+	// the current-settings one.
+	if marks, ok := snapshotMarks(stdout.String(), "0ld0ld0ld0ld0ld0"); !ok || len(marks) != 1 {
+		t.Errorf("snapshot history should list the old hash with one mark (newest), got %q:\n%s", marks, stdout.String())
 	}
 
 	// Once computed under the current settings, and snapshotted: no hint, and
@@ -453,11 +563,16 @@ func TestRunStatus_StaleSnapshotsSayWhy(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if out := stderr.String(); strings.Contains(out, "not under the current settings") {
+	if out := stderr.String(); strings.Contains(out, "hint:") {
 		t.Errorf("hint printed although the city is computed under the current settings:\n%s", out)
 	}
-	if out := stdout.String(); !strings.Contains(out, cur+"  (published, current settings)") {
-		t.Errorf("newest snapshot not marked published and current:\n%s", out)
+	// The newest snapshot is under the current hash: two marks. The older
+	// one is neither newest nor current: none.
+	if marks, ok := snapshotMarks(stdout.String(), cur); !ok || len(marks) != 2 {
+		t.Errorf("newest snapshot under the current hash has marks %q, want two:\n%s", marks, stdout.String())
+	}
+	if marks, ok := snapshotMarks(stdout.String(), "0ld0ld0ld0ld0ld0"); !ok || len(marks) != 0 {
+		t.Errorf("older snapshot under other settings has marks %q, want none:\n%s", marks, stdout.String())
 	}
 }
 
@@ -539,28 +654,82 @@ func TestRunStatus_PartStates(t *testing.T) {
 	}
 
 	table := run()
-	for _, want := range []string{"State", "current", "not computed"} {
-		if !strings.Contains(table, want) {
-			t.Errorf("table lacks %q:\n%s", want, table)
+	secs := statusSections(table)
+	// Every section after the table names the city: they share stdout
+	// with it, apart from the stderr city header.
+	if len(secs) != 3 {
+		t.Fatalf("got %d sections, want other parts, city summary and snapshots:\n%s", len(secs), table)
+	}
+	for _, s := range secs {
+		if !strings.HasPrefix(s.header, "test-city: ") {
+			t.Errorf("section %q does not name the city", s.header)
 		}
 	}
-	for _, want := range []string{
-		// Every section after the table names the city: they share stdout
-		// with it, apart from the stderr city header.
-		"=== test-city: Other parts ===",
-		"combined       stale: roads re-ingested 2026-11-14 10:02 UTC",
-		"census         not computed",
-		"test-city: 1 part not yet snapshotted (roads); run 'pvmt snapshots create <name>' to publish",
-		"=== test-city: City Summary ===",
-		"=== test-city: Snapshots ===",
-		"Paved Area*:",
-		"* the combined total is stale (roads re-ingested 2026-11-14 10:02 UTC since it was computed)",
-		"  v4  ",
-		"(published, current settings)",
-	} {
-		if !strings.Contains(table, want) {
-			t.Errorf("stdout lacks %q:\n%s", want, table)
+	// docs/upgrading.md shows this header verbatim.
+	if !strings.Contains(table, "=== test-city: City Summary ===") {
+		t.Errorf("stdout lacks the City Summary header:\n%s", table)
+	}
+
+	// The table's State column tells the computed rows from the one that
+	// never was: sidewalks reads differently from roads and parking.
+	tableText, _, _ := strings.Cut(table, "\n===")
+	tableLines := strings.Split(tableText, "\n")
+	stateOf := func(rt string) string {
+		row := lineWith(tableLines, rt)
+		if row == "" {
+			t.Fatalf("table has no %s row:\n%s", rt, table)
 		}
+		cells := strings.Split(strings.TrimRight(row, " "), "  ")
+		return strings.TrimSpace(cells[len(cells)-1])
+	}
+	if roads, parking, sidewalks := stateOf("roads"), stateOf("parking"), stateOf("sidewalks"); roads != parking || roads == sidewalks {
+		t.Errorf("states roads=%q parking=%q sidewalks=%q, want sidewalks alone not computed", roads, parking, sidewalks)
+	}
+
+	const reingested = "2026-11-14 10:02 UTC"
+	// The other parts: the combined total is stale on the roads re-ingest,
+	// and census, never computed, says something else.
+	parts := sectionWith(secs, "combined")
+	if parts == nil {
+		t.Fatalf("no section lists the combined part:\n%s", table)
+	}
+	combined, census := rowFor(parts.lines, "combined"), rowFor(parts.lines, "census")
+	if !strings.Contains(combined, "roads") || !strings.Contains(combined, reingested) {
+		t.Errorf("combined row = %q, want it stale on roads re-ingested %s", combined, reingested)
+	}
+	if census == "" || strings.Contains(census, "roads") || strings.Contains(census, reingested) {
+		t.Errorf("census row = %q, want a part of its own, not stale", census)
+	}
+
+	// The paved figure comes from that stale combined total, so it is
+	// asterisked and the footnote names the input and the fix.
+	pavedArea := units.FormatAreaLarge(60000, units.Metric)
+	summary := sectionWith(secs, pavedArea)
+	if summary == nil {
+		t.Fatalf("no section shows the combined paved area %s:\n%s", pavedArea, table)
+	}
+	paved := lineWith(summary.lines, pavedArea)
+	if label, _, _ := strings.Cut(paved, pavedArea); !strings.Contains(label, "*") {
+		t.Errorf("stale combined figure is not asterisked: %q", paved)
+	}
+	note := lineWith(summary.lines, "'pvmt all compute'")
+	if !strings.Contains(note, "roads") || !strings.Contains(note, reingested) || !strings.HasPrefix(strings.TrimSpace(note), "*") {
+		t.Errorf("footnote = %q, want the roads re-ingest and 'pvmt all compute'", note)
+	}
+
+	// Roads run 5 is newer than the snapshot's run 1: one part to publish.
+	unsnap := lineWith(strings.Split(table, "\n"), "'pvmt snapshots create <name>'")
+	if !strings.HasPrefix(unsnap, "test-city: 1 ") || !strings.Contains(unsnap, "(roads)") {
+		t.Errorf("unsnapshotted line = %q, want test-city's 1 part (roads)", unsnap)
+	}
+
+	// The snapshot is the newest and under the current settings: two marks.
+	snaps := sectionWith(secs, cfg.CityHash(city))
+	if snaps == nil || rowFor(snaps.lines, "v4") == "" {
+		t.Fatalf("no section lists snapshot v4 with its hash:\n%s", table)
+	}
+	if marks, _ := snapshotMarks(table, cfg.CityHash(city)); len(marks) != 2 {
+		t.Errorf("snapshot v4 has marks %q, want newest and current settings", marks)
 	}
 
 	out := run("--json", "resource_type,state,stale_inputs")
@@ -670,8 +839,12 @@ func TestStatus_EveryConfiguredCity(t *testing.T) {
 			t.Errorf("table lacks a roads row for %s:\n%s", slug, table)
 		}
 	}
-	if !strings.Contains(chatter, "=== Beta, CA ===") {
-		t.Errorf("stderr lacks the per-city header:\n%s", chatter)
+	// Each city is announced on stderr (cmdutil.ForEachCity owns the banner's
+	// shape), so stdout stays the table alone.
+	for _, name := range []string{"Alpha, CA", "Beta, CA"} {
+		if !strings.Contains(chatter, name) || strings.Contains(table, name) {
+			t.Errorf("city %q should be announced on stderr only:\nstderr: %s\nstdout: %s", name, chatter, table)
+		}
 	}
 
 	out, _ := run("--json", "city,resource_type")

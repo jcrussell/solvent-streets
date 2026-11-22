@@ -44,9 +44,101 @@ func TestCheckSite_MissingDir(t *testing.T) {
 	opts := &Options{IO: ios, Dir: filepath.Join(t.TempDir(), "nope"), Assets: testAssetsLoader(t)}
 	err := runCheckSite(context.Background(), opts)
 	var h *hint.ErrHint
-	if err == nil || !strings.Contains(err.Error(), "not found") || !errors.As(err, &h) || !strings.Contains(h.Hint, "pvmt export") {
-		t.Fatalf("want a not-found error naming pvmt export, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), opts.Dir) || !errors.As(err, &h) || !strings.Contains(h.Hint, "pvmt export") {
+		t.Fatalf("want an error naming the directory, hinting pvmt export, got %v", err)
 	}
+}
+
+// verdict is one line of the text report, "LEVEL  check name: message": the
+// same three things a --json row carries as status, check and message.
+type verdict struct {
+	level string // PASS, WARN or FAIL
+	check checkName
+	msg   string
+}
+
+var verdictLine = regexp.MustCompile(`^(PASS|WARN|FAIL)\s+([a-z ]+): (.*)$`)
+
+// verdicts parses the report's verdict lines, in order.
+func verdicts(out string) []verdict {
+	var vs []verdict
+	for line := range strings.SplitSeq(out, "\n") {
+		if m := verdictLine.FindStringSubmatch(line); m != nil {
+			vs = append(vs, verdict{level: m[1], check: checkName(strings.ReplaceAll(m[2], " ", "_")), msg: m[3]})
+		}
+	}
+	return vs
+}
+
+// find returns the verdicts at level (any level when "") for check whose
+// message names every subject. A subject is what the verdict is about (a
+// city, a file, a resource, a value or a command), never its wording.
+func find(out, level string, check checkName, subjects ...string) []verdict {
+	var hits []verdict
+	for _, v := range verdicts(out) {
+		if (level != "" && v.level != level) || v.check != check {
+			continue
+		}
+		if !slices.ContainsFunc(subjects, func(s string) bool { return !strings.Contains(v.msg, s) }) {
+			hits = append(hits, v)
+		}
+	}
+	return hits
+}
+
+// proseCounts returns the integers of each report line that is not a
+// verdict: the summary is the line with three (passed, warnings, failed) and
+// an interrupted run's note the line with two (checks not run, checks).
+func proseCounts(out string) [][]int {
+	var counts [][]int
+	for line := range strings.SplitSeq(out, "\n") {
+		if verdictLine.MatchString(line) {
+			continue
+		}
+		var ints []int
+		for _, s := range regexp.MustCompile(`\d+`).FindAllString(line, -1) {
+			n, _ := strconv.Atoi(s)
+			ints = append(ints, n)
+		}
+		counts = append(counts, ints)
+	}
+	return counts
+}
+
+// tally returns the summary's counts; ok is false when the report has no
+// summary line.
+func tally(out string) (pass, warn, fail int, ok bool) {
+	for _, c := range proseCounts(out) {
+		if len(c) == 3 {
+			return c[0], c[1], c[2], true
+		}
+	}
+	return 0, 0, 0, false
+}
+
+// assertTallyMatches fails unless the report ends in a summary whose counts
+// are the numbers of PASS, WARN and FAIL lines above it.
+func assertTallyMatches(t *testing.T, out string) {
+	t.Helper()
+	got := map[string]int{}
+	for _, v := range verdicts(out) {
+		got[v.level]++
+	}
+	pass, warn, fail, ok := tally(out)
+	if !ok || pass != got["PASS"] || warn != got["WARN"] || fail != got["FAIL"] {
+		t.Errorf("summary = %d/%d/%d (found %v), want the verdict counts %v:\n%s", pass, warn, fail, ok, got, out)
+	}
+}
+
+// failures returns every FAIL verdict of the report.
+func failures(out string) []verdict {
+	var fs []verdict
+	for _, v := range verdicts(out) {
+		if v.level == "FAIL" {
+			fs = append(fs, v)
+		}
+	}
+	return fs
 }
 
 // run executes the checker against dir and returns (combined stdout, err).
@@ -64,12 +156,13 @@ func TestCheckSite_ValidSite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("valid site failed: %v\n%s", err, out)
 	}
-	if strings.Contains(out, "FAIL") {
-		t.Errorf("valid site produced a FAIL line:\n%s", out)
+	if fs := failures(out); len(fs) != 0 {
+		t.Errorf("valid site produced FAIL lines %+v:\n%s", fs, out)
 	}
-	if !strings.Contains(out, "0 failed") {
-		t.Errorf("summary should report 0 failed:\n%s", out)
+	if pass, _, fail, ok := tally(out); !ok || fail != 0 || pass == 0 {
+		t.Errorf("summary should report passes and 0 failed:\n%s", out)
 	}
+	assertTallyMatches(t, out)
 }
 
 // TestCheckSite_CanceledContext: a canceled context must
@@ -87,10 +180,10 @@ func TestCheckSite_CanceledContext(t *testing.T) {
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("want context.Canceled, got %v", err)
 	}
-	// The cancellation probe fires before the first check, so no summary line
-	// ("N passed, ...") should have been printed. The bare ctx error is the
+	// The cancellation probe fires before the first check, so no verdict and
+	// no summary line should have been printed. The bare ctx error is the
 	// interrupt signal itself; exitCode maps it to 1.
-	if strings.Contains(out.String(), "passed,") {
+	if _, _, _, ok := tally(out.String()); ok || len(verdicts(out.String())) != 0 {
 		t.Errorf("canceled run should abort before finish(); got output:\n%s", out.String())
 	}
 }
@@ -98,20 +191,24 @@ func TestCheckSite_CanceledContext(t *testing.T) {
 func TestCheckSite_MissingDataFile(t *testing.T) {
 	dir := buildValidSite(t)
 	os.Remove(filepath.Join(dir, "demo-ca", "data", "scenarios.json"))
-	assertFails(t, dir, "scenarios.json")
+	assertFails(t, dir, chkStructure, "demo-ca", "scenarios.json")
 }
 
 func TestCheckSite_DanglingReference(t *testing.T) {
 	dir := buildValidSite(t)
 	idx := filepath.Join(dir, "demo-ca", "index.html")
 	writeFile(t, idx, `<html><script src="../missing.js"></script></html>`)
-	assertFails(t, dir, "missing.js")
+	assertFails(t, dir, chkReferences, "demo-ca", "missing.js")
 }
 
 func TestCheckSite_TamperedWasm(t *testing.T) {
 	dir := buildValidSite(t)
 	writeFile(t, filepath.Join(dir, "pvmt.wasm"), "tampered")
-	assertFails(t, dir, "stale")
+	assertFails(t, dir, chkWasmFreshness, "pvmt.wasm")
+	// The untouched asset beside it still passes.
+	if out, _ := run(t, dir, false); len(find(out, "PASS", chkWasmFreshness, "wasm_exec.js")) != 1 {
+		t.Errorf("the untampered wasm_exec.js should pass:\n%s", out)
+	}
 }
 
 // TestCheckSite_BinaryWithoutWasm: a `go install` build has no WASM to
@@ -126,11 +223,13 @@ func TestCheckSite_BinaryWithoutWasm(t *testing.T) {
 	if err := runCheckSite(context.Background(), opts); !errors.Is(err, cmdutil.ErrSilent) {
 		t.Fatalf("err = %v; want ErrSilent (a FAIL was reported)\n%s", err, out)
 	}
-	if !strings.Contains(out.String(), "FAIL  wasm freshness: cannot check the site's assets") {
+	// One freshness verdict, the failure giving the loader's error and the
+	// build that fixes it, and none per asset.
+	if len(find(out.String(), "FAIL", chkWasmFreshness, export.ErrNoWasm.Error(), "'make build'")) != 1 {
 		t.Errorf("want the no-WASM reason as the failure:\n%s", out)
 	}
-	if strings.Contains(out.String(), "stale") {
-		t.Errorf("a missing WASM must not be reported as stale assets:\n%s", out)
+	if all := find(out.String(), "", chkWasmFreshness); len(all) != 1 {
+		t.Errorf("a missing WASM must not be reported as stale assets; freshness verdicts: %+v", all)
 	}
 }
 
@@ -139,7 +238,7 @@ func TestCheckSite_HygieneHit(t *testing.T) {
 	// Inject a host path into a shipped data file.
 	writeFile(t, filepath.Join(dir, "demo-ca", "data", "boundary.geojson"),
 		`{"path":"/home/ubuntu/secret"}`)
-	assertFails(t, dir, "host path")
+	assertFails(t, dir, chkHygiene, filepath.Join("demo-ca", "data", "boundary.geojson"))
 }
 
 // TestScanHygiene_URLPathNotHostPath pins the /home/ and /Users/ patterns
@@ -186,8 +285,8 @@ func TestScanHygiene_HeaderTokenAfterShortRead(t *testing.T) {
 	p := filepath.Join(dir, "big.json")
 	writeFile(t, p, filler+` "/home/ubuntu/secret" `+"@gmail")
 	hit := scanHygiene(dir, p)
-	if !strings.Contains(hit, "host path") && !strings.Contains(hit, "email") {
-		t.Fatalf("header token within cap should be detected, got %q", hit)
+	if !strings.HasPrefix(hit, "big.json: ") {
+		t.Fatalf("header token within cap should be detected in big.json, got %q", hit)
 	}
 
 	// A normal small valid file still scans clean.
@@ -212,14 +311,13 @@ func TestCheckSite_ZeroBaselineAreaWarns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("zero baseline area should warn, not fail (non-strict): %v\n%s", err, out)
 	}
-	if !strings.Contains(out, "WARN") || !strings.Contains(out, "zero paved area") {
-		t.Errorf("expected a WARN about zero paved area:\n%s", out)
+	// One WARN for the city's roads, naming the read-only command that shows
+	// which cause it is; nothing fails.
+	if len(find(out, "WARN", chkReasonableness, "demo-ca", "[roads]", "'pvmt --city demo-ca roads status'")) != 1 {
+		t.Errorf("expected a WARN for demo-ca's roads naming the status command for this city:\n%s", out)
 	}
-	if !strings.Contains(out, "outside the city boundary") || !strings.Contains(out, "geometry was dropped") {
-		t.Errorf("the zero-area WARN must name both causes:\n%s", out)
-	}
-	if !strings.Contains(out, "pvmt --city demo-ca roads status") {
-		t.Errorf("the zero-area WARN must name the read-only command for this city:\n%s", out)
+	if fs := failures(out); len(fs) != 0 {
+		t.Errorf("zero baseline area failed: %+v", fs)
 	}
 	// --strict promotes the warning to a failure.
 	if _, err := run(t, dir, true); !errors.Is(err, cmdutil.ErrSilent) {
@@ -230,7 +328,8 @@ func TestCheckSite_ZeroBaselineAreaWarns(t *testing.T) {
 func TestCheckSite_NearZeroPavedShare(t *testing.T) {
 	dir := buildValidSite(t)
 	writeMeta(t, filepath.Join(dir, "demo-ca", "data", "meta.json"), 0.005, 1000)
-	assertFails(t, dir, "near-zero-area")
+	// The failure gives the share it judged: 0.5%.
+	assertFails(t, dir, chkReasonableness, "demo-ca", "0.500%")
 }
 
 // A city with a layer that was never ingested is WARNed by name, so the
@@ -243,8 +342,8 @@ func TestCheckSite_MissingResourcesWarns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a missing layer warns, it does not fail: %v\n%s", err, out)
 	}
-	if !strings.Contains(out, "no data for sidewalks") {
-		t.Errorf("no missing-layer warning:\n%s", out)
+	if len(find(out, "WARN", chkReasonableness, "demo-ca", "sidewalks")) != 1 {
+		t.Errorf("no missing-layer warning naming sidewalks:\n%s", out)
 	}
 }
 
@@ -261,13 +360,15 @@ func TestCheckSite_EmptyUpstreamDoesNotAskForReingest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("missing layers warn, they do not fail: %v\n%s", err, out)
 	}
-	if !strings.Contains(out, "no data for parking — re-ingest") {
+	if len(find(out, "WARN", chkReasonableness, "demo-ca", "parking")) != 1 {
 		t.Errorf("no re-ingest warning for the un-ingested layer:\n%s", out)
 	}
-	if strings.Contains(out, "sidewalks — re-ingest") || strings.Contains(out, "parking, sidewalks") {
-		t.Errorf("an empty-upstream layer is asked to be re-ingested:\n%s", out)
+	if warned := find(out, "WARN", chkReasonableness, "sidewalks"); len(warned) != 0 {
+		t.Errorf("an empty-upstream layer is warned about: %+v", warned)
 	}
-	if !strings.Contains(out, "no sidewalks mapped upstream") {
+	// It is reported all the same, as a PASS naming the source that answered
+	// empty.
+	if len(find(out, "PASS", chkReasonableness, "demo-ca", "sidewalks", "overpass")) != 1 {
 		t.Errorf("the empty-upstream layer is not reported:\n%s", out)
 	}
 }
@@ -284,11 +385,13 @@ func TestCheckSite_PartialResourcesWarn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a partial layer warns, it does not fail: %v\n%s", err, out)
 	}
-	if !strings.Contains(out, "partial roads: no overpass data") {
-		t.Errorf("no partial-layer warning:\n%s", out)
+	// The partial warning names the layer and the source that failed.
+	if len(find(out, "WARN", chkReasonableness, "demo-ca", "roads", "overpass")) != 1 {
+		t.Errorf("no partial-layer warning for roads:\n%s", out)
 	}
-	if strings.Contains(out, "partial sidewalks") {
-		t.Errorf("a missing layer is also warned as partial:\n%s", out)
+	// Sidewalks get one warning, the missing-layer one, which names no source.
+	if len(find(out, "WARN", chkReasonableness, "sidewalks")) != 1 || len(find(out, "WARN", chkReasonableness, "sidewalks", "overpass")) != 0 {
+		t.Errorf("a missing layer should be warned once, as missing and not as partial:\n%s", out)
 	}
 }
 
@@ -297,7 +400,7 @@ func TestCheckSite_NonMonotonicForecast(t *testing.T) {
 	// A baseline whose PCI rises year over year.
 	writeForecast(t, filepath.Join(dir, "demo-ca", "data", "forecast.json"),
 		[]float64{80, 85}, []float64{0, 10})
-	assertFails(t, dir, "PCI increased")
+	assertFails(t, dir, chkReasonableness, "demo-ca", "[roads]", "baseline", "PCI")
 }
 
 // A flat all-zero baseline is the degenerate "empty resource" state (a city
@@ -316,19 +419,20 @@ func TestCheckSite_BacklogDecreases(t *testing.T) {
 	dir := buildValidSite(t)
 	writeForecast(t, filepath.Join(dir, "demo-ca", "data", "forecast.json"),
 		[]float64{80, 75}, []float64{10, 5})
-	assertFails(t, dir, "deferred_backlog decreased")
+	assertFails(t, dir, chkReasonableness, "demo-ca", "[roads]", "baseline", "deferred_backlog")
 }
 
 func TestCheckSite_MissingNojekyll(t *testing.T) {
 	dir := buildValidSite(t)
 	os.Remove(filepath.Join(dir, ".nojekyll"))
-	assertFails(t, dir, ".nojekyll is missing")
+	assertFails(t, dir, chkConstraints, ".nojekyll")
 }
 
 func TestCheckSite_NonZeroNojekyll(t *testing.T) {
 	dir := buildValidSite(t)
 	writeFile(t, filepath.Join(dir, ".nojekyll"), "content")
-	assertFails(t, dir, "expected zero-byte")
+	// The failure gives the size it found: the 7 bytes of "content".
+	assertFails(t, dir, chkConstraints, ".nojekyll", "7 bytes")
 }
 
 func TestCheckSite_CrossExampleDivergence(t *testing.T) {
@@ -342,8 +446,9 @@ func TestCheckSite_CrossExampleDivergence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("divergence should warn, not fail (non-strict): %v\n%s", err, out)
 	}
-	if !strings.Contains(out, "WARN") || !strings.Contains(out, "diverges") {
-		t.Errorf("expected a WARN about divergence:\n%s", out)
+	// The WARN names the slug, both examples and the two totals.
+	if len(find(out, "WARN", chkConsistency, "demo-ca", "region-ca", "50000.00", "999.00")) != 1 {
+		t.Errorf("expected a consistency WARN naming demo-ca, region-ca and both totals:\n%s", out)
 	}
 	// --strict promotes the warning to a failure.
 	if _, err := run(t, dir, true); !errors.Is(err, cmdutil.ErrSilent) {
@@ -361,8 +466,9 @@ func TestCheckSite_SizeBudgetBreachWarns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("valid site should pass: %v\n%s", err, out)
 	}
-	if !strings.Contains(out, "sizes: scenarios.json") {
-		t.Errorf("expected a per-file size line for scenarios.json:\n%s", out)
+	budget := cmdutil.HumanSize(sizeBudgets["scenarios.json"])
+	if len(find(out, "PASS", chkSizes, "scenarios.json", budget)) != 1 {
+		t.Errorf("expected a per-file size PASS for scenarios.json against its %s budget:\n%s", budget, out)
 	}
 
 	// scenarios.json is inert to every other check (nothing parses it), so
@@ -374,8 +480,8 @@ func TestCheckSite_SizeBudgetBreachWarns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a size breach should warn, not fail (non-strict): %v\n%s", err, out)
 	}
-	if !strings.Contains(out, "WARN  sizes: scenarios.json") || !strings.Contains(out, "budget") {
-		t.Errorf("expected a WARN naming scenarios.json and its budget:\n%s", out)
+	if len(find(out, "WARN", chkSizes, "scenarios.json", budget)) != 1 || len(find(out, "PASS", chkSizes, "scenarios.json")) != 0 {
+		t.Errorf("expected a WARN, and no PASS, naming scenarios.json and its %s budget:\n%s", budget, out)
 	}
 }
 
@@ -408,12 +514,14 @@ func TestCheckSite_SizeBudgetIsWorstCityNotMean(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a size breach should warn, not fail (non-strict): %v\n%s", err, out)
 	}
-	if !strings.Contains(out, "WARN  sizes: scenarios.json") {
-		t.Errorf("worst city is over budget but no WARN was reported:\n%s", out)
+	warned := find(out, "WARN", chkSizes, "scenarios.json")
+	if len(warned) != 1 {
+		t.Fatalf("worst city is over budget but no WARN was reported:\n%s", out)
 	}
-	// The offending city must be named, or the report cannot be acted on.
-	if !strings.Contains(out, "demo-ca") {
-		t.Errorf("expected the breaching city to be named in the WARN:\n%s", out)
+	// The offending city must be named in that WARN, and the one under
+	// budget must not, or the report cannot be acted on.
+	if !strings.Contains(warned[0].msg, "demo-ca") || strings.Contains(warned[0].msg, "demo2-ca") {
+		t.Errorf("expected the WARN to name the breaching city alone: %q", warned[0].msg)
 	}
 	// Guard the fixture itself: if this ever stops holding, the test would pass
 	// for the wrong reason and stop distinguishing worst-city from mean.
@@ -435,20 +543,18 @@ func TestCheckSite_Strict(t *testing.T) {
 	}
 }
 
-// assertFails runs the checker and asserts it returns ErrSilent with a FAIL
-// line containing want.
-func assertFails(t *testing.T, dir, want string) {
+// assertFails runs the checker and asserts it returns ErrSilent with one
+// FAIL of check naming every subject (see find).
+func assertFails(t *testing.T, dir string, check checkName, subjects ...string) {
 	t.Helper()
 	out, err := run(t, dir, false)
 	if !errors.Is(err, cmdutil.ErrSilent) {
 		t.Fatalf("expected ErrSilent, got %v\n%s", err, out)
 	}
-	for line := range strings.SplitSeq(out, "\n") {
-		if strings.HasPrefix(line, "FAIL") && strings.Contains(line, want) {
-			return
-		}
+	if len(find(out, "FAIL", check, subjects...)) != 1 {
+		t.Fatalf("no single %s FAIL naming %q\n%s", check, subjects, out)
 	}
-	t.Fatalf("no FAIL line containing %q\n%s", want, out)
+	assertTallyMatches(t, out)
 }
 
 // --- fixtures ---
@@ -609,15 +715,15 @@ func TestCheckSite_SingleRootLayout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("valid single-root site failed: %v\n%s", err, out)
 	}
-	if strings.Contains(out, "FAIL") {
-		t.Errorf("valid single-root site produced a FAIL line:\n%s", out)
+	if fs := failures(out); len(fs) != 0 {
+		t.Errorf("valid single-root site produced FAIL lines %+v:\n%s", fs, out)
 	}
-	if strings.Contains(out, "no exports found") {
-		t.Errorf("single-root site should be discovered as an example, not empty:\n%s", out)
+	// The root was discovered as an example, not found empty: its city's
+	// data directory was audited.
+	if len(find(out, "PASS", chkStructure, "demo", strconv.Itoa(len(export.DataFileNames)))) == 0 {
+		t.Errorf("single-root site's city data was not audited:\n%s", out)
 	}
-	if !strings.Contains(out, "0 failed") {
-		t.Errorf("summary should report 0 failed:\n%s", out)
-	}
+	assertTallyMatches(t, out)
 }
 
 // TestCheckSite_RootShadowsChildren: when the site
@@ -634,8 +740,8 @@ func TestCheckSite_RootShadowsChildren(t *testing.T) {
 	if err != nil {
 		t.Fatalf("shadowing should warn, not fail (non-strict): %v\n%s", err, out)
 	}
-	if !strings.Contains(out, "WARN") || !strings.Contains(out, "extra-ca") {
-		t.Errorf("expected a WARN naming the skipped child example:\n%s", out)
+	if len(find(out, "WARN", chkStructure, "extra-ca")) != 1 {
+		t.Errorf("expected a structure WARN naming the skipped child example:\n%s", out)
 	}
 	// --strict promotes the warning to a failure.
 	if _, err := run(t, dir, true); !errors.Is(err, cmdutil.ErrSilent) {
@@ -704,25 +810,33 @@ func TestCheckSite_InterruptedAfterFailStillReportsFailure(t *testing.T) {
 	if errors.Is(err, context.Canceled) {
 		t.Errorf("returned error wraps context.Canceled; finish() was not reached")
 	}
-	if !strings.Contains(out.String(), "passed,") {
-		t.Errorf("no summary line printed for an interrupted run with failures:\n%s", out.String())
+	if _, _, fail, ok := tally(out.String()); !ok || fail != 1 {
+		t.Errorf("no summary line counting the failure for an interrupted run:\n%s", out.String())
 	}
-	if !strings.Contains(out.String(), "FAIL") {
+	if len(find(out.String(), "FAIL", chkStructure, "scenarios.json")) != 1 {
 		t.Errorf("expected the recorded FAIL in the output:\n%s", out.String())
 	}
-	// The tally must not read like a completed audit: it names the interrupt
-	// and how many checks never ran.
+	assertTallyMatches(t, out.String())
+	// The tally must not read like a completed audit: a note after it counts
+	// the checks that never ran, of how many.
 	// Only the first check ran, so every other check is counted as not run,
 	// however many checks there are.
-	m := regexp.MustCompile(`interrupted: (\d+) of (\d+) checks not run`).FindStringSubmatch(out.String())
-	var skipped, total int
-	if m != nil {
-		skipped, _ = strconv.Atoi(m[1])
-		total, _ = strconv.Atoi(m[2])
+	skipped, total, ok := interruptNote(out.String())
+	if !ok || total != len(checkNames) || skipped != total-1 {
+		t.Errorf("interrupted tally does not say how many checks were skipped (got %d of %d, found %v):\n%s", skipped, total, ok, out.String())
 	}
-	if m == nil || total < 2 || skipped != total-1 {
-		t.Errorf("interrupted tally does not say how many checks were skipped:\n%s", out.String())
+}
+
+// interruptNote returns the counts of an interrupted run's note, the line
+// after the summary: the checks not run, and the checks there are. ok is
+// false when the report carries no such note.
+func interruptNote(out string) (skipped, total int, ok bool) {
+	counts := proseCounts(out)
+	i := slices.IndexFunc(counts, func(c []int) bool { return len(c) == 3 })
+	if i < 0 || i+1 >= len(counts) || len(counts[i+1]) != 2 {
+		return 0, 0, false
 	}
+	return counts[i+1][0], counts[i+1][1], true
 }
 
 // TestCheckSite_CompletedRunHasNoInterruptLine: a run that finished every
@@ -732,8 +846,11 @@ func TestCheckSite_CompletedRunHasNoInterruptLine(t *testing.T) {
 	ios, _, out, _ := iostreams.Test()
 	opts := &Options{IO: ios, Dir: dir, Assets: testAssetsLoader(t)}
 	_ = runCheckSite(context.Background(), opts)
-	if strings.Contains(out.String(), "interrupted") {
-		t.Errorf("completed run mentions an interrupt:\n%s", out.String())
+	if _, _, _, ok := tally(out.String()); !ok {
+		t.Fatalf("completed run printed no summary:\n%s", out.String())
+	}
+	if skipped, total, ok := interruptNote(out.String()); ok {
+		t.Errorf("completed run notes %d of %d checks not run:\n%s", skipped, total, out.String())
 	}
 }
 
@@ -755,7 +872,7 @@ func TestCheckSite_InterruptedWithNoFailuresStaysQuiet(t *testing.T) {
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("runCheckSite = %v, want context.Canceled\n%s", err, out.String())
 	}
-	if strings.Contains(out.String(), "passed,") {
+	if _, _, _, ok := tally(out.String()); ok {
 		t.Errorf("a clean interrupt should not print a summary:\n%s", out.String())
 	}
 }
@@ -788,8 +905,8 @@ func TestCheckSite_MissingRootFileFails(t *testing.T) {
 			t.Fatal(err)
 		}
 		out, err := run(t, dir, false)
-		if err == nil || !strings.Contains(out, "site root is missing "+name) {
-			t.Errorf("a site without %s must fail naming it; err=%v\n%s", name, err, out)
+		if err == nil || len(find(out, "FAIL", chkStructure, name)) == 0 {
+			t.Errorf("a site without %s must fail its structure check naming it; err=%v\n%s", name, err, out)
 		}
 	}
 }
@@ -833,14 +950,17 @@ func TestCheckSite_LowCoverageWarns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("low coverage warns, it does not fail: %v\n%s", err, out)
 	}
-	if !strings.Contains(out, "coverage: region-ca/city-00 [parking]: 0.50 m² per resident") {
+	// 500 m² over 1000 residents is 0.50 m² each.
+	if len(find(out, "WARN", chkCoverage, "region-ca/city-00", "[parking]", "0.50 m²")) != 1 {
 		t.Errorf("no low-parking warning for city-00:\n%s", out)
 	}
-	if strings.Contains(out, "city-01 [sidewalks]") || strings.Contains(out, "coverage: region-ca/city-00 [roads]") {
-		t.Errorf("a city near the median was warned:\n%s", out)
+	// It is the only coverage warning: city-01's sidewalks are near the
+	// median, and so is everything else.
+	if warned := find(out, "WARN", chkCoverage); len(warned) != 1 {
+		t.Errorf("a city near the median was warned: %+v", warned)
 	}
 
-	if out, _ := run(t, build(5), false); strings.Contains(out, "coverage: region-ca/city-00") {
+	if out, _ := run(t, build(5), false); len(find(out, "", chkCoverage, "city-00")) != 0 {
 		t.Errorf("a five-city site was judged against its median:\n%s", out)
 	}
 }
@@ -876,12 +996,12 @@ func TestCheckSite_LowCoverageSkipsExplainedLayers(t *testing.T) {
 		writeCoverageMeta(t, path, 1000, areas)
 	}
 	out, _ := run(t, dir, false)
-	if !strings.Contains(out, "partial parking") {
+	if len(find(out, "WARN", chkReasonableness, "region-ca/city-00", "parking", "overpass")) != 1 {
 		t.Fatalf("setup: no partial warning for city-00:\n%s", out)
 	}
-	for _, unwanted := range []string{"coverage: region-ca/city-00", "coverage: region-ca/city-01", "coverage: region-ca/city-02"} {
-		if strings.Contains(out, unwanted) {
-			t.Errorf("coverage judged a layer another check explains (%s):\n%s", unwanted, out)
+	for _, city := range []string{"region-ca/city-00", "region-ca/city-01", "region-ca/city-02"} {
+		if judged := find(out, "", chkCoverage, city); len(judged) != 0 {
+			t.Errorf("coverage judged a layer another check explains: %+v", judged)
 		}
 	}
 }
@@ -916,7 +1036,7 @@ func TestCheckSite_DecayDrift(t *testing.T) {
 
 	writeDecayFiles(t, data, 0.0405)
 	out, err := run(t, dir, false)
-	if err != nil || !strings.Contains(out, "decay: demo-ca: map and forecast road decay rates agree") {
+	if err != nil || len(find(out, "PASS", chkDecay, "demo-ca")) != 1 {
 		t.Fatalf("matching decay rates did not pass: %v\n%s", err, out)
 	}
 
@@ -925,8 +1045,9 @@ func TestCheckSite_DecayDrift(t *testing.T) {
 	if !errors.Is(err, cmdutil.ErrSilent) {
 		t.Fatalf("a 30%% decay drift did not fail: %v\n%s", err, out)
 	}
-	if !strings.Contains(out, "30% off the forecast's (0.0400)") || !strings.Contains(out, "recompute this city") {
-		t.Errorf("drift failure does not give the gap and the fix:\n%s", out)
+	// The failure gives both rates and the gap between them.
+	if len(find(out, "FAIL", chkDecay, "demo-ca", "0.0280", "0.0400", "30%")) != 1 {
+		t.Errorf("drift failure does not give the map's rate, the forecast's and the gap:\n%s", out)
 	}
 }
 
@@ -955,13 +1076,14 @@ func TestCheckSite_LowPavedShareRuralWarns(t *testing.T) {
 			writeJSONFile(t, filepath.Join(dir, "demo-ca", "data", "meta.json"), meta(tc.pop))
 			out, err := run(t, dir, false)
 			if tc.fail {
-				if !errors.Is(err, cmdutil.ErrSilent) || !strings.Contains(out, "near-zero-area") {
-					t.Fatalf("want the near-zero-area FAIL, got %v:\n%s", err, out)
+				if !errors.Is(err, cmdutil.ErrSilent) || len(find(out, "FAIL", chkReasonableness, "demo-ca", "0.500%")) != 1 {
+					t.Fatalf("want the low-paved-share FAIL, got %v:\n%s", err, out)
 				}
 				return
 			}
-			if err != nil || !strings.Contains(out, "125 m² per resident is plausible") {
-				t.Fatalf("want a rural WARN and no failure, got %v:\n%s", err, out)
+			// 50000 m² over 400 residents is 125 m² each.
+			if err != nil || len(find(out, "WARN", chkReasonableness, "demo-ca", "0.500%", "125 m²")) != 1 {
+				t.Fatalf("want a rural WARN giving the per-resident figure and no failure, got %v:\n%s", err, out)
 			}
 		})
 	}
@@ -988,6 +1110,7 @@ func TestCheckSite_JSON(t *testing.T) {
 		t.Fatalf("%v: %s", err, stdout)
 	}
 	var failed bool
+	byStatus := map[string]int{}
 	for _, r := range rows {
 		if !slices.Contains(checkNames, checkName(r["check"])) || strings.HasPrefix(r["message"], r["check"]+":") {
 			t.Errorf("row %v: check is not one of %v, or is repeated in the message", r, checkNames)
@@ -995,12 +1118,15 @@ func TestCheckSite_JSON(t *testing.T) {
 		if r["status"] == "fail" && r["check"] == "structure" && strings.Contains(r["message"], "scenarios.json") {
 			failed = true
 		}
+		byStatus[r["status"]]++
 	}
 	if !failed {
 		t.Errorf("rows lack the structure failure for scenarios.json: %v", rows)
 	}
-	if !strings.Contains(stderr.String(), "1 failed") {
-		t.Errorf("stderr lacks the tally: %q", stderr.String())
+	// The tally is on stderr, and counts the rows by status.
+	pass, warn, fail, ok := tally(stderr.String())
+	if !ok || pass != byStatus["pass"] || warn != byStatus["warn"] || fail != byStatus["fail"] || fail != 1 {
+		t.Errorf("stderr tally = %d/%d/%d (found %v), want the rows' %v: %q", pass, warn, fail, ok, byStatus, stderr.String())
 	}
 }
 
@@ -1029,11 +1155,12 @@ func TestCheckSite_HelpListsEverySiteRootFile(t *testing.T) {
 	}
 }
 
-// TestCheckSite_NoExportsFound: a directory with no export in it says so in
-// those words.
+// TestCheckSite_NoExportsFound: a directory with no export in it fails the
+// structure check, naming the directory.
 func TestCheckSite_NoExportsFound(t *testing.T) {
-	out, err := run(t, t.TempDir(), false)
-	if err == nil || !strings.Contains(out, "FAIL  structure: no exports found under ") {
+	dir := t.TempDir()
+	out, err := run(t, dir, false)
+	if !errors.Is(err, cmdutil.ErrSilent) || len(find(out, "FAIL", chkStructure, dir)) != 1 {
 		t.Errorf("empty dir: (%v)\n%s", err, out)
 	}
 }

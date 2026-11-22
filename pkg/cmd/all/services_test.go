@@ -26,8 +26,11 @@ func TestRunOptionalStep(t *testing.T) {
 	if err := runOptionalStep(ios, "fire compute", func() error { return errors.New("overpass down") }); err == nil || err.Error() != "overpass down" {
 		t.Errorf("other failures must be warned about and returned, got %v", err)
 	}
-	if !strings.Contains(errOut.String(), "warning: fire compute failed: overpass down") {
-		t.Errorf("expected a warning on ErrOut, got %q", errOut.String())
+	// One warning (the skip and the cancellation print none), naming the
+	// step and the cause.
+	got := errOut.String()
+	if strings.Count(got, "warning: ") != 1 || !strings.Contains(got, "fire compute") || !strings.Contains(got, "overpass down") {
+		t.Errorf("expected one warning naming the step and its error on ErrOut, got %q", got)
 	}
 }
 

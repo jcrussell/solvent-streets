@@ -141,8 +141,10 @@ func TestServicesCompute_UnknownServiceIsFlagError(t *testing.T) {
 	cmd.SilenceErrors, cmd.SilenceUsage = true, true
 	cmd.SetArgs([]string{"compute", "--service", "police"})
 	err := cmd.Execute()
-	if err == nil || !strings.Contains(err.Error(), "unknown service") {
-		t.Fatalf("expected an unknown-service flag error, got %v", err)
+	// A usage error (exit 2) quoting the value it does not know.
+	var fe *cmdutil.FlagError
+	if !errors.As(err, &fe) || !strings.Contains(err.Error(), `"police"`) {
+		t.Fatalf("expected an unknown-service flag error naming police, got %v", err)
 	}
 	if len(saved) != 0 {
 		t.Error("nothing must be saved for an unknown service")
@@ -306,11 +308,14 @@ func TestServicesCompute_NoReachCommitsEmptyRun(t *testing.T) {
 	}
 	// No station routed, so there is no coverage figure to print: a 0% would
 	// measure the missing station, and the export shows none either.
-	if strings.Contains(out.String(), "Within") {
+	if strings.Contains(out.String(), "%") {
 		t.Errorf("printed a within-threshold share with no station routing:\n%s", out.String())
 	}
-	if !strings.Contains(errOut.String(), "no fire facility reached the road network") {
-		t.Errorf("no warning that no station reached the network; stderr:\n%s", errOut.String())
+	// The last warning is the summary one: it names the service whose
+	// stations reached nothing.
+	warned := warningLines(errOut.String())
+	if len(warned) == 0 || !strings.Contains(warned[len(warned)-1], "fire") {
+		t.Errorf("no warning that no fire station reached the network; stderr:\n%s", errOut.String())
 	}
 	for _, r := range saved {
 		if r.Metric != metric.FireResponseS || r.Subject != services.SubjectUnreachable || r.RunID != saved[0].RunID {
@@ -320,6 +325,17 @@ func TestServicesCompute_NoReachCommitsEmptyRun(t *testing.T) {
 	if !committedOnlyFire(commits, saved[0].RunID) {
 		t.Errorf("commits = %v, want the empty fire run %d committed", commits, saved[0].RunID)
 	}
+}
+
+// warningLines returns the "warning: ..." lines of a run's stderr.
+func warningLines(stderr string) []string {
+	var ws []string
+	for line := range strings.SplitSeq(stderr, "\n") {
+		if strings.HasPrefix(line, "warning: ") {
+			ws = append(ws, line)
+		}
+	}
+	return ws
 }
 
 // TestSummarize_ShareIsAFraction: within_threshold_share is a 0..1 fraction
@@ -493,8 +509,12 @@ func TestServicesCompute_StationOutsideTheBoundaryServesEdgeHexes(t *testing.T) 
 		if err := RunComputeForCity(context.Background(), f, "fire", nil, nil); err != nil {
 			t.Fatal(err)
 		}
-		// Missing routing roads are named, since they cost the edge hexes.
-		if warned := strings.Contains(errOut.String(), "no routing roads stored"); warned == withRouting {
+		// Missing routing roads are warned about, since they cost the edge
+		// hexes, with the command that fetches them.
+		warned := slices.ContainsFunc(warningLines(errOut.String()), func(w string) bool {
+			return strings.Contains(w, "'pvmt services ingest'")
+		})
+		if warned == withRouting {
 			t.Errorf("with routing roads %v: routing-roads warning shown = %v; stderr:\n%s", withRouting, warned, errOut.String())
 		}
 		var reached []db.HexMetric

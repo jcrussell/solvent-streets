@@ -242,8 +242,10 @@ func TestRunForecast_StaleSnapshotsSayWhy(t *testing.T) {
 	if want := cfg.StaleHint(city); !strings.Contains(out, want) {
 		t.Errorf("stderr lacks the shared stale-snapshot hint:\n%s", out)
 	}
-	if strings.Contains(out, "no compute results") {
-		t.Errorf("stderr still has the bare per-resource warnings:\n%s", out)
+	// That one warning replaces the per-resource ones ("warning: " is the
+	// prefix cmdutil.Warnf gives each).
+	if n := strings.Count(out, "warning: "); n != 1 {
+		t.Errorf("stderr has %d warnings, want the stale one alone:\n%s", n, out)
 	}
 }
 
@@ -312,8 +314,14 @@ func TestRunForecast_Snapshot(t *testing.T) {
 	if err := run("2026-11"); !errors.Is(err, cmdutil.ErrNoResults) || pinned != 7 || pinnedName != "2026-11" {
 		t.Errorf("err = %v, pinned %d %q; want the empty snapshot view (ErrNoResults) of snapshot 7, 2026-11", err, pinned, pinnedName)
 	}
-	if err := run("2025-01"); err == nil || !strings.Contains(err.Error(), `snapshot "2025-01" does not cover Test City`) {
-		t.Errorf("err = %v, want a not-covered error", err)
+	pinned = 0
+	err := run("2025-01")
+	if err == nil || errors.Is(err, cmdutil.ErrNoResults) || pinned != 0 {
+		t.Fatalf("err = %v, pinned %d; want a refusal before any snapshot view is opened", err, pinned)
+	}
+	// The refusal names the snapshot and the city it does not cover.
+	if msg := err.Error(); !strings.Contains(msg, `"2025-01"`) || !strings.Contains(msg, city.Name) {
+		t.Errorf("err = %v, want it to name the snapshot and the city", err)
 	}
 }
 

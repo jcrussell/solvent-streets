@@ -162,9 +162,10 @@ func TestChooseBoundary_StripInverted_RecoversViaComplement(t *testing.T) {
 	if ratio, ok := validateBoundaryAgainstRoads(gjson, roads); !ok || ratio < stripCoverageMinRatio {
 		t.Errorf("expected the complement to cover the roads, got ratio=%.3f ok=%v", ratio, ok)
 	}
-	if !strings.Contains(note, "San Francisco, CA") || !strings.Contains(note, "complement") ||
-		!strings.Contains(note, "Water-strip inversion recovered") {
-		t.Errorf("expected recovery note naming the city and complement, got: %q", note)
+	// docs/troubleshooting.md quotes the note's opening for users to search
+	// for; it names the city and the source it saved instead.
+	if !strings.HasPrefix(note, "Water-strip inversion recovered for San Francisco, CA") || !strings.Contains(note, source) {
+		t.Errorf("expected recovery note naming the city and the saved source, got: %q", note)
 	}
 }
 
@@ -191,8 +192,9 @@ func TestChooseBoundary_ComplementAlsoFails_RollsBackToNominatim(t *testing.T) {
 	if source != "nominatim" || gjson != twoSquares {
 		t.Errorf("chose source %q, want the unstripped Nominatim (%q)", source, "nominatim")
 	}
-	if !strings.Contains(note, "Brisbane, CA") || !strings.Contains(note, "Water-strip rollback") {
-		t.Errorf("expected rollback note naming the city, got: %q", note)
+	// docs/troubleshooting.md quotes this opening too.
+	if !strings.HasPrefix(note, "Water-strip rollback for Brisbane, CA") || !strings.Contains(note, "source="+source) {
+		t.Errorf("expected rollback note naming the city and the saved source, got: %q", note)
 	}
 }
 

@@ -266,16 +266,12 @@ func TestParseWaterResponse_DropsWayContainingLandProbe(t *testing.T) {
 		t.Errorf("expected empty result (way dropped); got %q", result)
 	}
 	var rec struct {
-		Msg      string `json:"msg"`
-		Way      int64  `json:"way"`
-		LandHits int    `json:"land_hits"`
+		Way      int64 `json:"way"`
+		LandHits int   `json:"land_hits"`
 	}
 	first, _, _ := bytes.Cut(bytes.TrimSpace(buf.Bytes()), []byte("\n")) // the first record; a parse summary follows
 	if err := json.Unmarshal(first, &rec); err != nil {
 		t.Fatalf("parse log line: %v: %s", err, buf.String())
-	}
-	if !strings.Contains(rec.Msg, "containing city land") {
-		t.Errorf("log msg %q should mention land containment", rec.Msg)
 	}
 	if rec.Way != 101 || rec.LandHits != 1 {
 		t.Errorf("log fields way=%d hits=%d; want 101 and 1", rec.Way, rec.LandHits)
@@ -312,16 +308,12 @@ func TestParseWaterResponse_DropsRelationContainingLandProbe(t *testing.T) {
 		t.Errorf("expected empty result (relation dropped); got %q", result)
 	}
 	var rec struct {
-		Msg      string `json:"msg"`
-		Relation int64  `json:"relation"`
-		LandHits int    `json:"land_hits"`
+		Relation int64 `json:"relation"`
+		LandHits int   `json:"land_hits"`
 	}
 	first, _, _ := bytes.Cut(bytes.TrimSpace(buf.Bytes()), []byte("\n")) // the first record; a parse summary follows
 	if err := json.Unmarshal(first, &rec); err != nil {
 		t.Fatalf("parse log line: %v: %s", err, buf.String())
-	}
-	if !strings.Contains(rec.Msg, "containing city land") {
-		t.Errorf("log msg %q should mention land containment", rec.Msg)
 	}
 	if rec.Relation != 7777 || rec.LandHits != 1 {
 		t.Errorf("log fields relation=%d hits=%d; want 7777 and 1", rec.Relation, rec.LandHits)
@@ -442,7 +434,6 @@ func TestParseWaterResponse_LogsDroppedMemberWays(t *testing.T) {
 	}
 
 	var record struct {
-		Msg          string  `json:"msg"`
 		Level        string  `json:"level"`
 		Relation     int64   `json:"relation"`
 		DroppedOuter []int64 `json:"dropped_outer"`
@@ -457,9 +448,6 @@ func TestParseWaterResponse_LogsDroppedMemberWays(t *testing.T) {
 	}
 	if record.Level != "DEBUG" {
 		t.Errorf("level = %q, want DEBUG", record.Level)
-	}
-	if !strings.Contains(record.Msg, "dropped") {
-		t.Errorf("msg = %q, want it to mention dropping", record.Msg)
 	}
 	if record.Relation != 4242 {
 		t.Errorf("relation = %d, want 4242", record.Relation)
@@ -564,7 +552,6 @@ func TestRelationToPolygons_DroppedWaysNoPolygons(t *testing.T) {
 		t.Fatal("expected a dropped-ways WARN line; got nothing")
 	}
 	var rec struct {
-		Msg          string  `json:"msg"`
 		Level        string  `json:"level"`
 		Relation     int64   `json:"relation"`
 		DroppedOuter []int64 `json:"dropped_outer"`
@@ -575,9 +562,6 @@ func TestRelationToPolygons_DroppedWaysNoPolygons(t *testing.T) {
 	}
 	if rec.Level != "DEBUG" {
 		t.Errorf("level = %q, want DEBUG", rec.Level)
-	}
-	if !strings.Contains(rec.Msg, "dropped") {
-		t.Errorf("msg = %q, want it to mention dropping", rec.Msg)
 	}
 	if rec.Relation != 515 {
 		t.Errorf("relation = %d, want 515", rec.Relation)
@@ -1158,15 +1142,11 @@ func TestCloseCoastlineChain_DropsCWClosedRingContainingLandProbe(t *testing.T) 
 		t.Fatal("expected warn log line; got nothing")
 	}
 	var rec struct {
-		Msg       string `json:"msg"`
-		LandHits  int    `json:"land_hits"`
-		NumProbes int    `json:"land_probes"`
+		LandHits  int `json:"land_hits"`
+		NumProbes int `json:"land_probes"`
 	}
 	if err := json.Unmarshal(line, &rec); err != nil {
 		t.Fatalf("parse log line: %v: %s", err, line)
-	}
-	if !strings.Contains(rec.Msg, "containing city land") {
-		t.Errorf("log message %q should mention land containment", rec.Msg)
 	}
 	if rec.LandHits != 1 || rec.NumProbes != 1 {
 		t.Errorf("log fields: land_hits=%d land_probes=%d, want 1 and 1",
@@ -1198,7 +1178,6 @@ func TestCloseCoastlineChain_DropsCCWClosedRingAsIsland(t *testing.T) {
 		t.Fatal("expected warn log line; got nothing")
 	}
 	var record struct {
-		Msg      string `json:"msg"`
 		Level    string `json:"level"`
 		Vertices int    `json:"vertices"`
 	}
@@ -1207,9 +1186,6 @@ func TestCloseCoastlineChain_DropsCCWClosedRingAsIsland(t *testing.T) {
 	}
 	if record.Level != "DEBUG" {
 		t.Errorf("level = %q, want DEBUG", record.Level)
-	}
-	if !strings.Contains(record.Msg, "CCW") {
-		t.Errorf("msg = %q, want it to mention CCW orientation", record.Msg)
 	}
 	if record.Vertices != len(chain) {
 		t.Errorf("vertices = %d, want %d", record.Vertices, len(chain))
@@ -1509,13 +1485,13 @@ func TestAcceptWaterPolygon(t *testing.T) {
 			name:      "ring not closed",
 			outer:     [][2]float64{{0, 0}, {1, 0}, {1, 1}, {0, 1}},
 			wantOK:    false,
-			wantInMsg: "not closed",
+			wantInMsg: "", // any reason
 		},
 		{
 			name:      "outer covers entire bbox (100%)",
 			outer:     [][2]float64{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}},
 			wantOK:    false,
-			wantInMsg: "covers",
+			wantInMsg: "100.0%", // the share of the bbox it covers
 		},
 	}
 	for _, c := range cases {
@@ -1524,8 +1500,8 @@ func TestAcceptWaterPolygon(t *testing.T) {
 			if ok != c.wantOK {
 				t.Errorf("ok = %v, want %v (reason=%q)", ok, c.wantOK, reason)
 			}
-			if !c.wantOK && !strings.Contains(reason, c.wantInMsg) {
-				t.Errorf("reason = %q, want substring %q", reason, c.wantInMsg)
+			if !c.wantOK && (reason == "" || !strings.Contains(reason, c.wantInMsg)) {
+				t.Errorf("reason = %q, want one giving %q", reason, c.wantInMsg)
 			}
 		})
 	}
@@ -1613,7 +1589,6 @@ func TestParseWaterResponse_RejectsOversizedRelation(t *testing.T) {
 		t.Fatal("expected a rejection log line; got nothing")
 	}
 	var record struct {
-		Msg      string `json:"msg"`
 		Level    string `json:"level"`
 		Relation int64  `json:"relation"`
 		Reason   string `json:"reason"`
@@ -1627,8 +1602,9 @@ func TestParseWaterResponse_RejectsOversizedRelation(t *testing.T) {
 	if record.Relation != 777 {
 		t.Errorf("relation = %d, want 777", record.Relation)
 	}
-	if !strings.Contains(record.Reason, "covers") {
-		t.Errorf("reason = %q, want it to mention coverage", record.Reason)
+	// The outer ring is the whole bbox: the reason gives that share.
+	if !strings.Contains(record.Reason, "100.0%") {
+		t.Errorf("reason = %q, want the 100.0%% of the bbox the outer covers", record.Reason)
 	}
 }
 
@@ -1838,7 +1814,11 @@ func TestAssembleWater_LakeLargerThanBBoxRejectedWithInteriorProbes(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if water != "" || !strings.Contains(buf.String(), "covers") {
+	// The cap's rejection is the record with a reason; a drop for holding
+	// city land would carry land_hits instead.
+	recs := logRecords(t, &buf)
+	if capped := recordsWith(recs, "relation", "reason"); water != "" || len(capped) != 1 || capped[0]["relation"] != 132216.0 ||
+		len(recordsWith(recs, "relation", "land_hits")) != 0 {
 		t.Errorf("water = %q, log = %s; want the lake rejected by the bbox-area cap", water, buf.String())
 	}
 }
@@ -1858,7 +1838,11 @@ func TestAssembleWater_LakeHoldingRoadsDropped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if water != "" || !strings.Contains(buf.String(), "containing city land") {
+	// The drop's record counts the 10 roads in the lake; the area cap's
+	// rejection would carry a reason instead.
+	recs := logRecords(t, &buf)
+	if dropped := recordsWith(recs, "relation", "land_hits"); water != "" || len(dropped) != 1 || dropped[0]["relation"] != 132216.0 ||
+		dropped[0]["land_hits"] != 10.0 || len(recordsWith(recs, "relation", "reason")) != 0 {
 		t.Errorf("water = %q, log = %s; want the lake dropped as containing city land", water, buf.String())
 	}
 }
@@ -2115,14 +2099,20 @@ func TestAssembleWater_FaceSliverIsCapped(t *testing.T) {
 		warn bool
 	}{{2, 0.30, true}, {4, 1.0, false}} {
 		var buf bytes.Buffer
-		ctx := logs.WithLogger(context.Background(), slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+		ctx := logs.WithLogger(context.Background(), slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
 		pts := append(gridProbes(30, 0.01, 0.01, 0.29, 0.99), gridProbes(c.side, 0.6, 0.4, 0.7, 0.6)...)
 		got := stripRatioCtx(ctx, t, body, LandProbes{Points: pts, MaxHits: 3, Dense: true})
 		if math.Abs(got-c.want) > 0.005 {
 			t.Errorf("%d east probes: stripped share %.3f, want %.2f", c.side*c.side, got, c.want)
 		}
-		if warned := strings.Contains(buf.String(), "stripped a face holding a few city roads"); warned != c.warn {
+		// The warning is the record that sets the face's few roads and the
+		// allowance beside the count across its coastline.
+		slivers := recordsWith(logRecords(t, &buf), "across_land_hits", "allowance")
+		if warned := len(slivers) == 1; warned != c.warn {
 			t.Errorf("%d east probes: warned %v, want %v: %s", c.side*c.side, warned, c.warn, buf.String())
+		}
+		if c.warn && len(slivers) == 1 && (slivers[0]["land_hits"] != float64(c.side*c.side) || slivers[0]["across_land_hits"] != 900.0) {
+			t.Errorf("sliver record = %v, want %d roads beside 900", slivers[0], c.side*c.side)
 		}
 	}
 }
@@ -2182,13 +2172,14 @@ func TestSplitFaces_SubsTouchingAtAVertex(t *testing.T) {
 // about rather than skipped silently.
 func TestAssembleWater_WarnsOnACoastlineEndingInsideTheBBox(t *testing.T) {
 	var buf bytes.Buffer
-	ctx := logs.WithLogger(context.Background(), slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	ctx := logs.WithLogger(context.Background(), slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	body := coastlineBody([][2]float64{{0.5, -0.5}, {0.5, 0.5}})
 	if _, err := parseWaterResponse(ctx, []byte(body), [4]float64{0, 0, 1, 1}, denseProbes(gridProbes(10, 0.05, 0.05, 0.45, 0.95))); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(buf.String(), "does not reach the bbox edge at both ends") {
-		t.Errorf("log = %q; want the skipped coastline warned about", buf.String())
+	// One record gives the skipped coastline's two ends.
+	if skipped := recordsWith(logRecords(t, &buf), "head", "tail"); len(skipped) != 1 {
+		t.Errorf("log = %q; want the skipped coastline warned about, with its ends", buf.String())
 	}
 }
 
@@ -2210,7 +2201,7 @@ func TestAssembleWater_WarnsOnStrippingAFaceItsCoastlinesPutOnLand(t *testing.T)
 		warn     bool
 	}{{0, whole, true}, {2, whole, false}, {0, westHalf, false}} {
 		var buf bytes.Buffer
-		ctx := logs.WithLogger(context.Background(), slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+		ctx := logs.WithLogger(context.Background(), slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
 		pts := gridProbes(20, 0.01, 0.01, 0.29, 0.99)
 		if c.side > 0 {
 			pts = append(pts, gridProbes(c.side, 0.62, 0.72, 0.78, 0.98)...)
@@ -2219,13 +2210,17 @@ func TestAssembleWater_WarnsOnStrippingAFaceItsCoastlinesPutOnLand(t *testing.T)
 		if _, err := parseWaterResponse(ctx, []byte(body), [4]float64{0, 0, 1, 1}, probes); err != nil {
 			t.Fatal(err)
 		}
-		got := strings.Count(buf.String(), "stripped a face its coastlines put on land")
-		if got != map[bool]int{true: 1, false: 0}[c.warn] {
+		// The warning is the record carrying the face's area inside the
+		// boundary.
+		stripped := recordsWith(logRecords(t, &buf), "km2_in_boundary")
+		if got := len(stripped); got != map[bool]int{true: 1, false: 0}[c.warn] {
 			t.Errorf("%d island probes, boundary %s: %d warnings, want warned=%v\n%s", c.side*c.side, c.boundary, got, c.warn, buf.String())
 		}
 		// The island's 0.2 x 0.3 degrees at the equator, about 744 km².
-		if c.warn && !strings.Contains(buf.String(), "km2_in_boundary=74") {
-			t.Errorf("log = %s; want the island's area inside the boundary", buf.String())
+		if c.warn && len(stripped) == 1 {
+			if km2, _ := stripped[0]["km2_in_boundary"].(float64); km2 < 740 || km2 >= 750 {
+				t.Errorf("km2_in_boundary = %v; want the island's area inside the boundary, about 744", stripped[0]["km2_in_boundary"])
+			}
 		}
 	}
 }
@@ -2239,11 +2234,50 @@ func TestFetchOSMWater_LogsItsSplits(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 	var buf bytes.Buffer
-	ctx := logs.WithLogger(context.Background(), slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})))
+	ctx := logs.WithLogger(context.Background(), slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})))
 	_, _ = fetchOSMWater(ctx, uaClient(srv), srv.URL, [4]float64{0, 0, 2, 2}, LandProbes{Points: [][2]float64{{1, 1}}})
-	if !strings.Contains(buf.String(), "splitting into quadrants") {
+	// Each split is an Info record with its depth and its reason; the first
+	// is the whole bbox's, at depth 1.
+	splits := recordsWith(logRecords(t, &buf), "depth", "reason")
+	if len(splits) == 0 || splits[0]["depth"] != 1.0 || splits[0]["level"] != "INFO" || splits[0]["reason"] == "" {
 		t.Errorf("log = %q; want the water fetch's splits logged", buf.String())
 	}
+}
+
+// logRecords parses the JSON log records written to buf.
+func logRecords(t *testing.T, buf *bytes.Buffer) []map[string]any {
+	t.Helper()
+	var recs []map[string]any
+	for line := range bytes.SplitSeq(bytes.TrimSpace(buf.Bytes()), []byte("\n")) {
+		if len(line) == 0 {
+			continue
+		}
+		var rec map[string]any
+		if err := json.Unmarshal(line, &rec); err != nil {
+			t.Fatalf("parse log line: %v: %s", err, line)
+		}
+		recs = append(recs, rec)
+	}
+	return recs
+}
+
+// recordsWith returns the records that carry every one of the attribute
+// keys: a record is told from the others by what it reports, not by its
+// message.
+func recordsWith(recs []map[string]any, keys ...string) []map[string]any {
+	var hits []map[string]any
+	for _, rec := range recs {
+		has := true
+		for _, k := range keys {
+			if _, ok := rec[k]; !ok {
+				has = false
+			}
+		}
+		if has {
+			hits = append(hits, rec)
+		}
+	}
+	return hits
 }
 
 // splitAll cuts the unit bbox along each chain's clipped sub-chains, in

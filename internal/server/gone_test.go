@@ -105,8 +105,9 @@ func TestDataFile_PinnedSnapshotDeletedIs410(t *testing.T) {
 			t.Errorf("%s after delete: %d, want 410", file, w.Code)
 			continue
 		}
-		if !strings.Contains(w.Body.String(), "restart 'pvmt serve'") {
-			t.Errorf("%s 410 body = %q, want the restart advice", file, w.Body)
+		// The body names the command to run again, as a hint does.
+		if !strings.Contains(w.Body.String(), "'pvmt serve'") {
+			t.Errorf("%s 410 body = %q, want it to name 'pvmt serve'", file, w.Body)
 		}
 	}
 	// Only the meta.json built before the delete is cached: no 410 was kept.

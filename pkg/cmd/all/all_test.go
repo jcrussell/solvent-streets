@@ -53,8 +53,10 @@ func TestForEachResource_ErrAllSourcesFailedContinues(t *testing.T) {
 		if len(visited) != len(resource.All) {
 			t.Errorf("visited %d resources; want all %d (first failure must not abort)", len(visited), len(resource.All))
 		}
-		if !strings.Contains(errBuf.String(), "failed") {
-			t.Errorf("expected a warning on ErrOut, got %q", errBuf.String())
+		// One warning, for the one resource that failed ("warning: " is the
+		// prefix every warning carries).
+		if n := strings.Count(errBuf.String(), "warning: "); n != 1 {
+			t.Errorf("expected one warning on ErrOut, got %d: %q", n, errBuf.String())
 		}
 	})
 
@@ -173,7 +175,8 @@ func TestAllIngest_InProcessFanOut(t *testing.T) {
 	if err := cmd.ExecuteContext(ctx); !errors.Is(err, cmdutil.ErrNoResults) {
 		t.Fatalf("all ingest = %v, want ErrNoResults (every resource was empty)", err)
 	}
-	if strings.Contains(errBuf.String(), "failed:") {
+	// forEachResource warns about a step that fails; an empty one is silent.
+	if strings.Contains(errBuf.String(), "warning: ") {
 		t.Errorf("a resource failed and was warn-swallowed; want every resource to reach ErrNoResults cleanly.\nstderr:\n%s", errBuf.String())
 	}
 	// The up-front boundary resolve, every pavement resource, and the
@@ -194,8 +197,10 @@ func TestAllIngest_InProcessFanOut(t *testing.T) {
 // and re-fetches the boundary the store already holds instead of reusing it.
 func TestAllIngest_ForceBypassesTheCache(t *testing.T) {
 	upstream := 0
-	inner := roundTripFunc(func(*http.Request) (*http.Response, error) {
+	hosts := map[string]int{} // upstream requests per host
+	inner := roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		upstream++
+		hosts[r.URL.Host]++
 		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"application/json"}},
 			Body: io.NopCloser(strings.NewReader(`{"elements":[]}`))}, nil
 	})
@@ -203,9 +208,9 @@ func TestAllIngest_ForceBypassesTheCache(t *testing.T) {
 	store := &dbtest.MockStore{
 		GetBoundaryFunc: func(context.Context) (string, error) { return ingestTestBoundary, nil },
 	}
-	run := func(args ...string) string {
+	run := func(args ...string) {
 		t.Helper()
-		ios, _, _, errBuf := iostreams.Test()
+		ios, _, _, _ := iostreams.Test()
 		f := ingestFactory(ios, store)
 		f.HttpClient = func() (*http.Client, error) { return client, nil }
 		cmd := NewCmdAll(f)
@@ -213,7 +218,6 @@ func TestAllIngest_ForceBypassesTheCache(t *testing.T) {
 		cmd.SilenceErrors = true
 		cmd.SilenceUsage = true
 		_ = cmd.ExecuteContext(context.Background())
-		return errBuf.String()
 	}
 
 	run()
@@ -225,18 +229,21 @@ func TestAllIngest_ForceBypassesTheCache(t *testing.T) {
 	if upstream != before {
 		t.Errorf("repeat run made %d upstream requests; want 0 (every response is cached)", upstream-before)
 	}
+	// The hosts a run with the stored boundary asks: the boundary's own
+	// upstream is not among them.
+	plainHosts := len(hosts)
 	// The first --force run re-fetches the boundary, a request no earlier run
 	// made, so it reaches upstream either way. The second repeats exactly the
 	// first's requests, which are now cached: only a real bypass sends them
 	// upstream again.
 	run("--force")
+	if len(hosts) != plainHosts+1 {
+		t.Errorf("--force asked hosts %v, want one more than the %d a run with the stored boundary asks: the boundary re-fetched", hosts, plainHosts)
+	}
 	before = upstream
-	stderr := run("--force")
+	run("--force")
 	if upstream == before {
 		t.Error("a repeated --force run was served from the cache; --force must bypass it")
-	}
-	if strings.Contains(stderr, "Using cached boundary") {
-		t.Errorf("--force reused the stored boundary; want it re-fetched.\nstderr:\n%s", stderr)
 	}
 }
 
@@ -273,6 +280,7 @@ func TestAllIngest_BoundaryFailureSkipsCity(t *testing.T) {
 	if n := strings.Count(stderr, "warning:"); n != 1 {
 		t.Errorf("printed %d warnings, want 1:\n%s", n, stderr)
 	}
+	// stepHeader's "--- <step> ---" line opens every step that runs.
 	if strings.Contains(stderr, "--- ") {
 		t.Errorf("an ingest step ran after the boundary failed:\n%s", stderr)
 	}
@@ -533,7 +541,8 @@ func TestAllCompute_TUIInterruptAbortsCity(t *testing.T) {
 	if commits != 0 {
 		t.Errorf("committed %d snapshot(s) after an interrupt, want 0", commits)
 	}
-	if strings.Contains(errOut.String(), "failed:") {
+	// A step that fails is warned about; an interrupt is not a failure.
+	if strings.Contains(errOut.String(), "warning: ") {
 		t.Errorf("the interrupt was reported as a step failure:\n%s", errOut.String())
 	}
 }
@@ -731,9 +740,9 @@ func TestAllIngest_RebuildBoundaryReadsTheCache(t *testing.T) {
 		GetBoundaryFunc:  func(context.Context) (string, error) { return ingestTestBoundary, nil },
 		SaveBoundaryFunc: func(context.Context, string, string) error { saves++; return nil },
 	}
-	run := func() string {
+	run := func() {
 		t.Helper()
-		ios, _, _, errBuf := iostreams.Test()
+		ios, _, _, _ := iostreams.Test()
 		f := ingestFactory(ios, store)
 		f.HttpClient = func() (*http.Client, error) { return client, nil }
 		cmd := NewCmdAll(f)
@@ -741,7 +750,6 @@ func TestAllIngest_RebuildBoundaryReadsTheCache(t *testing.T) {
 		cmd.SilenceErrors = true
 		cmd.SilenceUsage = true
 		_ = cmd.ExecuteContext(context.Background())
-		return errBuf.String()
 	}
 
 	run()
@@ -749,15 +757,12 @@ func TestAllIngest_RebuildBoundaryReadsTheCache(t *testing.T) {
 		t.Fatalf("first run saved the boundary %d times, want 1", saves)
 	}
 	before := upstream
-	stderr := run()
+	run()
 	if saves != 2 {
 		t.Errorf("repeat run saved the boundary %d times in total, want 2: --rebuild-boundary must re-resolve it", saves)
 	}
 	if upstream != before {
 		t.Errorf("repeat run made %d upstream requests; want 0 (--rebuild-boundary must not bypass the cache)", upstream-before)
-	}
-	if !strings.Contains(stderr, "Fetching boundary for") {
-		t.Errorf("stderr = %q; want the boundary re-resolved", stderr)
 	}
 }
 

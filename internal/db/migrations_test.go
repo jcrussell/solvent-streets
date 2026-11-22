@@ -859,6 +859,7 @@ func TestOpen_ForeignFileLeftUntouched(t *testing.T) {
 	if !errors.Is(err, ErrIncompatibleDatabase) {
 		t.Fatalf("err = %v, want ErrIncompatibleDatabase", err)
 	}
+	// docs/troubleshooting.md lists this message for users to search for.
 	if !strings.Contains(err.Error(), "not a pvmt database") {
 		t.Errorf("err = %v, want it to say the file is not a pvmt database", err)
 	}
@@ -1062,8 +1063,9 @@ func TestMigrateFS_RejectsDuplicateVersions(t *testing.T) {
 	if err == nil {
 		t.Fatalf("migrateFS accepted two migrations with version 1")
 	}
-	if !strings.Contains(err.Error(), "duplicate migration version") {
-		t.Errorf("error = %v, want it to name the duplicate version", err)
+	// The error names both files, so the author can find the pair.
+	if !strings.Contains(err.Error(), "001_a.sql") || !strings.Contains(err.Error(), "001_b.sql") {
+		t.Errorf("error = %v, want it to name the two files that share a version", err)
 	}
 }
 
