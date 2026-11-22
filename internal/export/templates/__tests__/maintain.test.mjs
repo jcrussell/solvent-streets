@@ -71,7 +71,12 @@ test('the checkboxes add parking and sidewalks, and the URL records it', async (
   box('parking').dispatchEvent(new win.Event('change', { bubbles: true }));
   assert.deepEqual(types(custom(win).cohorts), ['parking', 'roads']);
   assert.equal(params(win).get('maintain'), 'roads,parking');
-  assert.equal($('#budget-share').textContent, 'for streets + lots');
+  // The note names each maintained network by the page's short name for it.
+  const short = win.eval('MAINTAIN_SHORT');
+  const note = $('#budget-share').textContent;
+  assert.ok(note.includes(short.roads) && note.includes(short.parking), note);
+  assert.ok(!note.includes(short.sidewalks), note);
+  assert.ok(note.indexOf(short.roads) < note.indexOf(short.parking), 'the networks are not in layer order: ' + note);
   assert.equal(box('roads').disabled, false);
 });
 
@@ -148,7 +153,10 @@ test('under ?scope=all the slider\'s hold-steady budget says it covers all juris
   // cited budget pays for, the slider the scope's.
   assert.deepEqual(Array.from(headlineProbe(win).cohorts), city);
   assert.deepEqual(Array.from(holdProbe(win).cohorts), all);
-  assert.equal($('#budget-share').textContent, 'for streets, all jurisdictions');
+  // The default network, but wider than the headline's: the note says so.
+  const wider = $('#budget-share').textContent;
+  assert.ok(wider.includes(win.eval('MAINTAIN_SHORT').roads), wider);
+  assert.ok(wider.length > win.eval('MAINTAIN_SHORT').roads.length + 4, 'the note does not mark the wider roads: ' + wider);
   assert.equal($('#budget-slider').getAttribute('aria-describedby'), 'budget-share');
 });
 

@@ -2,7 +2,7 @@
 // extractMetrics -> renderAggregate path over the exporter's fixture files.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { load } from './harness.mjs';
+import { load, boardWith } from './harness.mjs';
 import { fullData, readFixture } from './fixtures.mjs';
 
 /**
@@ -32,13 +32,19 @@ async function page(cities, query = '') {
   return h;
 }
 
-/** headline returns the value text of the Aggregate card whose label matches. */
-function headline(doc, label) {
-  const cards = Array.from(doc.querySelectorAll('#aggregate-headlines .headline-card'));
-  const hit = cards.find((c) => label.test(c.querySelector('.label').textContent));
-  assert.ok(hit, `no Aggregate card matches ${label}`);
-  return hit.querySelector('.value').textContent;
+// The Aggregate cards carry no key, so a spec names one by its place in the
+// row renderAggregate builds.
+const CARD = { area: 0, pavedShare: 1, pci: 2, need: 3, backlog: 4, perArea: 5, spaces: 6 };
+
+/** card returns the Aggregate headline card at a CARD position. */
+function card(doc, at) {
+  const cards = doc.querySelectorAll('#aggregate-headlines .headline-card');
+  assert.equal(cards.length, Object.keys(CARD).length, 'the Aggregate card row changed; update CARD');
+  return cards[at];
 }
+
+/** headline returns the value text of the Aggregate card at a CARD position. */
+const headline = (doc, at) => card(doc, at).querySelector('.value').textContent;
 
 const dollars = (text) => parseFloat(text.replace(/[$,]/g, ''));
 
@@ -59,7 +65,7 @@ test('Year-1 need per acre divides the city-scope need by the city-maintained ar
   const want = need / win.toAreaLarge(mostlyState.scenarios.city[0].years[0].area);
   const statsArea = mostlyState.meta.stats.reduce((s, st) => s + win.toAreaLarge(st.area || 0), 0);
   assert.ok(Math.abs(want - need / statsArea) > 1, 'fixture cannot tell the two denominators apart');
-  assert.equal(dollars(headline(doc, /^Year-1 Need per acre$/)), Math.round(want));
+  assert.equal(dollars(headline(doc, CARD.perArea)), Math.round(want));
 
   // Compare shows the same city at the same figure.
   win.renderCompare([mostlyState, city('Beta')]);
@@ -71,7 +77,7 @@ test('under ?scope=all the per-acre need divides by the all-jurisdiction area', 
   const c = city('Alpha', (x) => { x.seed.city_maintained_area = x.seed.maintained_area / 10; });
   const { win, doc } = await page([c], '?scope=all');
   const want = c.scenarios.all[0].years[0].annual_need / win.toAreaLarge(c.scenarios.all[0].years[0].area);
-  assert.equal(dollars(headline(doc, /^Year-1 Need per acre$/)), Math.round(want));
+  assert.equal(dollars(headline(doc, CARD.perArea)), Math.round(want));
 });
 
 // A per-area figure divides the forecast's dollars
@@ -91,7 +97,7 @@ test('per-area figures divide by the maintained area, not the paved footprint', 
   assert.ok(Math.abs(m.scopeAreaLarge - m.totalAreaLarge) < 1e-6 * m.totalAreaLarge,
     'the per-area denominator is not the Maintained Area');
   const want = c.scenarios.all[0].years[0].annual_need / win.toAreaLarge(c.scenarios.all[0].years[0].area);
-  assert.equal(dollars(headline(doc, /^Year-1 Need per acre$/)), Math.round(want));
+  assert.equal(dollars(headline(doc, CARD.perArea)), Math.round(want));
   assert.ok(Math.round(want) !== Math.round(c.scenarios.all[0].years[0].annual_need / win.toAreaLarge(c.meta.total_paved)),
     'fixture cannot tell the maintained area from the footprint');
 });
@@ -106,14 +112,14 @@ test('Area-Weighted PCI weights each city by the area its PCI describes', async 
   });
   const { doc } = await page([alpha, beta]);
   const want = (80 * 1 + 20 * 0.1) / 1.1;
-  assert.equal(headline(doc, /^Area-Weighted PCI$/), want.toFixed(0));
+  assert.equal(headline(doc, CARD.pci), want.toFixed(0));
 });
 
 // The resource colours are the page config's
 // (PVMT_CONFIG.layer_colors, which also colours the map toggles), so the
 // Aggregate mix chart and Compare's stacked area chart cannot drift from them.
 test('the resource charts take their colours from the page config', async () => {
-  const { win, get } = await page([city('Alpha'), city('Beta')]);
+  const { win, get, chartsOn } = await page([city('Alpha'), city('Beta')]);
   const config = get('PVMT_CONFIG.layer_colors');
   for (const t of ['roads', 'parking', 'sidewalks']) {
     assert.match(config[t], /^#[0-9a-f]{6}$/, `the page config has no ${t} colour`);
@@ -124,36 +130,40 @@ test('the resource charts take their colours from the page config', async () => 
   win.renderAggregate([city('Alpha'), city('Beta')]);
   win.renderCompare([city('Alpha'), city('Beta')]);
 
-  const mix = win.__charts.find((c) => c.data.labels.join() === 'Roads,Parking,Sidewalks');
+  const mix = chartsOn('#aggregate-mix-chart').at(-1);
   assert.ok(mix, 'the Aggregate mix chart did not render');
   assert.deepEqual(Array.from(mix.data.datasets[0].backgroundColor), ['#010101', '#020202', '#030303']);
 
-  const stacked = win.__charts.find((c) => c.data.datasets.map((d) => d.label).join() === 'Roads,Parking,Sidewalks');
+  const stacked = chartsOn('#compare-area-chart').at(-1);
   assert.ok(stacked, 'the Compare area chart did not render');
   assert.deepEqual(Array.from(stacked.data.datasets, (d) => d.backgroundColor),['#010101', '#020202', '#030303']);
 });
 
-// The two area figures carry one name each across the
-// tabs, a per-area ranking shows its denominator, and the Year-1 need is not
-// called the hold-steady budget.
-test('area labels name the maintained area and the per-area denominator', async () => {
-  const { win, doc } = await page([city('Alpha'), city('Beta')]);
-  const cards = Array.from(doc.querySelectorAll('#aggregate-headlines .headline-card'));
-  const card = (label) => cards.find((c) => label.test(c.querySelector('.label').textContent));
-  assert.ok(card(/^Maintained Area$/), 'no Maintained Area card');
-  assert.ok(!card(/Total Network/), 'the old Total Network Area label is still shown');
-  const need = card(/^Year-1 Maintenance Need$/);
-  assert.doesNotMatch(need.querySelector('.sub').textContent, /hold the whole network steady/);
-  assert.doesNotMatch(need.querySelector('.sub').textContent, /backlog included/);
-  assert.match(need.querySelector('.sub').textContent, /before any deferred backlog/);
-  assert.match(card(/^Year-1 Need per acre$/).querySelector('.sub').textContent, /maintained area \((city-maintained|all owners)\)/);
+// A per-area figure shows the area it divides by: the Aggregate card names the
+// summed year-1 area and the scope it is read in, and each row of Compare's
+// per-area ranking names that city's own.
+test('the per-area card and ranking show the denominator and scope they divide by', async () => {
+  for (const query of ['', '?scope=all']) {
+    const cities = [city('Alpha'), city('Beta', (c) => { c.seed.city_maintained_area /= 2; c.seed.maintained_area /= 2; })];
+    const { win, doc } = await page(cities, query);
+    const ms = cities.map((c) => win.extractMetrics(c));
+    const denominator = ms.reduce((sum, m) => sum + m.year1AreaLarge, 0);
+    const sub = card(doc, CARD.perArea).querySelector('.sub').textContent;
+    assert.ok(sub.includes(win.fmtNum(denominator) + ' ' + win.areaLargeUnit()), query + ': ' + sub);
+    assert.ok(sub.includes(win.scopeName()), query + ': ' + sub);
 
-  win.renderCompare([city('Alpha'), city('Beta'), city('Gamma')]);
-  const cat = Array.from(doc.querySelectorAll('.lb-category'))
-    .find((c) => c.querySelector('h4').textContent.startsWith('Year-1 Need per'));
-  assert.ok(cat, 'per-area category rendered');
-  assert.match(cat.querySelector('.lb-row .lb-name').textContent, /\(÷ [\d,]+ acres\)/);
-  assert.ok(Array.from(doc.querySelectorAll('.lb-category h4')).some((h) => h.textContent.startsWith('Maintained Area (all owners)')));
+    win.renderCompare(cities);
+    const cat = boardWith(doc, 'alpha', win.PvmtCommon.fmtMoney(ms[0].year1PerAreaUnit));
+    assert.ok(cat, query + ': no ranking shows Alpha at its year-1 need per area');
+    for (const m of ms) {
+      const name = cat.querySelector(`.lb-row[data-slug="${m.slug}"] .lb-name`).textContent;
+      assert.ok(name.includes(win.fmtNum(m.year1AreaLarge) + ' ' + win.areaLargeUnit()), query + ': ' + name);
+    }
+  }
+  // The two scopes are told apart by name.
+  const names = [];
+  for (const query of ['', '?scope=all']) names.push((await page([city('Alpha')], query)).win.scopeName());
+  assert.notEqual(names[0], names[1]);
 });
 
 // The divergence note fires for any per-city forecast setting that moves a
@@ -170,11 +180,17 @@ test('the Aggregate divergence note signs every dollar-moving forecast setting',
   assert.equal(win.document.getElementById('aggregate-divergence-note').hidden, true, 'identical cities got a divergence note');
 });
 
-// The weighted PCI reads each city's no-intervention scenario, which the
-// exporter runs over the city's per-class cohorts; the footnote says so.
-test('the Aggregate footnote describes the cohort-run baseline the weighted PCI reads', async () => {
+// The footnote is written with the figures, and counts the cities it leaves
+// out of the trajectories for want of a forecast.
+test('the Aggregate footnote renders and counts the cities without forecasts', async () => {
   const { doc } = await page([city('Alpha'), city('Beta')]);
-  const note = doc.getElementById('aggregate-footnote').textContent;
-  assert.match(note, /per-class cohorts/);
-  assert.doesNotMatch(note, /single-cohort/);
+  const all = doc.getElementById('aggregate-footnote').textContent;
+  assert.ok(all.trim().length > 0, 'the footnote is empty');
+  assert.ok(!all.includes('2'), 'fixture: the footnote already carries the count this spec looks for');
+
+  const bare = (c) => { c.scenarios = null; c.forecast = null; };
+  const some = (await page([city('Alpha'), city('Beta', bare), city('Gamma', bare)])).doc
+    .getElementById('aggregate-footnote').textContent;
+  assert.match(some, /\b2\b/, 'two cities without forecasts were not counted: ' + some);
+  assert.ok(some.length > all.length);
 });

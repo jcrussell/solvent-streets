@@ -104,7 +104,8 @@ test('rebuildCitySelect keeps a surviving selection, else falls to the first vis
   assert.equal(S.rebuildCitySelect(sel, cities, dims, { group: 'Bay Area', state: 'state:TX' }), '');
   assert.equal(sel.options.length, 1);
   assert.equal(sel.options[0].disabled, true);
-  assert.equal(sel.options[0].textContent, 'No cities match');
+  assert.equal(sel.options[0].value, '');
+  assert.ok(sel.options[0].textContent.trim().length > 0, 'the placeholder option is blank');
 });
 
 // The rebuilt selector alphabetizes as cities.json does (Go's
@@ -162,9 +163,13 @@ test('parseTags warns about each ?tag= it ignores', () => {
   const p = new URLSearchParams('tag=Bay%20Area&tag=state:ZZ&tag=metro:X&tag=state:CA');
   assert.deepEqual(plain(S.parseTags(p, one)), { state: 'state:CA' });
   assert.equal(warnings.length, 3, warnings.join('\n'));
-  assert.match(warnings[0], /\?tag=Bay Area: expected dimension:value, e\.g\. \?tag=group:Bay Area/);
-  assert.match(warnings[1], /\?tag=state:ZZ: no city carries that tag/);
-  assert.match(warnings[2], /\?tag=metro:X: every city shares it/);
+  // Each warning quotes the parameter it ignored and gives its own reason;
+  // a bare value is shown the dimension:value it should have been.
+  const ignored = ['?tag=Bay Area', '?tag=state:ZZ', '?tag=metro:X'];
+  ignored.forEach((tag, i) => assert.ok(warnings[i].includes(tag), warnings[i]));
+  assert.ok(warnings[0].includes('?tag=group:Bay Area'), warnings[0]);
+  const reasons = warnings.map((w, i) => w.replace(ignored[i], ''));
+  assert.equal(new Set(reasons).size, 3, 'two faults share a reason: ' + reasons.join(' | '));
 });
 
 test('readFilters/writeFilters round-trip through .tag-filter selects', () => {

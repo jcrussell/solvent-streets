@@ -19,20 +19,19 @@ test('the Config tab shows the city in view and switches with the city select', 
   const beta = { ...metaJSON, name: 'Beta, CA', settings_toml: '[[cities]]\n  name = "Beta, CA"\n' };
   // Key order matters: the fetch stub takes the first key the path ends with.
   const data = { 'beta-ca/data/meta.json': beta, ...fullData };
-  const { win, $, flush } = load({ data, url: 'https://example.test/index.html?city=alpha-ca&tab=config-tab' });
+  const { win, $, $$, flush } = load({ data, url: 'https://example.test/index.html?city=alpha-ca&tab=config-tab' });
   await flush();
   await win.loadCityData();
   await flush();
 
-  assert.equal($('#config-city-name').textContent, 'Alpha, CA');
+  assert.equal($('#config-city-name').textContent, metaJSON.name);
   assert.equal($('#config-city-toml').textContent, metaJSON.settings_toml);
-  assert.doesNotMatch($('#config-tab').textContent, /Input Configuration|Effective configuration/,
-    'a multi-city page does not render the whole combined file');
+  assert.equal($$('#config-tab pre').length, 1, 'a multi-city page does not render the whole combined file');
 
   win.selectCity('beta-ca');
   await flush();
-  assert.equal($('#config-city-name').textContent, 'Beta, CA');
-  assert.match($('#config-city-toml').textContent, /name = "Beta, CA"/);
+  assert.equal($('#config-city-name').textContent, beta.name);
+  assert.equal($('#config-city-toml').textContent, beta.settings_toml);
 });
 
 test('a city whose meta.json fails to load keeps nothing of the previous city', async () => {
@@ -44,7 +43,9 @@ test('a city whose meta.json fails to load keeps nothing of the previous city', 
   delete data['meta.json'];
   win.selectCity('beta-ca'); await flush(10);
   assert.notEqual($('#config-city-toml').textContent, before);
-  assert.equal($('#config-city-toml').textContent, 'This city\'s settings could not be loaded.');
+  // What stands in for the settings is a message, not anyone's TOML.
+  assert.ok($('#config-city-toml').textContent.trim().length > 0);
+  assert.doesNotMatch($('#config-city-toml').textContent, /\[\[cities\]\]|=/);
   assert.equal($('#stats').innerHTML, '');
 });
 

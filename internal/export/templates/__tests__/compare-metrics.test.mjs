@@ -2,7 +2,7 @@
 // seed cohorts and the scenario area they read are the scope's own.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { load } from './harness.mjs';
+import { load, boardWith } from './harness.mjs';
 import { fullData, readFixture } from './fixtures.mjs';
 
 /** @param {(c: any) => void} [edit] */
@@ -67,11 +67,13 @@ test('Year-1 need per area divides by the year-1 area', async () => {
   assert.ok(Math.abs(want - base) > 1e-3 * base, 'fixture cannot tell the two areas apart');
 
   win.renderCompare([c, city()]);
-  const cat = Array.from(win.document.querySelectorAll('.lb-category'))
-    .find((el) => el.querySelector('h4').textContent.startsWith('Year-1 Need per'));
-  assert.ok(cat, 'per-area category rendered');
-  assert.match(cat.querySelector('.lb-row .lb-name').textContent,
-    new RegExp('\\(÷ ' + win.fmtNum(win.toAreaLarge(y1.area)).replace(/[.,]/g, '\\$&') + ' '));
+  // The ranking that shows Alpha at this per-area need names the area it
+  // divided by on Alpha's row.
+  const cat = boardWith(win.document, c.slug, win.PvmtCommon.fmtMoney(want));
+  assert.ok(cat, 'no ranking shows the year-1 need per area');
+  const row = cat.querySelector('.lb-row .lb-name').textContent;
+  assert.ok(row.includes(win.fmtNum(win.toAreaLarge(y1.area)) + ' ' + win.areaLargeUnit()), row);
+  assert.ok(!row.includes(win.fmtNum(win.toAreaLarge(c.seed.city_maintained_area)) + ' '), 'the row names the base area: ' + row);
 
   const noArea = city((x) => { delete x.scenarios.city[0].years[0].area; });
   const n = win.extractMetrics(noArea);

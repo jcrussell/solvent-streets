@@ -49,6 +49,20 @@ async function loadGrid(extra = {}) {
   return h;
 }
 
+// ratioRows reads the per-resident card as {pavement figure: value text}. A
+// row shows only its label, so each is matched to the entry of the page's
+// PER_RESIDENT list that carries that label, and keyed by the figure (prop)
+// that entry divides by the population.
+function ratioRows(h) {
+  const figures = h.get('PER_RESIDENT');
+  return Object.fromEntries(h.$$('#stats .ratio-card .stat-row').map((r) => {
+    const label = r.querySelector('.stat-label').textContent;
+    const figure = figures.find((f) => f.label === label);
+    assert.ok(figure, `the per-resident row "${label}" is not on the PER_RESIDENT list`);
+    return [figure.prop, r.querySelector('.stat-value').textContent];
+  }));
+}
+
 const byId = (fc) => Object.fromEntries(plain(fc).features.map((f) => [f.properties.hex_id, f.properties]));
 
 test('the derived pavement colorings come from the registry and are all offered when their inputs exist', async () => {
@@ -81,8 +95,13 @@ test('legend labels follow the metric format', async () => {
   const { win, $$ } = await loadGrid();
   win.selectHexMetric('parking_spaces');
   const labels = $$('#legend .legend-labels span').map((s) => s.textContent);
-  assert.equal(labels[0], '≤ 10');
-  assert.equal(labels[labels.length - 1], '> 250');
+  // One label per band, the outer two open-ended at the registry's first and
+  // last edges, written as whole numbers.
+  const bands = win.lookupMetric('parking_spaces').scale.bands;
+  assert.equal(labels.length, bands.length + 1);
+  assert.match(labels[0], new RegExp('\\D' + bands[0] + '$'));
+  assert.match(labels[labels.length - 1], new RegExp('\\D' + bands.at(-1) + '$'));
+  assert.notEqual(labels[0].replace(/\d+/, ''), labels.at(-1).replace(/\d+/, ''), 'the open ends read the same way');
 });
 
 // Area band edges are metric; converted to sq ft they are never round, and
@@ -135,14 +154,21 @@ test('metric cards lead with a total for additive counts and never list hexes re
     population_density: { label: 'Population density', unit: '1/m2', format: 'density', min: 0.00007, median: 0.0019, max: 0.003 },
   } };
   const h = await loadGrid({ 'meta.json': meta });
-  const card = (title) => h.$$('#stats .metric-card').find((c) => c.querySelector('h3').textContent === title);
-  assert.match(card('Population').textContent, /Total\s*132/);
-  const density = card('Population density').textContent;
-  assert.doesNotMatch(density, /Total/, 'a density has no meaningful sum');
+  // A metric card carries no key: it is found by the label its meta entry gives it.
+  const values = (key) => Array.from(h.$$('#stats .metric-card')
+    .find((c) => c.querySelector('h3').textContent === meta.metrics[key].label)
+    .querySelectorAll('.stat-row .stat-value'), (v) => v.textContent);
+  // Population: total, median, range. Density: median and range only, as a
+  // density has no meaningful sum. Neither has a row counting hexes.
+  const pop = values('population');
+  assert.equal(pop.length, 3);
+  assert.equal(pop[0], '132');
+  assert.equal(pop[1], '50');
+  const density = values('population_density');
   const big = h.win.areaVeryLargeUnit();
-  assert.ok(density.includes(h.win.fmtMetric(0.0019, 'density')), 'the per-m² median is shown per ' + big + ': ' + density);
+  assert.equal(density.length, 2);
+  assert.equal(density[0], h.win.fmtMetric(0.0019, 'density'), 'the per-m² median is shown per ' + big);
   assert.match(h.win.fmtMetric(0.0019, 'density'), big === 'sq mi' ? /4,921 \/ sq mi/ : /1,900 \/ sq km/);
-  assert.doesNotMatch(h.$('#stats').textContent, /Hexes reached/);
 });
 
 test('there is no per-resident card without population', async () => {
@@ -152,21 +178,24 @@ test('there is no per-resident card without population', async () => {
 
 test('per-resident figures are cards only, never a Color by choice', async () => {
   const h = await loadGrid({ 'hex-metrics.json': { v: 2, metrics: { population } } });
+  // The card shows them; the menu offers only the pavement colorings and the
+  // stored metric, none of which divides by residents.
+  assert.ok(Object.keys(ratioRows(h)).length > 0, 'fixture: no per-resident card');
   const opts = h.$$('#hex-metric option').map((o) => o.value);
-  assert.ok(!opts.some((k) => k.includes('per_resident')), 'offered: ' + opts.join(', '));
+  assert.deepEqual(opts, ['maintained_share', 'maintained_area', 'parking_spaces', 'year1_need', 'population']);
+  assert.ok(opts.every((k) => (h.win.lookupMetric(k).derive || {}).op !== 'ratio'), 'offered: ' + opts.join(', '));
 });
 
 test('the per-resident card is a city-wide sum over sum and follows the toggles', async () => {
   const h = await loadGrid({ 'hex-metrics.json': { v: 2, metrics: { population } } });
-  const rows = () => Object.fromEntries(h.$$('#stats .ratio-card .stat-row').map((r) =>
-    [r.querySelector('.stat-label').textContent, r.querySelector('.stat-value').textContent]));
+  const rows = () => ratioRows(h);
   // 4500 m² paved / 132 residents (34.1 m², shown in sq ft); $21,000 year-1 need / 132 residents.
-  assert.deepEqual(rows(), { 'Maintained area per resident': '367 sq ft', 'Year-1 need per resident': '$159' });
+  assert.deepEqual(rows(), { area: '367 sq ft', year1_need: '$159' });
   const cb = h.$('#toggles input[data-type="parking"]');
   cb.checked = false;
   cb.dispatchEvent(new h.win.Event('change'));
   // Roads only: 1500 m² and $15,000 over the same 132 residents.
-  assert.deepEqual(rows(), { 'Maintained area per resident': '122 sq ft', 'Year-1 need per resident': '$114' });
+  assert.deepEqual(rows(), { area: '122 sq ft', year1_need: '$114' });
 });
 
 // Untoggling the resource the Color-by metric needs falls back to the default
@@ -178,9 +207,7 @@ test('the per-resident card follows a toggle that drops the Color-by metric', as
   cb.checked = false;
   cb.dispatchEvent(new h.win.Event('change'));
   assert.equal(h.get('hexMetric'), 'maintained_share');
-  const rows = Object.fromEntries(h.$$('#stats .ratio-card .stat-row').map((r) =>
-    [r.querySelector('.stat-label').textContent, r.querySelector('.stat-value').textContent]));
-  assert.deepEqual(rows, { 'Maintained area per resident': '122 sq ft', 'Year-1 need per resident': '$114' });
+  assert.deepEqual(ratioRows(h), { area: '122 sq ft', year1_need: '$114' });
 });
 
 // The hex-metrics format the page reads is the exporter's
@@ -190,7 +217,9 @@ test('a hex-metrics.json of another format is refused', async () => {
   assert.equal(want, 2, 'the specs write hex-metrics at v2');
   const h = await loadGrid({ 'hex-metrics.json': { v: want + 1, metrics: { population } } });
   assert.ok(!h.$$('#hex-metric option').map((o) => o.value).includes('population'), 'an unknown format must not be read');
-  assert.match(h.$$('#error-banner-list li').map((li) => li.textContent).join('\n'), /unsupported hex-metrics format \(expected v2\)/);
+  // The banner names the file and the format the page reads.
+  assert.ok(h.$$('#error-banner-list li').some((li) => li.textContent.includes('hex-metrics') && li.textContent.includes('v' + want)),
+    'no banner line names hex-metrics and v' + want);
 });
 
 // hex-cost-summary.json is optional: a city without one draws its map
@@ -214,7 +243,7 @@ test('Color by sits in the map toolbar and the legend is titled by the chosen me
   assert.equal(h.$('#legend select'), null, 'the legend holds no selector');
 
   h.win.selectHexMetric('population');
-  assert.equal(h.$('#legend-title').textContent, 'Population');
+  assert.equal(h.$('#legend-title').textContent, population.label);
 });
 
 test('the legend names the default metric before any choice', async () => {

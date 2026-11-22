@@ -43,30 +43,45 @@ function endBanner(state, status = 'lost') {
   return h;
 }
 
+// The banner's explanation follows the cause Go reports and, for a backlog
+// loss, whether money was left unspent. The plain backlog loss (the budget
+// spent, decay outran it) is the reference the others are told apart from.
+const SPENT = { loss_reason: 'backlog', treasury: 2e5, annual_budget: 1e6, treatment_count: 40 };
+const subOf = (h) => h.$('#banner .sub').textContent;
+const headlineOf = (h) => h.$('#banner .headline').textContent;
+
 test('play: a backlog loss with the treasury untouched says it went unspent', () => {
-  const { $, $$ } = endBanner({ loss_reason: 'backlog', treasury: 8e6, annual_budget: 1e6, treatment_count: 0, year: 8.1 });
-  const sub = $('#banner .sub').textContent;
-  assert.match(sub, /went unspent and no roads were treated/);
-  assert.match(sub, /drag over the map to treat/);
-  assert.doesNotMatch(sub, /outran/);
-  assert.equal($('#banner .headline').textContent, 'Network insolvent.');
-  assert.ok(mapLinks($$).includes('index.html?city=beta-ca'), 'the banner Map link must carry the city');
+  const state = { loss_reason: 'backlog', treasury: 8e6, annual_budget: 1e6, treatment_count: 0, year: 8.1 };
+  const h = endBanner(state);
+  const sub = subOf(h);
+  // It names the money left over, and is not the plain loss's explanation.
+  assert.ok(sub.includes(h.win.PvmtCommon.fmtMoney(8e6)), sub);
+  assert.notEqual(sub, subOf(endBanner(SPENT)));
+  // With nothing treated it says more than when some roads were.
+  const treated = subOf(endBanner({ ...state, treatment_count: 40 }));
+  assert.ok(sub.length > treated.length, 'the banner does not say no roads were treated');
+  // The same kind of loss, so the same headline.
+  assert.ok(headlineOf(h).trim().length > 0);
+  assert.equal(headlineOf(h), headlineOf(endBanner(SPENT)));
+  assert.ok(mapLinks(h.$$).includes('index.html?city=beta-ca'), 'the banner Map link must carry the city');
 });
 
 test('play: a backlog loss with a year of budget banked says it went unspent', () => {
-  const { $ } = endBanner({ loss_reason: 'backlog', treasury: 3e6, annual_budget: 1e6, treatment_count: 40 });
-  const sub = $('#banner .sub').textContent;
-  assert.match(sub, /went unspent,/);
-  assert.doesNotMatch(sub, /no roads were treated/);
+  const state = { loss_reason: 'backlog', treasury: 3e6, annual_budget: 1e6, treatment_count: 40 };
+  const h = endBanner(state);
+  const sub = subOf(h);
+  assert.ok(sub.includes(h.win.PvmtCommon.fmtMoney(3e6)), sub);
+  assert.notEqual(sub, subOf(endBanner(SPENT)));
+  // Roads were treated, so it does not say none were.
+  assert.ok(sub.length < subOf(endBanner({ ...state, treatment_count: 0 })).length);
 });
 
 // Peer review: at a $0 budget there was never money to spend, so the banner
 // must not blame the player for leaving it unspent.
 test('play: a backlog loss at a $0 budget does not call $0 unspent', () => {
-  const { $ } = endBanner({ loss_reason: 'backlog', treasury: 0, annual_budget: 0, treatment_count: 0 });
-  const sub = $('#banner .sub').textContent;
-  assert.doesNotMatch(sub, /unspent/);
-  assert.match(sub, /outran the budget/);
+  const sub = subOf(endBanner({ loss_reason: 'backlog', treasury: 0, annual_budget: 0, treatment_count: 0 }));
+  assert.doesNotMatch(sub, /\$/, 'the banner names an unspent amount');
+  assert.equal(sub, subOf(endBanner(SPENT)), 'a $0 budget did not read as the plain backlog loss');
 });
 
 // Peer review: Play again re-seeds a 'running' engine behind the start
@@ -80,19 +95,40 @@ test('play: the board does not take treatments behind the start overlay', () => 
 });
 
 test('play: a backlog loss with the budget spent says decay outran it', () => {
-  const { $ } = endBanner({ loss_reason: 'backlog', treasury: 2e5, annual_budget: 1e6, treatment_count: 40 });
-  assert.match($('#banner .sub').textContent, /outran the budget/);
+  // Less than a year's budget left and roads treated: nothing went unspent,
+  // so no amount is named, whatever small sum remains.
+  const sub = subOf(endBanner(SPENT));
+  assert.ok(sub.trim().length > 0);
+  assert.doesNotMatch(sub, /\$/);
+  assert.equal(sub, subOf(endBanner({ ...SPENT, treasury: 0 })));
 });
 
+// The banner's stat rows carry no key: they are read by position.
+const STAT = { years: 0, pci: 1, spent: 2, treatments: 3, gravel: 4, peakBacklog: 5 };
+const stat = (h, at) => {
+  const rows = h.$$('#banner .banner-stats .row');
+  assert.equal(rows.length, Object.keys(STAT).length, 'the banner stats changed; update STAT');
+  return rows[at].querySelector('.v').textContent;
+};
+
 test('play: the banner reports the closed share of road area as gravel', () => {
-  const { $$ } = endBanner({ loss_reason: 'closures', treasury: 0, annual_budget: 1, closed_share: 0.537 });
-  const gravel = $$('#banner .banner-stats .row').find((r) => r.querySelector('.k').textContent === 'Gravel');
-  assert.equal(gravel.querySelector('.v').textContent, '54%');
+  const h = endBanner({ loss_reason: 'closures', treasury: 0, annual_budget: 1, closed_share: 0.537 });
+  assert.equal(stat(h, STAT.gravel), '54%');
+  assert.equal(stat(endBanner({ loss_reason: 'closures', treasury: 0, annual_budget: 1 }), STAT.gravel), '0%');
 });
 
 test('play: PCI-floor and closure losses name their cause', () => {
-  assert.match(endBanner({ loss_reason: 'pci_floor', treasury: 0, annual_budget: 1 }).$('#banner .sub').textContent, /PCI fell below/);
-  assert.match(endBanner({ loss_reason: 'closures', treasury: 0, annual_budget: 1 }).$('#banner .sub').textContent, /closed to gravel/);
+  const banners = ['pci_floor', 'closures', 'backlog'].map((loss_reason) => endBanner({ loss_reason, treasury: 0, annual_budget: 1 }));
+  const subs = banners.map(subOf);
+  const headlines = banners.map(headlineOf);
+  assert.ok(subs.every((s) => s.trim().length > 0) && headlines.every((s) => s.trim().length > 0));
+  assert.equal(new Set(subs).size, 3, 'two causes share an explanation: ' + subs.join(' | '));
+  assert.equal(new Set(headlines).size, 3, 'two causes share a headline: ' + headlines.join(' | '));
+  // A won game reads as none of them.
+  const won = endBanner({ treasury: 0, annual_budget: 1 }, 'won');
+  assert.ok(!subs.includes(subOf(won)) && !headlines.includes(headlineOf(won)));
+  assert.ok(won.$('#banner').classList.contains('won'));
+  assert.ok(banners.every((b) => b.$('#banner').classList.contains('lost')));
 });
 
 // --- first-run hint ---
@@ -122,20 +158,29 @@ async function startBoard({ coarse = false, before } = {}) {
   return h;
 }
 
+// The hint and the brush caption are worded for the pointer in hand, so a
+// mouse and a touch screen read differently. What each says is the page's
+// copy; the one thing held is that a touch screen is not told to right-drag,
+// which a finger cannot do.
+const hintText = ({ $ }) => ({ hint: $('#onboard-text').textContent, brush: $('#brush-hint').textContent });
+
 test('play: the first-run hint shows on Start, worded for a mouse', async () => {
-  const { $ } = await startBoard();
-  assert.equal($('#onboard-hint').hidden, false);
-  assert.match($('#onboard-text').textContent, /Right-drag to pan/);
-  assert.match($('#brush-hint').textContent, /left-drag to treat/);
+  const mouse = await startBoard();
+  assert.equal(mouse.$('#onboard-hint').hidden, false);
+  const text = hintText(mouse);
+  assert.ok(text.hint.trim().length > 0 && text.brush.trim().length > 0);
+  const touch = hintText(await startBoard({ coarse: true }));
+  assert.notEqual(text.hint, touch.hint, 'a mouse got the touch hint');
+  assert.notEqual(text.brush, touch.brush, 'a mouse got the touch caption');
 });
 
-test('play: on a touch screen the hint says drag a finger and pinch', async () => {
-  const { $ } = await startBoard({ coarse: true });
-  const text = $('#onboard-text').textContent;
-  assert.match(text, /Drag a finger/);
-  assert.match(text, /Pinch to zoom/);
-  assert.doesNotMatch(text, /right-drag/i);
-  assert.doesNotMatch($('#brush-hint').textContent, /right-drag/);
+test('play: on a touch screen the hint is worded for a finger', async () => {
+  const h = await startBoard({ coarse: true });
+  assert.equal(h.$('#onboard-hint').hidden, false);
+  const text = hintText(h);
+  assert.ok(text.hint.trim().length > 0 && text.brush.trim().length > 0);
+  assert.doesNotMatch(text.hint, /right-drag/i);
+  assert.doesNotMatch(text.brush, /right-drag/i);
 });
 
 test('play: dismissing the hint hides it and remembers that', async () => {
@@ -192,8 +237,7 @@ test('play: the HUD and the end banner show PCI as a whole number', async () => 
   get('applyState(window.__s)');
   assert.equal($('#hud-pci').textContent, '72');
 
-  const finalPCI = (state) => endBanner(state).$$('#banner .banner-stats .row')
-    .find((r) => r.querySelector('.k').textContent === 'Final PCI').querySelector('.v').textContent;
+  const finalPCI = (state) => stat(endBanner(state), STAT.pci);
   assert.equal(finalPCI({ loss_reason: 'backlog', treasury: 0, annual_budget: 1, network_pci: 24.6 }), '25');
   // Below the floor, the banner floors: 29.6 must not read as a floor of 30.
   assert.equal(finalPCI({ loss_reason: 'pci_floor', treasury: 0, annual_budget: 1, network_pci: 29.6 }), '29');

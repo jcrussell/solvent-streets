@@ -84,20 +84,43 @@ function untick(h, type) {
 
 const popup = (h) => h.$('.maplibregl-popup.hex-popup');
 
-// hexRows names the resources the open hex popup lists.
-const hexRows = (h) => Array.from(popup(h).querySelectorAll('.hex-detail tr td:first-child'))
-  .map((td) => td.textContent).filter((t) => t !== 'Total');
+// hexRows names the resources the open hex popup lists: the pavement table's
+// rows but the total.
+const hexRows = (h) => Array.from(popup(h).querySelectorAll('.hex-detail tr:not(.total-row) td:first-child'))
+  .map((td) => td.textContent);
 
+// The rows of the panel and the popup carry no metric key, only a label. A
+// row that shows a registry or stored metric is found by that metric's own
+// label (lookupMetric: PVMT_CONFIG.hex_metrics, then hex-metrics.json), and
+// read back to its key the same way, so no label is spelled out here.
+const metricLabel = (h, key) => h.win.lookupMetric(key).label;
+const metricKey = (h, label) => {
+  const key = [...h.win.PVMT_CONFIG.hex_metrics.map((m) => m.key), ...Object.keys(h.get('hexMetrics'))]
+    .find((k) => metricLabel(h, k) === label);
+  assert.ok(key, `the row "${label}" matches no metric`);
+  return key;
+};
+
+// The per-resident card's rows are the page's PER_RESIDENT list; the
+// maintained area is the entry that divides `area`.
 const perResidentArea = (h) => {
+  const label = h.get('PER_RESIDENT').find((f) => f.prop === 'area').label;
   const row = h.$$('#stats .ratio-card .stat-row')
-    .find((r) => r.querySelector('.stat-label').textContent === 'Maintained area per resident');
+    .find((r) => r.querySelector('.stat-label').textContent === label);
   return row && row.querySelector('.stat-value').textContent;
 };
 
-const statValue = (h, label) => {
-  const row = h.$$('#stats .stat-row').find((r) => r.querySelector('.stat-label').textContent === label);
-  return row && row.querySelector('.stat-value').textContent;
+// regionSummary reads the Selected Region card by position: hexes, land
+// area, maintained area, the share of land maintained, then the year-1 need
+// when there is one.
+const regionSummary = (h) => {
+  const rows = h.$$('#stats .region-detail .summary-card .stat-row');
+  const [hexes, land, maintained, share, need] = rows.map((r) => r.querySelector('.stat-value').textContent);
+  return { hexes, land, maintained, share, need, labels: rows.map((r) => r.querySelector('.stat-label').textContent) };
 };
+
+// pavementGroup is the popup group holding the per-resource table.
+const pavementGroup = (h) => Array.from(popup(h).querySelectorAll('.hex-group')).find((g) => g.querySelector('table'));
 
 test('a hex click opens a popup with its details and keeps the city summary in the panel', async () => {
   const h = await loadGrid();
@@ -109,11 +132,18 @@ test('a hex click opens a popup with its details and keeps the city summary in t
   assert.ok(p, 'the click opened no popup');
   assert.equal(p.querySelector('.hex-detail').dataset.hex, 'hex:0:0');
   assert.deepEqual(hexRows(h), ['parking', 'roads']);
-  assert.match(p.textContent, /Parking spaces\s*120/);
+  // The hex's 120 parking spaces sit under its pavement table, named as the
+  // Color by option for them is.
+  assert.deepEqual(Array.from(pavementGroup(h).querySelectorAll('.stat-row'), (r) =>
+    [metricKey(h, r.querySelector('.stat-label').textContent), r.querySelector('.stat-value').textContent]),
+  [['parking_spaces', '120']]);
   assert.deepEqual(h.win.__popups[0].lngLat, { lng: 0.25, lat: 0.75 }, 'the popup is not at the clicked point');
   assert.equal(p.getAttribute('role'), 'dialog');
   assert.equal(p.getAttribute('aria-labelledby'), 'hex-popup-title');
-  assert.match(h.$('#hex-popup-status').textContent, /^Hex details: /, 'the popup is not announced');
+  // The live region announces the popup: its heading and what it leads with.
+  const announced = h.$('#hex-popup-status').textContent;
+  assert.ok(announced.includes(p.querySelector('#hex-popup-title').textContent), 'the popup is not announced: ' + announced);
+  assert.ok(announced.includes(p.querySelector('.hex-sub').textContent), 'the announcement does not describe the hex: ' + announced);
 
   assert.equal(h.$('#stats').innerHTML, summary, 'the click replaced the city summary');
   assert.equal(h.$('#stats .hex-detail'), null);
@@ -189,10 +219,15 @@ test('the hex popup follows a scope switch', async () => {
 test('the hex popup stays open across a units switch and follows it', async () => {
   const h = await loadGrid();
   clickHex(h, 'hex:0:0');
-  assert.match(popup(h).textContent, /sq ft/);
+  // The pavement table's area cell carries the unit.
+  const area = () => popup(h).querySelector('.hex-detail tr td:nth-child(2)').textContent;
+  const imperial = h.win.areaUnit();
+  assert.ok(area().endsWith(imperial), area());
   h.win.selectUnits('metric');
   assert.ok(popup(h), 'switching units closed the popup');
-  assert.doesNotMatch(popup(h).textContent, /sq ft/, 'the open popup kept the old units');
+  assert.notEqual(h.win.areaUnit(), imperial);
+  assert.ok(area().endsWith(h.win.areaUnit()), 'the open popup kept the old units: ' + area());
+  assert.ok(!popup(h).textContent.includes(imperial), 'the open popup kept the old units');
 });
 
 test('the region panel stays open and closable after a resource toggle and follows it', async () => {
@@ -205,14 +240,14 @@ test('the region panel stays open and closable after a resource toggle and follo
   drag('mousedown', 0);
   drag('mouseup', 10);
   assert.ok(h.$('#stats .region-detail'), 'the drag did not open the region panel');
-  assert.equal(statValue(h, 'Year-1 need'), '$21.0K');
+  assert.equal(regionSummary(h).need, '$21.0K');
   // One name for the metric: the panel row reads as the "Color by" option
   // does.
-  assert.equal(h.win.PVMT_CONFIG.hex_metrics.find((m) => m.key === 'year1_need').label, 'Year-1 need');
+  assert.equal(regionSummary(h).labels.at(-1), metricLabel(h, 'year1_need'));
 
   untick(h, 'parking');
   assert.ok(h.$('#stats .region-detail'), 'the toggle closed the region panel');
-  assert.equal(statValue(h, 'Year-1 need'), '$15.0K', 'the region panel kept the toggled-off resource');
+  assert.equal(regionSummary(h).need, '$15.0K', 'the region panel kept the toggled-off resource');
 
   h.$('#close-region').click();
   assert.equal(h.$('#stats .region-detail'), null, 'the close button stopped working after the toggle');
@@ -239,7 +274,7 @@ test('the region hex count does not depend on Color by', async () => {
     h.$('#region-select-btn').click();
     drag('mousedown', 0);
     drag('mouseup', 10);
-    const n = statValue(h, 'Hexes selected');
+    const n = regionSummary(h).hexes;
     h.$('#close-region').click();
     return n;
   };
@@ -248,28 +283,49 @@ test('the region hex count does not depend on Color by', async () => {
   assert.equal(regionCount(), '2', 'a stored metric added its pavement-less hex to the count');
 });
 
-// groupRows is one popup group's rows as [label, value] pairs.
-const groupRows = (h, title) => {
-  const g = Array.from(popup(h).querySelectorAll('.hex-group')).find((el) => el.querySelector('h4').textContent === title);
-  return g ? Array.from(g.querySelectorAll('.stat-row')).map((r) => [r.querySelector('.stat-label').textContent, r.querySelector('.stat-value').textContent]) : null;
-};
+// metricRows is the popup's metric rows as one [[metric key, value, point of
+// service]] list per group, the groups in the order shown, without the
+// pavement table's. The value is the row's own text, apart from the point of
+// service set under it (.stat-ref).
+const metricRows = (h) => Array.from(popup(h).querySelectorAll('.hex-group')).filter((g) => g !== pavementGroup(h))
+  .map((g) => Array.from(g.querySelectorAll('.stat-row'), (r) => {
+    const value = r.querySelector('.stat-value');
+    const ref = value.querySelector('.stat-ref');
+    return [metricKey(h, r.querySelector('.stat-label').textContent), value.firstChild.textContent, ref ? ref.textContent : null];
+  }));
 
-test('the hex popup groups pavement, people and services under friendly labels', async () => {
+test('the hex popup groups pavement, people and services', async () => {
   const h = await loadGrid();
   h.win.selectScope('all', { push: false });
   clickHex(h, 'hex:0:0');
   const p = popup(h);
-  assert.equal(p.querySelector('h3').textContent, 'Hex details');
+  assert.ok(p.querySelector('h3').textContent.trim().length > 0, 'the popup has no heading');
+  assert.equal(p.querySelector('h3').id, p.getAttribute('aria-labelledby'), 'the dialog is not labelled by its heading');
   assert.doesNotMatch(p.textContent, /hex:0:0/, 'the popup shows the internal hex id');
   // Land is the first listed resource's area over its share: 3000 m² of
   // parking at 0.7 is a 4,286 m² hex, 1.1 acres. Roads and parking
   // together cover all of it.
-  assert.equal(p.querySelector('.hex-sub').textContent, '1.1 acres · 100% paved');
+  const sub = p.querySelector('.hex-sub').textContent;
+  assert.ok(sub.includes('1.1 ' + h.win.areaLargeUnit()), sub);
+  assert.match(sub, /\b100%/);
   assert.deepEqual(hexRows(h), ['parking', 'roads']);
-  assert.deepEqual(groupRows(h, 'Pavement'), [['Parking spaces', '120']]);
+  // Three groups, each under a heading of its own, pavement first.
+  const groups = Array.from(p.querySelectorAll('.hex-group'));
+  assert.equal(groups.length, 3);
+  assert.equal(groups[0], pavementGroup(h));
+  const headings = groups.map((g) => g.querySelector('h4').textContent.trim());
+  assert.ok(headings.every((t) => t.length > 0) && new Set(headings).size === 3, 'the groups are not told apart: ' + headings);
   assert.match(p.querySelector('.total-row').textContent, /\$16\.0K/, 'the cost summary\'s year-1 cost is missing');
-  assert.deepEqual(groupRows(h, 'People'), [['Population', '50']], 'per-resident ratios are city and region figures, not per hex');
-  assert.deepEqual(groupRows(h, 'Services'), [['Fire response', '3:25 minStation 4']]);
+  // The people living there (per-resident ratios are city and region
+  // figures, not per hex), then the services that reach them: 205 s from the
+  // hex's nearest station, which is named under the time.
+  assert.deepEqual(metricRows(h), [
+    [['population', '50', null]],
+    [['fire_response_s', '3:25 min', fire.points[fire.refs['hex:0:0']].name]],
+  ]);
+  // Each metric sits under the heading the page files its registry group under.
+  assert.equal(h.win.lookupMetric('fire_response_s').group, 'services');
+  assert.deepEqual(headings.slice(1), ['population', 'fire_response_s'].map((k) => h.win.metricGroup(h.win.lookupMetric(k))));
 });
 
 test('a hex with no stored metrics shows no People or Services group', async () => {
@@ -278,8 +334,8 @@ test('a hex with no stored metrics shows no People or Services group', async () 
   await h.win.loadCityData();
   await h.flush();
   clickHex(h, 'hex:0:1');
-  assert.equal(groupRows(h, 'People'), null);
-  assert.equal(groupRows(h, 'Services'), null);
+  assert.deepEqual(Array.from(popup(h).querySelectorAll('.hex-group')), [pavementGroup(h)]);
+  assert.deepEqual(metricRows(h), []);
   assert.deepEqual(hexRows(h), ['roads']);
 });
 
@@ -296,11 +352,12 @@ const highlighted = (h) => {
   return src && h.win._map.getLayer('region-highlight') ? Array.from(src.data.features, (f) => f.properties.hex_id).sort() : null;
 };
 
-// cardValue is a stat row's value inside the region card titled `title`.
-const cardValue = (h, title, label) => {
-  const card = h.$$('#stats .stat-card').find((c) => c.querySelector('h3').firstChild.textContent === title);
-  const row = card && Array.from(card.querySelectorAll('.stat-row')).find((r) => r.querySelector('.stat-label').textContent === label);
-  return row && row.querySelector('.stat-value').textContent;
+// cardValues are the stat values, in order, of the region card titled
+// `title`: a resource type, or a stored metric's label.
+const cardValues = (h, title) => {
+  const card = h.$$('#stats .region-detail .stat-card').find((c) => c.querySelector('h3').firstChild.textContent === title);
+  assert.ok(card, `no region card is titled "${title}"`);
+  return Array.from(card.querySelectorAll('.stat-row .stat-value'), (v) => v.textContent);
 };
 
 test('the region shows the city panel\'s cards: summary, each resource, each metric', async () => {
@@ -308,21 +365,33 @@ test('the region shows the city panel\'s cards: summary, each resource, each met
   h.win.selectScope('all', { push: false });
   h.win.selectHexMetric('fire_response_s', { push: false });
   selectAll(h);
-  assert.equal(statValue(h, 'Hexes selected'), '2');
   // A 4,286 m² hex (parking's 3000 m² at 0.7) and a 2,500 m² one (roads'
   // 500 m² at 0.2), with 4,500 m² paved between them: the share is paved
   // over land, not the paved-area-weighted mean of the hexes' shares.
-  assert.equal(statValue(h, 'Land area (acres)'), '1.7');
-  assert.equal(statValue(h, 'Maintained area (acres)'), '1.1');
-  assert.equal(statValue(h, 'Maintained share (of land)'), '66.3%');
-  assert.equal(statValue(h, 'Year-1 need'), '$21.0K');
-  const titles = h.$$('#stats .stat-card h3').map((e) => e.firstChild.textContent);
-  assert.deepEqual(titles.slice(0, 3), ['Selected Region', 'parking', 'roads']);
-  assert.equal(cardValue(h, 'parking', 'Parking spaces'), '120');
-  assert.equal(cardValue(h, 'roads', 'Year-1 need'), '$15.0K');
-  // The median of 205 s and 300 s, as the city's fire card shows it.
-  assert.equal(cardValue(h, 'Fire response time', 'Median per hex'), '4:13');
-  assert.equal(cardValue(h, 'Population', 'Median per hex'), '66');
+  const summary = regionSummary(h);
+  assert.deepEqual([summary.hexes, summary.land, summary.maintained, summary.share, summary.need],
+    ['2', '1.7', '1.1', '66.3%', '$21.0K']);
+  // The two areas are in the large unit, and say so.
+  assert.equal(h.win.areaLargeUnit(), 'acres');
+  for (const at of [1, 2]) assert.ok(summary.labels[at].includes('acres'), summary.labels[at]);
+  // The summary first, then a card per resource in the layer order.
+  const cards = h.$$('#stats .region-detail .stat-card');
+  assert.ok(cards[0].classList.contains('summary-card'));
+  assert.deepEqual(cards.slice(1, 3).map((c) => c.querySelector('h3').textContent), ['parking', 'roads']);
+  // A resource card: two areas, the spaces where it has any, the year-1 need.
+  const parking = cardValues(h, 'parking');
+  assert.equal(parking.length, 4);
+  assert.equal(parking[2], '120');
+  const roads = cardValues(h, 'roads');
+  assert.equal(roads.length, 3, 'roads have no parking spaces to list');
+  assert.equal(roads.at(-1), '$15.0K');
+  // A metric card is titled as the city's card for the metric is (the
+  // meta.json summary's label, else the metric's own) and ends with the
+  // median and the range per hex: the median of 205 s and 300 s.
+  const fireTitle = metaJSON.metrics.fire_response_s.label;
+  assert.notEqual(fireTitle, fire.label, 'fixture: the summary and the metrics file label fire alike');
+  assert.equal(cardValues(h, fireTitle).at(-2), '4:13');
+  assert.equal(cardValues(h, population.label).at(-2), '66');
 });
 
 test('the region\'s hexes are highlighted until the selection is cleared or the city changes', async () => {

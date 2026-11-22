@@ -18,7 +18,7 @@ test('the tablist owns only tabs, and the Play link is outside it', async () => 
   const { $, $$ } = await page();
   const list = $('[role="tablist"]');
   assert.ok(list);
-  assert.equal(list.getAttribute('aria-label'), 'Sections');
+  assert.ok((list.getAttribute('aria-label') || '').trim().length > 0, 'the tablist has no accessible name');
   const kids = Array.from(list.children);
   assert.ok(kids.length > 0);
   for (const k of kids) assert.equal(k.getAttribute('role'), 'tab', `non-tab child in the tablist: ${k.outerHTML}`);

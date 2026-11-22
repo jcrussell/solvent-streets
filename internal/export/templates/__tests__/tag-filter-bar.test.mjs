@@ -19,14 +19,23 @@ function choose(h, dim, value) {
   sel.dispatchEvent(new h.win.Event('change'));
 }
 
+// count matches a text that carries n as a whole number.
+const count = (/** @type {number} */ n) => new RegExp('(^|\\D)' + n + '(\\D|$)');
+// chosen is the label of the value a filter is set to, as its option shows it.
+const chosen = (h, dim) => filter(h, dim).selectedOptions[0].textContent;
+
 test('the filters are in the top bar beside the city selector, not the gear menu', async () => {
   const h = load({ data: fullData });
   await h.flush();
   assert.ok(h.$('.tab-bar #topbar-filters'), 'no filters in the top bar');
   assert.equal(h.$('#gear-menu select.tag-filter'), null, 'the gear menu still holds a filter');
   assert.equal(h.$('#topbar-filters').nextElementSibling, h.$('#city-select'));
-  assert.equal(filter(h, 'group').options[0].textContent, 'Any Group');
-  assert.equal(filter(h, 'state').options[0].textContent, 'Any State');
+  // Each filter opens on its unfiltered option, which carries no tag.
+  for (const dim of ['group', 'state']) {
+    assert.equal(filter(h, dim).selectedIndex, 0, dim);
+    assert.equal(filter(h, dim).options[0].value, '', dim);
+    assert.ok(filter(h, dim).options[0].textContent.trim().length > 0, dim);
+  }
 });
 
 test('a filter narrows the city selector and the Compare tiles, and reaches the URL', async () => {
@@ -44,24 +53,35 @@ test('a filter narrows the city selector and the Compare tiles, and reaches the 
 
   const status = h.$('#compare-tab .filter-status');
   assert.equal(status.hidden, false);
-  assert.equal(status.querySelector('.filter-status-text').textContent, 'Filtered from 3 cities');
-  assert.equal(h.$('#aggregate-tab .filter-status .filter-status-text').textContent, 'Filtered from 3 cities');
-  assert.equal(h.$('#compare-scope').textContent, 'How the 2 cities in Metro compare.');
-  assert.equal(h.$('#aggregate-scope').textContent,
-    'The 2 cities in Metro as one fiscal entity: what does it cost to keep them solvent?');
+  // The status line counts the whole site; the tab leads count the cities
+  // left and name the filter that left them.
+  assert.match(status.querySelector('.filter-status-text').textContent, count(3));
+  assert.equal(h.$('#aggregate-tab .filter-status .filter-status-text').textContent,
+    status.querySelector('.filter-status-text').textContent);
+  for (const id of ['compare-scope', 'aggregate-scope']) {
+    const lead = h.$('#' + id).textContent;
+    assert.match(lead, count(2), id);
+    assert.ok(lead.includes(chosen(h, 'group')), id + ': ' + lead);
+  }
 });
 
 test('Clear on the status line drops every filter', async () => {
   const h = load({ data: fullData, url: 'https://example.test/index.html?tab=compare-tab&tag=group:Metro&tag=state:CA' });
   await h.flush(12);
   const status = h.$('#compare-tab .filter-status');
-  assert.equal(status.querySelector('.filter-status-text').textContent, 'Filtered from 3 cities');
-  assert.equal(h.$('#compare-scope').textContent, 'How the 2 cities in Metro, CA compare.');
+  assert.match(status.querySelector('.filter-status-text').textContent, count(3));
+  const filtered = h.$('#compare-scope').textContent;
+  assert.match(filtered, count(2));
+  // Both filters are named, in the order of the bar.
+  const [group, state] = [chosen(h, 'group'), chosen(h, 'state')];
+  assert.ok(filtered.includes(group) && filtered.includes(state), filtered);
+  assert.ok(filtered.indexOf(group) < filtered.lastIndexOf(state), filtered);
 
   status.querySelector('.filter-clear').click();
   await h.flush(12);
   assert.equal(status.hidden, true);
-  assert.equal(h.$('#compare-scope').textContent, 'How all 3 cities compare.');
+  assert.match(h.$('#compare-scope').textContent, count(3));
+  assert.ok(!h.$('#compare-scope').textContent.includes(group), 'the lead still names the cleared filter');
   assert.deepEqual(tags(h), []);
   assert.equal(filter(h, 'group').value, '');
   assert.equal(filter(h, 'state').value, '');

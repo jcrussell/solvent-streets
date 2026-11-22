@@ -4,35 +4,55 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { load } from './harness.mjs';
-import { fullData } from './fixtures.mjs';
+import { fullData, scenariosJSON } from './fixtures.mjs';
 
 const headers = ($$) => $$('#materials-tier-table thead th').map((th) => th.textContent);
 const firstRow = ($$) => [...$$('#materials-tier-table tbody tr')[0].querySelectorAll('td')].map((td) => td.textContent);
 
+// The units each system shows: the mass a headline is in, the mass a rate is
+// per, the tier table's intensity, and the area its oil column is per.
+const UNITS = {
+  imperial: { mass: 'tons', per: 'ton', intensity: 'lb/sq ft', oilPer: '10,000 sq ft' },
+  metric: { mass: 't', per: 'tonne', intensity: 'kg/m²', oilPer: '1000 m²' },
+};
+const word = (/** @type {string} */ unit) => new RegExp('(^|[\\s(/])' + unit.replace(/[/]/g, '\\/') + '($|[\\s)/])');
+
+// inUnits asserts every unit-bearing figure on the tab is in `system`'s units.
+/** @param {any} h @param {'imperial' | 'metric'} system */
+function inUnits({ win, $, $$ }, system) {
+  const u = UNITS[system];
+  assert.equal(win.massUnitSingular(), u.per);
+  assert.equal(win.intensityUnit(), u.intensity);
+  const h = headers($$);
+  assert.equal(h.length, 5);
+  for (const at of [1, 3]) assert.ok(h[at].includes('(' + u.intensity + ')'), `${system}: column ${at} reads ${h[at]}`);
+  assert.ok(h[4].includes(u.oilPer), `${system}: the oil column reads ${h[4]}`);
+  assert.match($('#hl-mix').textContent, word(u.mass), system);
+  assert.match($('#hl-binder').textContent, word(u.mass), system);
+  assert.match($('#hl-oil-sub').textContent, word(u.per), system);
+}
+
 test('a unit toggle on the open Materials tab re-renders it, and back again', async () => {
-  const { win, $, $$, flush } = load({ data: fullData });
+  const h = load({ data: fullData });
+  const { win, $, $$, flush } = h;
   await flush();
   win.selectTab('materials-tab');
   await flush(12);
   // The fixture page is imperial.
   const imperial = { h: headers($$), r: firstRow($$), sub: $('#hl-oil-sub').textContent };
-  assert.match($('#hl-mix').textContent, / tons\/yr$/);
-  assert.match($('#hl-binder').textContent, / tons\/yr$/);
-  assert.match(imperial.sub, /per ton binder$/);
+  inUnits(h, 'imperial');
 
   win.selectUnits('metric');
   await flush(12);
-  assert.deepEqual(headers($$), ['Tier', 'Mix (kg/m²)', 'Binder %', 'Binder (kg/m²)', 'Oil (bbl/1000 m²)']);
-  assert.match($('#hl-mix').textContent, / t\/yr$/);
-  assert.match($('#hl-binder').textContent, / t\/yr$/);
-  assert.match($('#hl-oil-sub').textContent, /per tonne binder$/);
+  inUnits(h, 'metric');
+  assert.notDeepEqual(firstRow($$), imperial.r, 'the tier figures were not converted');
 
   win.selectUnits('imperial');
   await flush(12);
   assert.deepEqual(headers($$), imperial.h);
   assert.deepEqual(firstRow($$), imperial.r);
   assert.equal($('#hl-oil-sub').textContent, imperial.sub);
-  assert.match($('#hl-mix').textContent, / tons\/yr$/);
+  inUnits(h, 'imperial');
 });
 
 // The mass charts plot display units, so Chart.js picks round ticks in tons
@@ -49,7 +69,10 @@ test('the Materials mass charts plot display units, ticks unconverted', async ()
   await flush(12);
   const metric = mixChart().data.datasets.map((d) => d.data);
   assert.ok(metric.length > 0 && metric[0].length > 0, 'the mix chart plotted nothing');
-  assert.ok(mixChart().data.datasets.some((d) => d.label.endsWith(' (material need)')),
+  // The do-nothing line is the baseline's, under a name of its own: the
+  // scenario's label with a qualifier.
+  const baseline = scenariosJSON.city.find((s) => s.scenario.strategy === 'do_nothing').scenario.label;
+  assert.ok(mixChart().data.datasets.some((d) => d.label.startsWith(baseline) && d.label.length > baseline.length),
     `no do-nothing line named for its need: ${mixChart().data.datasets.map((d) => d.label)}`);
   assert.equal(mixChart().options.scales.y.ticks.callback(250000), '250,000 t');
 
@@ -63,18 +86,17 @@ test('the Materials mass charts plot display units, ticks unconverted', async ()
 });
 
 test('a unit toggle on another tab shows on the next Materials open', async () => {
-  const { win, $, $$, flush } = load({ data: fullData });
+  const h = load({ data: fullData });
+  const { win, flush } = h;
   await flush();
   win.selectTab('materials-tab'); await flush(12);
   win.selectTab('financials-tab'); await flush(12);
   win.selectUnits('metric'); await flush(12);
   win.selectTab('materials-tab'); await flush(12);
-  assert.equal(headers($$)[1], 'Mix (kg/m²)');
-  assert.match($('#hl-oil-sub').textContent, /per tonne binder$/);
+  inUnits(h, 'metric');
 
   win.selectTab('financials-tab'); await flush(12);
   win.selectUnits('imperial'); await flush(12);
   win.selectTab('materials-tab'); await flush(12);
-  assert.equal(headers($$)[1], 'Mix (lb/sq ft)');
-  assert.match($('#hl-oil-sub').textContent, /per ton binder$/);
+  inUnits(h, 'imperial');
 });

@@ -32,8 +32,7 @@ test('Compare reads the baseline even when the set does not list it first', asyn
   });
   h.win.renderCompare([city('Alpha'), city('Beta')]);
 
-  const chart = h.win.__charts.find((c) => c.data.datasets.some((d) => d.label === 'Alpha') &&
-    c.data.labels[0] === 'Year 1');
+  const chart = h.chartsOn('#compare-cost-chart').at(-1);
   assert.ok(chart, 'the cost-trajectory chart did not render');
   assert.deepEqual(Array.from(chart.data.datasets[0].data), baseline.years.map((y) => y.deferred_backlog));
 });

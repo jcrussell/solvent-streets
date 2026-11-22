@@ -5,7 +5,7 @@
 // award of its own.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { load } from './harness.mjs';
+import { load, boardWith } from './harness.mjs';
 import { metaJSON, fullData } from './fixtures.mjs';
 
 const fixtureSpaces = metaJSON.stats.find((s) => s.resource_type === 'parking').parking_spaces;
@@ -17,18 +17,22 @@ test('the fixture parking stat carries parking_spaces', () => {
   }
 });
 
-test('the stats panel shows Parking spaces on the parking card only', async () => {
+test('the stats panel shows the estimated spaces on the parking card only', async () => {
   const { win, $$, flush } = load({ data: fullData });
   await flush();
   await win.loadCityData();
   await flush();
-  const cards = $$('#stats .stat-card').filter((c) => !c.classList.contains('summary-card'));
+  // The resource cards are titled with their type; each lists its area in two
+  // units, and parking adds its spaces.
+  const cards = $$('#stats .stat-card:not(.summary-card):not(.metric-card)');
+  const values = (c) => Array.from(c.querySelectorAll('.stat-row .stat-value'), (v) => v.textContent);
   const parking = cards.find((c) => c.querySelector('h3').textContent === 'parking');
   assert.ok(parking, 'no parking card rendered');
-  assert.match(parking.textContent, /Parking spaces/);
-  assert.ok(parking.textContent.includes(fixtureSpaces.toLocaleString()));
+  assert.equal(values(parking).length, 3);
+  assert.equal(values(parking).at(-1), fixtureSpaces.toLocaleString('en-US'));
+  assert.ok(cards.length > 1, 'only the parking card rendered');
   for (const c of cards) {
-    if (c !== parking) assert.doesNotMatch(c.textContent, /Parking spaces/, 'only parking carries a spaces row');
+    if (c !== parking) assert.equal(values(c).length, 2, 'only parking carries a spaces row');
   }
 });
 
@@ -41,15 +45,21 @@ test('extractMetrics reads parkingSpaces and defaults to 0 when absent', async (
   assert.equal(without.parkingSpaces, 0, 'a meta without the estimate must read as 0 so the leaderboard filter drops it');
 });
 
-test('the Compare leaderboard lists Parking Spaces without a second parking award', async () => {
+test('the Compare leaderboard ranks parking spaces without a second parking award', async () => {
   const { win, doc, flush } = load({ data: fullData });
   await flush();
   const city = (slug, name) => ({ slug, name, meta: metaJSON, scenarios: fullData['scenarios.json'], seed: fullData['forecast_seed.json'], forecast: fullData['forecast.json'] });
-  win.renderCompare([city('alpha-ca', 'Alpha, CA'), city('beta-ca', 'Beta, CA')]);
+  const cities = [city('alpha-ca', 'Alpha, CA'), city('beta-ca', 'Beta, CA')];
+  win.renderCompare(cities);
   await flush();
-  const titles = Array.from(doc.querySelectorAll('.lb-title h4')).map((h) => h.textContent);
-  assert.ok(titles.some((t) => t.startsWith('Parking Spaces')), 'missing the Parking Spaces category: ' + titles.join(' | '));
-  const awards = Array.from(doc.querySelectorAll('.lb-award')).map((a) => a.textContent);
-  assert.equal(awards.filter((a) => /Most Parking/.test(a)).length, 1, 'exactly one parking award (the area one)');
-  assert.ok(!awards.some((a) => /Parking Spaces/.test(a)), 'the spaces category must not add an award');
+  const m = win.extractMetrics(cities[0]);
+  assert.equal(m.parkingSpaces, fixtureSpaces);
+  // Two parking rankings, found by the figure each shows: the spaces and the
+  // area. The area one gives the parking award; the spaces one adds none.
+  const spaces = boardWith(doc, 'alpha-ca', fixtureSpaces.toLocaleString('en-US'));
+  assert.ok(spaces, 'missing the parking-spaces category');
+  assert.equal(spaces.querySelector('.lb-award'), null, 'the spaces category must not add an award');
+  const area = boardWith(doc, 'alpha-ca', win.fmtNum(m.parkingAreaLarge) + ' ' + win.areaLargeUnit());
+  assert.ok(area, 'missing the parking-area category');
+  assert.ok(area.querySelector('.lb-award'), 'the parking-area category gives the parking award');
 });

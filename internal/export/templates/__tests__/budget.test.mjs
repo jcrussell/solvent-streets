@@ -51,29 +51,38 @@ test('the slider starts at today\'s cited budget, in dollars', async () => {
   assert.ok(TODAY > 0, 'fixture must cite a current budget');
   const { win, $ } = await ready();
   assert.equal(lastScenario(win).annual_budget, TODAY);
-  assert.match($('#budget-value').textContent, /^\$20\.0M\/yr$/);
-  assert.match($('#budget-slider').getAttribute('aria-valuetext'), /^\$20\.0M a year, 67% of hold-steady$/);
-  assert.match($('#budget-today').textContent, /^\(\$20\.0M\/yr today\)$/);
+  // The readout, the screen-reader text and the Today anchor all carry the
+  // dollars; the screen-reader text adds the share of hold steady ($30M).
+  const money = win.PvmtCommon.fmtMoney(TODAY);
+  assert.equal(money, '$20.0M');
+  assert.ok($('#budget-value').textContent.includes(money));
+  const spoken = $('#budget-slider').getAttribute('aria-valuetext');
+  assert.ok(spoken.includes(money), spoken);
+  assert.match(spoken, /\b67%/);
+  assert.equal($('#budget-today .num').textContent, money);
 });
 
 test('the anchors show today and hold-steady, and snap the budget', async () => {
   const { win, $ } = await ready();
   assert.equal($('#budget-today').hidden, false);
-  assert.match($('#budget-today').textContent, /\$20\.0M/);
-  assert.match($('#budget-hold').textContent, /\$30\.0M/);
+  assert.equal($('#budget-today .num').textContent, '$20.0M');
+  assert.equal($('#budget-hold .num').textContent, '$30.0M');
   assert.equal($('#budget-slider').max, '1500', 'the range runs to 150% of hold steady');
   assert.equal($('#budget-slider').value, budgetAt(TODAY), 'the thumb is not at today\'s budget');
   // Notches every 25%, named in percent with their dollars on hover; 100% is
   // labelled by the hold-steady button, in dollars.
   const notches = Array.from(win.document.querySelectorAll('.budget-notch'), (n) => n.textContent);
   assert.deepEqual(notches, ['0%', '25%', '50%', '75%', '', '125%', '150%']);
-  assert.equal(win.document.querySelector('.budget-notch.hold').title, '$30.0M/yr');
+  assert.ok(win.document.querySelector('.budget-notch.hold').title.includes('$30.0M'));
   assert.equal($('#budget-hold').textContent.trim(), '$30.0M');
-  assert.match($('#budget-hold').getAttribute('aria-label'), /Hold steady/);
+  // The button's visible text is only the dollars, so its accessible name
+  // says more than the figure, and carries the figure too.
+  const name = $('#budget-hold').getAttribute('aria-label');
+  assert.ok(name.includes('$30.0M') && name.length > '$30.0M'.length, name);
 
   $('#budget-hold').click();
   assert.equal(lastScenario(win).annual_budget, 30_000_000);
-  assert.match($('#budget-slider').getAttribute('aria-valuetext'), /100% of hold-steady/);
+  assert.match($('#budget-slider').getAttribute('aria-valuetext'), /\b100%/);
 });
 
 test('the dollar budget stays put when Initial PCI or the multiplier move', async () => {
@@ -88,7 +97,7 @@ test('the dollar budget stays put when Initial PCI or the multiplier move', asyn
   assert.equal(lastScenario(win).annual_budget, 12_000_000,
     'moving the cost multiplier rescaled the dollar budget');
   // The anchor follows the inputs instead.
-  assert.match($('#budget-hold').textContent, /\$60\.0M/);
+  assert.equal($('#budget-hold .num').textContent, '$60.0M');
 });
 
 test('?budget= seeds the slider and a drag writes it back', async () => {
@@ -103,12 +112,29 @@ test('the solvency headline follows the cost multiplier', async () => {
   const { win, doc } = await ready();
   const headline = () => doc.getElementById('solvency-headline').textContent;
   assert.match(headline(), /\$30\.0M/, 'the headline is not the live figure');
-  assert.match(headline(), /funds 66% of its streets’ upkeep/, 'the headline leads with the share funded');
-  assert.match(headline(), /its streets slip from PCI \d+ today to about \d+ by \d{4}/, 'the headline gives the condition path at today\'s budget');
+  // It leads with the share of the hold-steady budget today's funds: $20M of $30M.
+  assert.equal(win.fundedShareText(TODAY, HOLD), '66%');
+  assert.equal(doc.querySelector('#solvency-headline .lead .num').textContent, '66%', 'the headline leads with the share funded');
+  // The detail gives the condition path at today's budget, from the live run
+  // to the forecast's last year.
+  const live = win.eval('liveSolvency');
+  const lastYear = win.forecastYearOne() + win.financialsHorizon() - 1;
+  assert.ok(Math.round(live.end_pci) < Math.round(live.start_pci), 'fixture: the default run decays');
+  const path = doc.createElement('div');
+  path.innerHTML = win.conditionPathText(live.start_pci, live.end_pci, lastYear);
+  assert.ok(doc.querySelector('#solvency-headline .detail').textContent.includes(path.textContent),
+    'the headline does not give the condition path at today\'s budget');
+  for (const n of [Math.round(live.start_pci), Math.round(live.end_pci), lastYear]) {
+    assert.match(path.textContent, new RegExp('\\b' + n + '\\b'));
+  }
 
   drag(win, '#multiplier-slider', '2');
   assert.match(headline(), /\$60\.0M/, 'the headline ignored the multiplier');
-  assert.match(headline(), /2.*cost multiplier.*slider/i, 'the basis note must name the slider');
+  // The basis note carries the slider's multiplier, and does not attribute
+  // it to the city's config (which it marks up as <code>).
+  const basis = doc.getElementById('cost-regime-note');
+  assert.match(basis.querySelector('strong').textContent, /\b2\.0\b/, 'the basis note must carry the multiplier');
+  assert.equal(basis.querySelector('code'), null, 'a slider multiplier was attributed to the config');
 
   // The headline probe is roads-only at today's budget, worst-first.
   const probe = win.__simCalls.filter((c) => c.solvency && c.annual_budget === TODAY).at(-1);
@@ -118,14 +144,42 @@ test('the solvency headline follows the cost multiplier', async () => {
     'the roads headline must not include parking or sidewalks');
 });
 
+// detailFigures are the figures the headline's detail line sets apart: the
+// PCI the condition path ends at, and the year the backlog passes a full cycle.
+const detailFigures = (doc) => Array.from(doc.querySelectorAll('#solvency-headline .detail .num'), (n) => n.textContent);
+
+// The three ways condition can go read differently and carry whole numbers.
+test('conditionPathText: slipping, improving and holding', async () => {
+  const { win } = await ready();
+  const text = (a, b) => { const d = win.document.createElement('div'); d.innerHTML = win.conditionPathText(a, b, 2049); return d; };
+  const slip = text(70.4, 55.6), up = text(55.6, 70.4), hold = text(70.4, 69.6);
+  assert.equal(slip.querySelector('.num').textContent, '56');
+  assert.equal(up.querySelector('.num').textContent, '70');
+  assert.equal(hold.querySelector('.num'), null, 'a held condition has no end figure to set apart');
+  for (const t of [slip, up, hold]) assert.match(t.textContent, /\b2049\b/);
+  assert.match(slip.textContent, /\b70\b/);
+  assert.match(hold.textContent, /\b70\b/);
+  const frames = [slip, up, hold].map((t) => t.textContent.replace(/\d+/g, '#'));
+  assert.equal(new Set(frames).size, 3, 'two paths read alike: ' + frames.join(' | '));
+});
+
+// The share funded rounds down under 100%, so a city short of need never
+// reads as fully funded.
+test('fundedShareText rounds down short of need', async () => {
+  const { win } = await ready();
+  assert.equal(win.fundedShareText(999, 1000), '99%');
+  assert.equal(win.fundedShareText(1000, 1000), '100%');
+  assert.equal(win.fundedShareText(1256, 1000), '126%');
+});
+
 // Forecast year 1 is the snapshot's year, not the viewer's: the insolvency
 // year a page names stays the same whenever it is read.
 test('the solvency headline dates insolvency from the snapshot year', async () => {
   const data = { ...fullData, 'meta.json': { ...fullData['meta.json'], snapshot_date: '2020-06-01' } };
   const { doc, fireMap, flush } = await ready({ data });
   fireMap('style.load'); await flush(10);
-  const headline = doc.getElementById('solvency-headline').textContent;
-  assert.match(headline, /a full cycle of work by 2026,/, headline);
+  // solvencySim's backlog passes a full cycle in year 7; year 1 is 2020.
+  assert.ok(detailFigures(doc).includes('2026'), 'the detail does not date the full-cycle backlog: ' + detailFigures(doc));
 });
 
 test('a snapshot_date that is not a date dates insolvency from the viewer\'s year', async () => {
@@ -133,7 +187,7 @@ test('a snapshot_date that is not a date dates insolvency from the viewer\'s yea
   const { doc, fireMap, flush, win } = await ready({ data });
   fireMap('style.load'); await flush(10);
   const want = new win.Date().getFullYear() + 6;
-  assert.match(doc.getElementById('solvency-headline').textContent, new RegExp('a full cycle of work by ' + want + ','));
+  assert.ok(detailFigures(doc).includes(String(want)), 'the detail does not date the full-cycle backlog: ' + detailFigures(doc));
 });
 
 const params = (win) => new URLSearchParams(win.location.search);
@@ -249,8 +303,11 @@ test('the spend tile names the budget when part of it buys nothing', async () =>
     }
     return out;
   };
-  const { $ } = await ready({ simulate: underSpend });
-  assert.match($('#hl-spend-sub').textContent, /^Used of \$[\d.]+[KMB] budgeted$/);
+  const { $, win } = await ready({ simulate: underSpend });
+  const budgeted = win.PvmtCommon.fmtMoney(TODAY * win.financialsHorizon());
+  const under = $('#hl-spend-sub').textContent;
+  assert.ok(under.includes(budgeted), `the sub-line does not name the ${budgeted} budgeted: ${under}`);
+  assert.ok(!under.includes($('#hl-total-spend').textContent), 'the sub-line repeats the spend instead of the budget');
 
   const fullSpend = (input) => {
     const out = solvencySim(input);
@@ -260,5 +317,7 @@ test('the spend tile names the budget when part of it buys nothing', async () =>
     return out;
   };
   const h = await ready({ simulate: fullSpend });
-  assert.equal(h.$('#hl-spend-sub').textContent, 'Spend that buys condition');
+  const full = h.$('#hl-spend-sub').textContent;
+  assert.ok(full.trim().length > 0);
+  assert.doesNotMatch(full, /\$/, 'a fully spent budget is still set against the spend: ' + full);
 });

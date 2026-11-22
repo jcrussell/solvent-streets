@@ -18,12 +18,16 @@ test('a city with snapshots defaults to the newest, and offers the latest comput
   const { $, flush } = load({ page: 'index-live', data: { ...fullData, snapshots } });
   await flush();
   const sel = $('#snapshot-picker');
-  assert.deepEqual(options(sel), [
-    ['', 'Newest (v0.6.0, 2026-11-10)'],
-    ['latest', 'Latest compute (not snapshotted)'],
-    ['v0.6.0', 'v0.6.0 2026-11-10 12:00'],
-    ['v0.5.0', 'v0.5.0 2026-10-01 08:30'],
-  ]);
+  // The default, the latest compute, then each snapshot by name, newest first.
+  const opts = options(sel);
+  assert.deepEqual(opts.map((o) => o[0]), ['', 'latest', 'v0.6.0', 'v0.5.0']);
+  // The default names the snapshot it stands for and its date; a snapshot's
+  // own option gives its name with the date and time it was made.
+  assert.ok(opts[0][1].includes('v0.6.0') && opts[0][1].includes('2026-11-10'), opts[0][1]);
+  assert.ok(opts[1][1].trim().length > 0 && !/v0\.\d/.test(opts[1][1]), opts[1][1]);
+  for (const [at, when] of [[2, '2026-11-10 12:00'], [3, '2026-10-01 08:30']]) {
+    assert.ok(opts[at][1].includes(opts[at][0]) && opts[at][1].includes(when), opts[at][1]);
+  }
   assert.equal(sel.value, '');
 });
 
@@ -31,7 +35,15 @@ test('a server pinned to an older snapshot defaults to it', async () => {
   const pinned = [snapshots[0], { ...snapshots[1], served: true }];
   const { $, flush } = load({ page: 'index-live', data: { ...fullData, snapshots: pinned } });
   await flush();
-  assert.deepEqual(options($('#snapshot-picker'))[0], ['', 'Served (v0.5.0, 2026-10-01)']);
+  const [value, text] = options($('#snapshot-picker'))[0];
+  assert.equal(value, '');
+  assert.ok(text.includes('v0.5.0') && text.includes('2026-10-01'), text);
+  // A pinned snapshot is not presented as the newest: the default option
+  // reads differently from an unpinned server's, beyond the name and date.
+  const unpinned = load({ page: 'index-live', data: { ...fullData, snapshots } });
+  await unpinned.flush();
+  const frame = (/** @type {string} */ t) => t.replace(/v0\.\d\.\d/, '').replace(/\d{4}-\d\d-\d\d/, '');
+  assert.notEqual(frame(text), frame(options(unpinned.$('#snapshot-picker'))[0][1]));
 });
 
 test('choosing a snapshot requests it by name', async () => {
@@ -57,7 +69,15 @@ test('choosing the latest compute requests ?snapshot=latest', async () => {
 test('a city with no snapshot defaults to its latest compute', async () => {
   const { $, flush } = load({ page: 'index-live', data: { ...fullData, snapshots: [] } });
   await flush();
-  assert.deepEqual(options($('#snapshot-picker')), [['', 'Latest compute (not snapshotted)']]);
+  // Its one option is the default, and reads as the latest-compute option of
+  // a city that has snapshots does.
+  const opts = options($('#snapshot-picker'));
+  assert.equal(opts.length, 1);
+  assert.equal(opts[0][0], '');
+  const withSnapshots = load({ page: 'index-live', data: { ...fullData, snapshots } });
+  await withSnapshots.flush();
+  const latest = options(withSnapshots.$('#snapshot-picker')).find((o) => o[0] === 'latest');
+  assert.equal(opts[0][1], latest[1]);
 });
 
 test('meta.json latest_compute shows the badge; a snapshot hides it', async () => {

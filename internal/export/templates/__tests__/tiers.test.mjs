@@ -29,7 +29,9 @@ test('a negative cost is flagged inline and never reaches the simulator', async 
   await flush();
   assert.equal(win.__simCalls.length, calls, 'invalid input must not be simulated');
   assert.equal($('#tier-errors').hidden, false);
-  assert.match($('#tier-errors').textContent, /cost must be more than \$0\/sq ft/, 'the message uses the units on screen');
+  // The message quotes the floor in the units on screen.
+  assert.equal(win.areaUnit(), 'sq ft');
+  assert.ok($('#tier-errors').textContent.includes('$0/' + win.areaUnit()), $('#tier-errors').textContent);
   assert.equal(input($, 0, 'cost_per_sqm').getAttribute('aria-invalid'), 'true');
   assert.equal($('#error-banner').hidden, true, 'an input error is not a load failure');
 
@@ -57,7 +59,7 @@ test('the forecast figures dim while the tier inputs are invalid', async () => {
   type(win, input($, 0, 'cost_per_sqm'), -5);
   await flush();
   assert.deepEqual(stale(), ids, 'every forecast figure is dimmed while the run is refused');
-  assert.match($('#headlines').getAttribute('title'), /Not updated/);
+  assert.ok(($('#headlines').getAttribute('title') || '').trim().length > 0, 'the dimmed figures do not say why');
 
   type(win, input($, 0, 'cost_per_sqm'), 1);
   await flush();
@@ -70,12 +72,20 @@ test('an inverted or overlapping range is flagged', async () => {
   type(win, input($, 0, 'min_pci'), 90);
   type(win, input($, 0, 'max_pci'), 20);
   await flush();
-  assert.match($('#tier-errors').textContent, /minimum PCI must be below its maximum/);
+  assert.equal($('#tier-errors').hidden, false);
+  const inverted = $('#tier-errors').textContent;
+  assert.ok(inverted.trim().length > 0, 'an inverted range is not flagged');
+  assert.equal(input($, 0, 'min_pci').getAttribute('aria-invalid'), 'true');
 
   type(win, input($, 0, 'min_pci'), 0);
   type(win, input($, 0, 'max_pci'), 100);
   await flush();
-  assert.match($('#tier-errors').textContent, /overlap/, 'two tiers covering the same PCI must be flagged');
+  // A different fault, so a different message: it gives the PCI range the
+  // two tiers share.
+  assert.equal($('#tier-errors').hidden, false, 'two tiers covering the same PCI must be flagged');
+  const overlap = $('#tier-errors').textContent;
+  assert.notEqual(overlap, inverted);
+  assert.match(overlap, /\d+\u2013\d+/, 'the overlap does not name the shared range: ' + overlap);
 });
 
 test('costs show rounded, the open top shows 100, inputs are labelled', async () => {

@@ -56,8 +56,8 @@ test('the PCI Over Time tooltip shows a whole-number PCI', async () => {
   const { win, flush } = await page();
   win.selectTab('financials-tab');
   await flush();
-  const chart = win.__charts.find((c) => c.options && c.options.scales && c.options.scales.y &&
-    c.options.scales.y.title && c.options.scales.y.title.text === 'PCI');
+  // The PCI chart is the one whose axis ends at 100.
+  const chart = win.__charts.find((c) => c.options?.scales?.y?.max === 100);
   assert.ok(chart, 'no PCI chart rendered');
   const label = chart.options.plugins.tooltip.callbacks.label;
   assert.equal(label({ dataset: { label: 'Do nothing' }, parsed: { y: 69.497 } }), 'Do nothing: 70');

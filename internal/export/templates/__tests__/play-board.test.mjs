@@ -183,7 +183,12 @@ test('play: a hexgrid of another format is refused', async () => {
   grid.v = 5;
   const { get, doc } = await bootBoard({ ...boardData(seedJSON), 'hexgrid.geojson': grid });
   assert.equal(get('gameConfig'), null, 'the board booted from an unsupported hexgrid');
-  assert.match(doc.body.textContent, /unsupported hexgrid format/);
+  // The banner names the file and the format the page reads.
+  const version = get('HEXGRID_VERSION');
+  assert.notEqual(version, grid.v);
+  assert.ok(Array.from(doc.querySelectorAll('#error-banner-list li'))
+    .some((li) => li.textContent.includes('hexgrid') && li.textContent.includes('v' + version)),
+  'no banner line names the hexgrid and v' + version);
 });
 
 // MapLibre fires 'load' only once every first-view

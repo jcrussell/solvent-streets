@@ -15,27 +15,38 @@ test('meta.json stats carry no feature_count', () => {
   }
 });
 
-test('the stats panel has no Features row', async () => {
-  const { win, $$, flush } = load({ data: fullData });
+// The page must not show a feature count even when a file carries one (an
+// export from before the field was dropped): plant a number that appears
+// nowhere else and look for it.
+const PLANTED = 987654;
+const planted = (text) => /987[,.\s]?654/.test(text);
+
+function metaWithCounts() {
+  return { ...metaJSON, stats: metaJSON.stats.map((s) => ({ ...s, feature_count: PLANTED })) };
+}
+
+test('the stats panel shows no feature count', async () => {
+  const { win, $$, flush } = load({ data: { ...fullData, 'meta.json': metaWithCounts() } });
   await flush();
   await win.loadCityData();
   await flush();
   const cards = $$('#stats .stat-card');
   assert.ok(cards.length > 0, 'no stat cards rendered');
   for (const c of cards) {
-    assert.doesNotMatch(c.textContent, /Features/, 'stat card lists a feature count: ' + c.textContent);
+    assert.ok(!planted(c.textContent), 'stat card lists a feature count: ' + c.textContent);
   }
 });
 
-test('Compare has no feature-count category or award', async () => {
+test('Compare ranks and awards nothing by feature count', async () => {
   const { win, doc, flush } = load({ data: fullData });
   await flush();
-  const city = (slug, name) => ({ slug, name, meta: metaJSON, scenarios: fullData['scenarios.json'], seed: fullData['forecast_seed.json'], forecast: fullData['forecast.json'] });
-  win.renderCompare([city('alpha-ca', 'Alpha, CA'), city('beta-ca', 'Beta, CA')]);
+  const city = (slug, name) => ({ slug, name, meta: metaWithCounts(), scenarios: fullData['scenarios.json'], seed: fullData['forecast_seed.json'], forecast: fullData['forecast.json'] });
+  const cities = [city('alpha-ca', 'Alpha, CA'), city('beta-ca', 'Beta, CA')];
+  win.renderCompare(cities);
   await flush();
-  const titles = Array.from(doc.querySelectorAll('.lb-title h4')).map((h) => h.textContent);
-  assert.ok(titles.length > 0, 'no Compare categories rendered');
-  assert.ok(!titles.some((t) => /Features/.test(t)), 'a feature-count category is listed: ' + titles.join(' | '));
-  const awards = Array.from(doc.querySelectorAll('.lb-award')).map((a) => a.textContent);
-  assert.ok(!awards.some((a) => /Most Detailed/.test(a)), 'the Most Detailed award is still given');
+  assert.ok(doc.querySelectorAll('.lb-category').length > 0, 'no Compare categories rendered');
+  assert.ok(!planted(doc.getElementById('compare-tab').textContent), 'Compare shows a feature count');
+  // Twice the count would be a region total.
+  assert.ok(!Object.values(win.extractMetrics(cities[0])).some((v) => v === PLANTED || v === 2 * PLANTED),
+    'a Compare metric reads feature_count');
 });

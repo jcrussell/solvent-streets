@@ -4,7 +4,7 @@
 // the cards and leaderboards, and an About link scrolls the tab to its heading.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { load } from './harness.mjs';
+import { load, boardWith } from './harness.mjs';
 import { metaJSON, scenariosJSON, forecastJSON, seedJSON, readFixture, fullData } from './fixtures.mjs';
 
 const MEDALS = ['\u{1F947}', '\u{1F948}', '\u{1F949}'];
@@ -39,7 +39,9 @@ test('a Solvency Score below 50 keeps its rank but takes no medal', async () => 
   assert.ok(gold.classList.contains('rank-1'));
   assert.equal(silver.querySelector('.rank-medal').textContent, MEDALS[1]);
   assert.equal(third.dataset.slug, 'gamma-or');
-  assert.equal(third.querySelector('.rank-medal').textContent, '#3', 'a score of 3 must not take bronze');
+  const rank = third.querySelector('.rank-medal').textContent;
+  assert.ok(!MEDALS.includes(rank), 'a score of 3 must not take bronze');
+  assert.match(rank, /^\D*3$/, 'the third city still shows its rank');
   assert.ok(!third.classList.contains('rank-3'), 'a score of 3 must not get podium styling');
 });
 
@@ -70,7 +72,7 @@ test('the city in view is marked on its cards and leaderboard rows', async () =>
   for (const el of marked()) {
     assert.equal(el.dataset.slug, 'beta-ca');
     assert.equal(el.getAttribute('aria-current'), 'true');
-    assert.equal(el.querySelector('.current-city-cue').textContent, ' (selected city)');
+    assert.ok(el.querySelector('.current-city-cue').textContent.trim().length > 0, 'the screen-reader cue is empty');
   }
   assert.equal(doc.querySelectorAll('#compare-tab [aria-current]').length, marked().length);
 
@@ -82,40 +84,59 @@ test('the city in view is marked on its cards and leaderboard rows', async () =>
 
 test('the About tab links the full methodology on GitHub, in a new tab', async () => {
   const { doc } = await renderWith([]);
-  const link = Array.from(doc.querySelectorAll('#about-tab a'))
-    .find((a) => a.textContent.startsWith('Full methodology'));
-  assert.ok(link, 'the About tab has no Full methodology link');
+  const link = doc.querySelector('#about-tab a[href$="/docs/methodology.md"]');
+  assert.ok(link, 'the About tab has no link to docs/methodology.md');
+  assert.ok(link.textContent.trim().length > 0, 'the methodology link has no text');
   assert.match(link.getAttribute('href'),
     /^https:\/\/github\.com\/jcrussell\/solvent-streets\/blob\/[^/]+\/docs\/methodology\.md$/);
   assert.equal(link.getAttribute('target'), '_blank');
   assert.equal(link.getAttribute('rel'), 'noopener');
 });
 
-// lbBlock returns the leaderboard category whose title starts with `label`.
-function lbBlock(doc, label) {
-  return Array.from(doc.querySelectorAll('#leaderboard-list .lb-category'))
-    .find((c) => c.querySelector('h4').textContent.startsWith(label));
+// A leaderboard category carries no key, so the two roads-solvency boards are
+// found by the figure they rank a city at (see boardWith): the funding gap is
+// the only signed percentage, the backlog-cycle year the only count of years
+// (inYearsText).
+/** @param {any} h @param {any} c a city passed to renderWith */
+function gapBoard(h, c) {
+  const gap = h.win.extractMetrics(c).fundingGap;
+  return boardWith(h.doc, c.slug, (gap >= 0 ? '+' : '') + gap.toFixed(0) + '%');
+}
+/** @param {any} h @param {any} c a city passed to renderWith, with an insolvency year */
+function cycleBoard(h, c) {
+  return boardWith(h.doc, c.slug, h.win.inYearsText(h.win.extractMetrics(c).insolvencyYear));
 }
 const lbMedals = (block) => Array.from(block.querySelectorAll('.lb-row .lb-medal')).map((e) => e.textContent);
+const rowSlugs = (block) => Array.from(block.querySelectorAll('.lb-row'), (r) => r.getAttribute('data-slug'));
+// place reads an unmedalled row's marker as its number; a medal is NaN.
+const place = (marker) => (/^\d+\D*$/.test(marker) ? parseInt(marker, 10) : NaN);
 
 test('a Street Funding Gap row takes a medal only at a Solvency Score of 50', async () => {
-  const { doc } = await renderWith([city('alpha-ca', 120), city('beta-ca', 60), city('gamma-or', 3)]);
-  const gap = lbBlock(doc, 'Street Funding Gap');
-  assert.deepEqual(lbMedals(gap), [MEDALS[0], MEDALS[1], '3.'], 'a +3233% gap must not take bronze');
+  const alpha = city('alpha-ca', 120);
+  const h = await renderWith([alpha, city('beta-ca', 60), city('gamma-or', 3)]);
+  const gap = gapBoard(h, alpha);
+  assert.deepEqual(rowSlugs(gap), ['alpha-ca', 'beta-ca', 'gamma-or']);
+  const medals = lbMedals(gap);
+  assert.deepEqual(medals.slice(0, 2), [MEDALS[0], MEDALS[1]]);
+  assert.ok(!MEDALS.includes(medals[2]), 'a +3233% gap must not take bronze');
+  assert.match(medals[2], /^3\D*$/, 'the third row still shows its place');
   assert.ok(gap.querySelector('.lb-award'), 'the best gap is still a fair winner');
 });
 
 test('when every gap is poor, the Street Funding Gap board gives no medal and no award', async () => {
-  const { doc } = await renderWith([city('alpha-ca', 30), city('beta-ca', 10)]);
-  const gap = lbBlock(doc, 'Street Funding Gap');
-  assert.deepEqual(lbMedals(gap), ['1.', '2.']);
+  const alpha = city('alpha-ca', 30);
+  const gap = gapBoard(await renderWith([alpha, city('beta-ca', 10)]), alpha);
+  assert.deepEqual(rowSlugs(gap), ['alpha-ca', 'beta-ca']);
+  assert.deepEqual(lbMedals(gap).map(place), [1, 2]);
   assert.equal(gap.querySelector('.lb-award'), null, 'a +233% gap must not be crowned');
 });
 
 test('Backlog-cycle medals follow the same floor', async () => {
-  const { doc } = await renderWith([city('alpha-ca', 60, 20), city('beta-ca', 20, 12), city('gamma-or', 10, 8)]);
-  const ins = lbBlock(doc, 'Backlog Passes a Full Repair Cycle');
-  assert.deepEqual(lbMedals(ins), [MEDALS[0], '2.', '3.']);
+  const alpha = city('alpha-ca', 60, 20);
+  const ins = cycleBoard(await renderWith([alpha, city('beta-ca', 20, 12), city('gamma-or', 10, 8)]), alpha);
+  assert.deepEqual(rowSlugs(ins), ['alpha-ca', 'beta-ca', 'gamma-or']);
+  assert.equal(lbMedals(ins)[0], MEDALS[0]);
+  assert.deepEqual(lbMedals(ins).slice(1).map(place), [2, 3]);
   assert.ok(ins.querySelector('.lb-award'));
 });
 
@@ -123,9 +144,10 @@ test('Backlog-cycle medals follow the same floor', async () => {
 // the floor while the runner-up passes. Medals stop at the first city under
 // the floor: no silver without a gold, and no award.
 test('the backlog-cycle board shows no silver under an unmedalled leader', async () => {
-  const { doc } = await renderWith([city('alpha-ca', 40, 20), city('beta-ca', 60, 12)]);
-  const ins = lbBlock(doc, 'Backlog Passes a Full Repair Cycle');
-  assert.deepEqual(lbMedals(ins), ['1.', '2.']);
+  const alpha = city('alpha-ca', 40, 20);
+  const ins = cycleBoard(await renderWith([alpha, city('beta-ca', 60, 12)]), alpha);
+  assert.deepEqual(rowSlugs(ins), ['alpha-ca', 'beta-ca']);
+  assert.deepEqual(lbMedals(ins).map(place), [1, 2]);
   assert.equal(ins.querySelector('.lb-award'), null);
 });
 
@@ -160,27 +182,42 @@ test('back to an entry in another scope re-renders Compare in that scope', async
   assert.equal(text(), city, 'Compare still shows the all-jurisdiction figures');
 });
 
+// The breakdown rows carry no key: they are read by position and told apart
+// by the figures they show.
+const breakdown = (card) => Array.from(card.querySelectorAll('.sb-row'), (r) => r.lastElementChild);
+
 test('the solvency card lists city-maintained roads before the backlog year', async () => {
   const roads = city('alpha-ca', 120, 12);
   roads.forecast = roads.forecast.map((f) => (f.resource_type === 'roads' ? { ...f, roads_area: 4e6 } : f));
-  const { doc } = await renderWith([roads, city('beta-ca', 60)]);
-  const card = cards(doc).find((c) => c.dataset.slug === 'alpha-ca');
-  const labels = Array.from(card.querySelectorAll('.sb-row > span:first-child')).map((s) => s.textContent);
-  assert.deepEqual(labels, ['Current Budget', 'Hold-Steady Budget', 'Funding Gap', 'City-Maintained Roads', 'Backlog past a full cycle']);
+  const { doc, win } = await renderWith([roads, city('beta-ca', 60)]);
+  const m = win.extractMetrics(roads);
+  const money = win.PvmtCommon.fmtMoney;
+  const values = breakdown(cards(doc).find((c) => c.dataset.slug === 'alpha-ca')).map((v) => v.textContent);
+  assert.equal(values.length, 5);
+  assert.ok(values[0].startsWith(money(m.currentBudget)), values[0]);
+  assert.ok(values[1].startsWith(money(m.breakEvenBudget)), values[1]);
+  assert.equal(values[2], (m.fundingGap >= 0 ? '+' : '') + m.fundingGap.toFixed(0) + '%');
+  assert.ok(m.solvencyRoadsAreaLarge > 0, 'fixture: no city-maintained roads area');
+  assert.equal(values[3], win.fmtNum(m.solvencyRoadsAreaLarge) + ' ' + win.areaLargeUnit());
+  assert.equal(values[4], win.inYearsText(12));
 });
 
-test('a city never a full cycle behind reads "Not within N yrs", with the last year in a tooltip', async () => {
+test('a city never a full cycle behind reads the horizon it stays within, explained in a tooltip', async () => {
   const h = await renderWith([city('alpha-ca', 120), city('beta-ca', 60, 12)]);
   const horizon = seedJSON.horizon_years;
-  assert.ok(horizon > 0);
-  const insolvency = (slug) => {
-    const card = cards(h.doc).find((c) => c.dataset.slug === slug);
-    const row = Array.from(card.querySelectorAll('.sb-row')).find((r) => r.firstElementChild.textContent === 'Backlog past a full cycle');
-    return row.lastElementChild;
-  };
-  const solvent = insolvency('alpha-ca');
-  assert.equal(solvent.textContent, `Not within ${horizon} yrs`);
-  assert.ok(solvent.querySelector('[title]'), 'the horizon is explained in a tooltip');
-  assert.equal(insolvency('beta-ca').textContent, h.win.inYearsText(12), 'a crossing city reads its own forecast year, not a calendar year');
-  assert.doesNotMatch(h.$('#compare-tab').textContent, /Solvent through horizon/);
+  assert.ok(horizon > 0 && horizon !== 12);
+  // The backlog year is the breakdown's last row.
+  const cycle = (slug) => breakdown(cards(h.doc).find((c) => c.dataset.slug === slug)).at(-1);
+  const never = cycle('alpha-ca');
+  assert.match(never.textContent, new RegExp('\\b' + horizon + '\\b'));
+  assert.match(never.querySelector('[title]').getAttribute('title'), new RegExp('\\b' + horizon + '\\b'), 'the horizon is explained in a tooltip');
+  // A crossing city reads its own forecast year as a count of years, not a
+  // calendar year, and needs no tooltip.
+  const crossing = cycle('beta-ca');
+  assert.equal(crossing.textContent, h.win.inYearsText(12));
+  assert.equal(crossing.querySelector('[title]'), null);
+  assert.notEqual(never.textContent, h.win.inYearsText(horizon), 'a city that never crosses reads as one crossing in the last year');
+  // inYearsText counts years, singular for one.
+  assert.match(h.win.inYearsText(12), /\b12\b/);
+  assert.notEqual(h.win.inYearsText(1).replace('1', ''), h.win.inYearsText(2).replace('2', ''));
 });

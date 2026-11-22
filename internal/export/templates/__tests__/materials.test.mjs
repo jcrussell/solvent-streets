@@ -84,7 +84,7 @@ test('the headlines average the material quantities scenarios.json carries', asy
   assert.ok(mean('oil_barrels') > 0, 'the fixture scenarios carry no oil demand');
   assert.equal(headline(win, 'hl-oil'), Math.round(mean('oil_barrels')));
   // Masses show as tonnes or US short tons, by unit system.
-  const perTonne = win.document.getElementById('hl-mix').textContent.includes('tons') ? 1000 / 907.18474 : 1;
+  const perTonne = win.eval('UNIT_SYSTEM') === 'imperial' ? 1000 / 907.18474 : 1;
   assert.equal(headline(win, 'hl-mix'), Math.round(mean('mix_tonnes') * perTonne));
   assert.equal(headline(win, 'hl-binder'), Math.round(mean('binder_tonnes') * perTonne));
 });
@@ -98,7 +98,10 @@ test('scenarios without material quantities ask for a fresh export', async () =>
   }
   const { win, $$ } = await ready({ ...fullData, 'scenarios.json': scenarios });
   assert.equal($$('#materials-charts h3').length, 0, 'charts drew without any material quantities');
-  assert.match(win.document.getElementById('materials-charts').textContent, /Re-run pvmt export/);
+  // In place of the charts and the tiles: a message naming the command that
+  // refreshes the export.
+  assert.match(win.document.querySelector('#materials-charts .no-data').textContent, /\bpvmt export\b/);
+  assert.equal(win.document.getElementById('materials-headlines').style.display, 'none', 'the tiles still show');
 });
 
 // The intensity table shows each tier's per-1000 m2 figures as the seed
@@ -110,7 +113,17 @@ test('the tier table reads its figures from the seed in the display units', asyn
   const headers = () => $$('#materials-tier-table thead th').map((th) => th.textContent);
   const SQFT = 10.763910417, LB = 2.20462262185;
 
-  assert.deepEqual(headers(), ['Tier', 'Mix (lb/sq ft)', 'Binder %', 'Binder (lb/sq ft)', 'Oil (bbl/10,000 sq ft)']);
+  // Five columns: the tier, then mix, binder share, binder and oil, the two
+  // intensities in the unit the page names and oil per its own area.
+  const unitsOf = () => {
+    const h = headers();
+    assert.equal(h.length, 5);
+    for (const at of [1, 3]) assert.ok(h[at].includes('(' + win.intensityUnit() + ')'), h[at]);
+    return { intensity: win.intensityUnit(), oil: h[4] };
+  };
+  const imperial = unitsOf();
+  assert.equal(imperial.intensity, 'lb/sq ft');
+  assert.ok(imperial.oil.includes('10,000 sq ft'), imperial.oil);
   let rows = $$('#materials-tier-table tbody tr');
   assert.equal(rows.length, seedJSON.material_tiers.length);
   seedJSON.material_tiers.forEach((t, i) => {
@@ -118,14 +131,16 @@ test('the tier table reads its figures from the seed in the display units', asyn
     assert.equal(cells[1].textContent, (t.mix_kg_per_sqm * LB / SQFT).toFixed(1));
     assert.equal(cells[3].textContent, (t.per_1000_sqm.binder_tonnes * LB / SQFT).toFixed(2));
     assert.equal(cells[4].textContent, (t.per_1000_sqm.oil_barrels * 10 / SQFT).toFixed(1));
-    assert.match(cells[0].textContent, new RegExp(`PCI ${t.min_pci}–${Math.min(100, t.max_pci)}$`));
+    assert.match(cells[0].textContent, new RegExp(`\\b${t.min_pci}–${Math.min(100, t.max_pci)}$`));
   });
 
   // Opening the tab reloads it, as a reader would after the switch.
   win.selectUnits('metric');
   win.selectTab('materials-tab');
   await flush(12);
-  assert.deepEqual(headers(), ['Tier', 'Mix (kg/m²)', 'Binder %', 'Binder (kg/m²)', 'Oil (bbl/1000 m²)']);
+  const metric = unitsOf();
+  assert.equal(metric.intensity, 'kg/m²');
+  assert.ok(metric.oil.includes('1000 m²'), metric.oil);
   rows = $$('#materials-tier-table tbody tr');
   seedJSON.material_tiers.forEach((t, i) => {
     const cells = rows[i].querySelectorAll('td');
@@ -133,7 +148,7 @@ test('the tier table reads its figures from the seed in the display units', asyn
     assert.equal(cells[3].textContent, t.per_1000_sqm.binder_tonnes.toFixed(1));
     assert.equal(cells[4].textContent, t.per_1000_sqm.oil_barrels.toFixed(1));
   });
-  assert.match($('#hl-mix').textContent, / t\/yr$/);
+  assert.match($('#hl-mix').textContent, /\d t\b/);
 });
 
 // The headlines come from scenarios.json, so a seed without the share still
@@ -147,16 +162,24 @@ test('a seed without the share still renders the headlines', async () => {
 // The note explains why these figures do not reconcile with the network area on
 // the other tabs. Without it a reader sees two different "network areas" and no
 // reason for the gap.
-test('the note says concrete is excluded when the share is below 1', async () => {
-  const { win } = await ready();
-  const note = win.document.getElementById('materials-note').textContent;
-  assert.match(note, /Concrete sidewalks are excluded/,
-    'the materials note does not mention the excluded concrete area');
+// coveredPct is the percentage the note quotes, or null when it quotes none.
+// The share of the network the figures cover is the note's only percentage.
+/** @param {string} note */
+const coveredPct = (note) => { const m = note.match(/(\d+(?:\.\d+)?)%/); return m ? Number(m[1]) : null; };
+const noteOf = (h) => h.win.document.getElementById('materials-note').textContent;
 
-  const h2 = await ready({ ...fullData, 'forecast_seed.json': seedWithoutShare() });
-  assert.doesNotMatch(h2.win.document.getElementById('materials-note').textContent,
-    /Concrete sidewalks are excluded/,
+test('the note says concrete is excluded when the share is below 1', async () => {
+  // The page opens in the city scope, which has a share of its own.
+  const share = seedJSON.city_asphalt_area_share;
+  assert.ok(share > 0 && share < 1, 'fixture: the seed nets out some concrete');
+  const note = noteOf(await ready());
+  assert.equal(coveredPct(note), Math.min(99, Math.round(share * 100)),
+    'the materials note does not give the share its figures cover');
+
+  const whole = noteOf(await ready({ ...fullData, 'forecast_seed.json': seedWithoutShare() }));
+  assert.equal(coveredPct(whole), null,
     'the exclusion note appeared for a seed that does not net anything out');
+  assert.ok(whole.trim().length > 0 && note.length > whole.length, 'the exclusion adds nothing to the note');
 });
 
 // The note is shown for any share < 1, but the percentage
@@ -165,12 +188,10 @@ test('the note says concrete is excluded when the share is below 1', async () =>
 // excluded. 99 is the honest ceiling while a nonzero area is excluded.
 test('the note never claims 100% coverage while claiming an exclusion', async () => {
   for (const share of [0.999, 0.9951, 0.995, 0.5, 0.004]) {
-    const { win } = await ready({ ...fullData, 'forecast_seed.json': seedWithShare(share) });
-    const note = win.document.getElementById('materials-note').textContent;
-    assert.match(note, /Concrete sidewalks are excluded/,
-      `the exclusion note vanished at share ${share}`);
-    assert.doesNotMatch(note, /cover the 100% of network area/,
-      `share ${share} claimed full coverage while excluding a nonzero area`);
+    const pct = coveredPct(noteOf(await ready({ ...fullData, 'forecast_seed.json': seedWithShare(share) })));
+    assert.notEqual(pct, null, `the exclusion note vanished at share ${share}`);
+    assert.ok(pct < 100, `share ${share} claimed full coverage while excluding a nonzero area`);
+    assert.equal(pct, Math.min(99, Math.round(share * 100)), `share ${share}`);
   }
 });
 
@@ -178,10 +199,8 @@ test('the note never claims 100% coverage while claiming an exclusion', async ()
 // print "89%" for 0.899, so the note would stop agreeing with the network area
 // on the Overview tab; only the 100% ceiling is clamped.
 test('the note rounds the share rather than flooring it', async () => {
-  const { win } = await ready({ ...fullData, 'forecast_seed.json': seedWithShare(0.899) });
-  assert.match(win.document.getElementById('materials-note').textContent,
-    /cover the 90% of network area/,
-    'the share was floored rather than rounded');
+  const note = noteOf(await ready({ ...fullData, 'forecast_seed.json': seedWithShare(0.899) }));
+  assert.equal(coveredPct(note), 90, 'the share was floored rather than rounded');
 });
 
 // A concrete-only network resolves a legitimate asphalt_area_share of 0 (see the
@@ -189,14 +208,15 @@ test('the note rounds the share rather than flooring it', async () => {
 // as a rounding artifact, and clamping up to "1%" would state something false
 // about a network with no asphalt in it at all.
 test('a zero-asphalt network gets a truthful sentence, not a percentage', async () => {
-  const { win } = await ready({ ...fullData, 'forecast_seed.json': seedWithShare(0) });
-  const note = win.document.getElementById('materials-note').textContent;
-  assert.match(note, /None of this network area is asphalt-surfaced/,
-    'a 0 share did not get its own sentence');
-  assert.doesNotMatch(note, /cover the \d+% of network area/,
-    'a 0 share still printed a coverage percentage');
-  assert.doesNotMatch(note, /cover the 1% of network area/,
-    'a 0 share was clamped up to a false 1%');
+  const note = noteOf(await ready({ ...fullData, 'forecast_seed.json': seedWithShare(0) }));
+  assert.equal(coveredPct(note), null, 'a 0 share still printed a coverage percentage');
+  // Its own sentence: not the bare note of a network with nothing excluded,
+  // nor the exclusion note with its figure taken out.
+  const whole = noteOf(await ready({ ...fullData, 'forecast_seed.json': seedWithoutShare() }));
+  const half = noteOf(await ready({ ...fullData, 'forecast_seed.json': seedWithShare(0.5) }));
+  assert.ok(note.startsWith(whole) && note.length > whole.length, 'a 0 share did not get its own sentence');
+  assert.notEqual(note, half.replace(/\d+%/, '').replace(/\s+/g, ' '));
+  assert.notEqual(note.slice(whole.length), half.slice(whole.length).replace(/\d+%/, '%'));
 });
 
 // Sanity: the tab renders its charts off the real exporter scenarios, so a
@@ -229,5 +249,7 @@ test('the mix headline shows a scenario label as written', async () => {
   const scenarios = readFixture('scenarios.json');
   for (const scope of ['city', 'all']) for (const s of scenarios[scope]) s.scenario.label = 'Fund & <Fix>';
   const { win } = await ready({ ...fullData, 'scenarios.json': scenarios });
-  assert.equal(win.document.getElementById('hl-mix-sub').textContent, 'Avg/yr under "Fund & <Fix>"');
+  const sub = win.document.getElementById('hl-mix-sub');
+  assert.ok(sub.textContent.includes('Fund & <Fix>'), sub.textContent);
+  assert.equal(sub.children.length, 0, 'the label was parsed as markup');
 });

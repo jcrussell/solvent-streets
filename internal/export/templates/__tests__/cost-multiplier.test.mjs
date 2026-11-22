@@ -101,17 +101,23 @@ test('the headline names the cost basis the figures are on', async () => {
   // At the calibrated default the claim is that these dollars are comparable to
   // a published pavement budget — that is the claim a reader needs in order to
   // use the number at all.
+  // The basis note is a line of the headline. At the default it states the
+  // basis in words and quotes no multiplier.
   const dflt = await ready(withSeedMultiplier(1));
-  assert.match(dflt.doc.getElementById('solvency-headline').textContent,
-    /comparable to a published pavement budget/i,
-    'the default basis must state its comparability, or the figure is unusable');
+  const plain = dflt.doc.querySelector('#solvency-headline #cost-regime-note');
+  assert.ok(plain.textContent.trim().length > 0,
+    'the default basis must be stated, or the figure is unusable');
+  assert.equal(plain.querySelector('strong'), null, 'the default basis quotes a multiplier');
 
   // A city that overrode it must say so, or its numbers silently differ from
-  // every other city on the same site.
+  // every other city on the same site: the note carries the multiplier and
+  // attributes it to the city's config (marked up as <code>).
   const scaled = await ready(withSeedMultiplier(1.5));
-  assert.match(scaled.doc.getElementById('solvency-headline').textContent,
-    /1\.5.*cost multiplier/i,
+  const note = scaled.doc.querySelector('#solvency-headline #cost-regime-note');
+  assert.match(note.querySelector('strong').textContent, /\b1\.5\b/,
     'an overridden multiplier must be disclosed');
+  assert.ok(note.querySelector('code'), 'a seeded multiplier is not attributed to the config');
+  assert.notEqual(note.textContent, plain.textContent);
 });
 
 test('a seed above the markup range widens the slider instead of clamping', async () => {
@@ -131,8 +137,7 @@ test('a seed above the markup range widens the slider instead of clamping', asyn
   assert.match($('#multiplier-value').textContent, /3/);
 
   // And the disclosure must agree with what was actually simulated.
-  assert.match(win.document.getElementById('solvency-headline').textContent,
-    /3.*cost multiplier/i);
+  assert.match(win.document.querySelector('#cost-regime-note strong').textContent, /\b3\b/);
 });
 
 test('a sub-1 seed widens the slider downward rather than rounding up', async () => {

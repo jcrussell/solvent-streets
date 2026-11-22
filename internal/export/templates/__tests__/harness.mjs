@@ -179,7 +179,10 @@ function installStubs(win, { data, simulate, gates, wasm, goRuntime }) {
   // jsdom throws "not implemented" from getContext. app.js calls it
   // unconditionally at ten sites, all immediately before `new Chart(...)`,
   // so a token object is enough — the Chart stub above ignores it.
-  win.HTMLCanvasElement.prototype.getContext = () => ({ canvas: null });
+  // The token names its canvas, as a real 2d context does, so a spec can find
+  // a chart by the element it was drawn on (chartsOn) instead of by its
+  // title or series labels.
+  win.HTMLCanvasElement.prototype.getContext = function() { return { canvas: this }; };
 
   // The WASM bridge. app.js calls window.simulateForecast(JSON.stringify(in))
   // and expects a JSON string back. Every call is recorded so a test can count
@@ -335,9 +338,29 @@ export function load({ page = 'index', data = {}, simulate = defaultSimulate, ur
     fetches: () => win.__fetches.slice(),
     // fetchURLs lists the requested URLs with their query strings, in order.
     fetchURLs: () => win.__fetchURLs.slice(),
+    // chartsOn lists the charts drawn on canvases matching (or inside an
+    // element matching) the CSS selector, oldest first. Charts are found by
+    // where the page drew them, never by their titles or dataset labels.
+    chartsOn: (sel) => win.__charts.filter((c) => c.ctx && c.ctx.canvas && c.ctx.canvas.closest(sel)),
     // fireMap runs the handlers the page registered on the map for event.
     fireMap: (event) => { for (const fn of win.__mapHandlers.get(event) || []) fn({}); },
     // flush lets pending microtasks (loadJSON chains) settle.
     flush: async (n = 6) => { for (let i = 0; i < n; i++) await new Promise((r) => setTimeout(r, 0)); },
   };
+}
+
+// boardWith returns the Compare leaderboard category (.lb-category) that
+// ranks the city `slug` at the value text `value`. A category carries no key
+// in the DOM, so a spec names the one it means by the figure the metric
+// produces for a city (formatted with the page's own helpers) rather than by
+// the category's title. `value` is the whole value text, or a pattern for it.
+// More than one match throws, so a figure two categories share is noticed.
+/** @param {Document} doc @param {string} slug @param {string | RegExp} value */
+export function boardWith(doc, slug, value) {
+  const is = (/** @type {string} */ text) => (typeof value === 'string' ? text === value : value.test(text));
+  const hits = Array.from(doc.querySelectorAll('#leaderboard-list .lb-category')).filter((c) =>
+    Array.from(c.querySelectorAll('.lb-row')).some((r) =>
+      r.getAttribute('data-slug') === slug && is(r.querySelector('.lb-val').textContent)));
+  if (hits.length > 1) throw new Error(`${hits.length} leaderboard categories rank ${slug} at ${value}`);
+  return hits[0] || null;
 }

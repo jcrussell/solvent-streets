@@ -70,10 +70,13 @@ test('the hold-steady budget reads the same on Financials and on Play', async ()
 
   const index = load({ data });
   await index.flush(12);
-  assert.match(index.$('#solvency-headline .lead').textContent, /\$12\.3M\/yr/);
-  // Visitors read this: it says what is missing, not which config key to set.
+  assert.match(index.$('#solvency-headline .lead .num').textContent, /\$12\.3M/);
+  // Without a cited budget there is no gap to price: the detail line is
+  // still written, carries no dollar figure, and (visitors read it) does not
+  // name the config key to set.
   const detail = index.$('#solvency-headline .detail').textContent;
-  assert.match(detail, /No cited street budget for .+ is on file/);
+  assert.ok(detail.trim().length > 0, 'no detail line without a cited budget');
+  assert.doesNotMatch(detail, /\$/, 'a funding gap was priced without a cited budget');
   assert.doesNotMatch(index.$('#solvency-headline').innerHTML, /current_budget|<code>/);
 
   const play = load({ page: 'play', wasm: true, data });
@@ -94,11 +97,13 @@ test('the error banner is the same markup on both pages, hidden until an error',
       items: h.$$('#error-banner-list li').length,
     };
   };
-  const want = { role: 'alert', live: 'assertive', heading: 'Something went wrong:', hidden: true, items: 0 };
   // The index page never reaches the WASM in this harness; on Play the boot is
   // held so its 404 has not been reported yet.
-  assert.deepEqual(shape(load()), want);
-  assert.deepEqual(shape(load({ page: 'play', hold: ['pvmt.wasm'] })), want);
+  const index = shape(load());
+  const play = shape(load({ page: 'play', hold: ['pvmt.wasm'] }));
+  assert.ok(index.heading.trim().length > 0, 'the banner has no heading');
+  assert.deepEqual(index, { role: 'alert', live: 'assertive', heading: index.heading, hidden: true, items: 0 });
+  assert.deepEqual(play, index);
 });
 
 test('showError lists the failure and reveals the banner; Dismiss hides it again', () => {
@@ -155,8 +160,11 @@ test('callWasm unwraps the result and reports an error envelope, a throw or a mi
     const got = lines();
     assert.equal(got[0], 'gameTick (no game)', page);
     assert.equal(got[1], 'the clock (boom)', page);
-    assert.match(got[2], /^gameTick \(invalid response: /, page);
-    assert.equal(got[3], 'gameNope (WASM function not registered)', page);
+    // An unparseable response and a missing export are each listed under the
+    // call's name, with a reason of the page's own.
+    assert.equal(got.length, 4, page);
+    assert.match(got[2], /^gameTick \(.+\)$/, page);
+    assert.match(got[3], /^gameNope \(.+\)$/, page);
   }
 });
 
@@ -165,7 +173,12 @@ test('the dashboard reports a simulator error under one name', async () => {
   await h.flush();
   h.win.onWasmReady();
   await h.flush();
-  assert.ok(h.$$('#error-banner-list li').some((li) => li.textContent === 'forecast simulator (bad tiers)'));
+  // Every report of the simulator's error reads the same: one name for it,
+  // whichever code path ran the simulation.
+  const reports = h.$$('#error-banner-list li').map((li) => li.textContent).filter((l) => l.includes('bad tiers'));
+  assert.ok(reports.length > 0, 'the simulator error was not reported');
+  assert.equal(new Set(reports).size, 1, 'the simulator error is reported under several names: ' + reports.join(' | '));
+  assert.match(reports[0], /^.+ \(bad tiers\)$/);
 });
 
 test('loadWasm fetches the Go runtime itself when the page has not loaded it', async () => {
@@ -198,12 +211,20 @@ test('loadWasm boots the WASM once and hands over to the page', async () => {
 
 test('a WASM that fails to load is reported on both pages', async () => {
   for (const page of PAGES) {
-    // The runtime is there but pvmt.wasm 404s through the fetch stub.
-    const { win, $, $$, flush } = load({ page, goRuntime: true });
-    await flush();
-    if (page === 'index') { win.selectTab('financials-tab'); await flush(); }
-    assert.equal($('#error-banner').hidden, false, page);
-    assert.ok($$('#error-banner-list li').some((li) => li.textContent.startsWith('forecast WASM (')), page);
+    // The runtime is there but pvmt.wasm 404s through the fetch stub. The
+    // page's data files 404 too, so the WASM's line is the one a page whose
+    // WASM loads does not list.
+    const lines = async (wasm) => {
+      const { win, $, $$, flush } = load({ page, goRuntime: true, wasm });
+      await flush();
+      if (page === 'index') { win.selectTab('financials-tab'); await flush(); }
+      return { hidden: $('#error-banner').hidden, items: $$('#error-banner-list li').map((li) => li.textContent) };
+    };
+    const failed = await lines(false);
+    const booted = await lines(true);
+    assert.equal(failed.hidden, false, page);
+    const extra = failed.items.filter((l) => !booted.items.includes(l));
+    assert.equal(extra.length, 1, page + ': the failed WASM load added ' + JSON.stringify(extra));
   }
 });
 

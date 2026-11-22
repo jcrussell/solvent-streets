@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { load } from './harness.mjs';
-import { fullData, seedJSON } from './fixtures.mjs';
+import { fullData, metaJSON, seedJSON } from './fixtures.mjs';
 
 // ready boots a window, loads the Financials data, and brings WASM up.
 async function ready(opts = {}) {
@@ -24,13 +24,19 @@ test('all four Financials charts render from real exporter data', async () => {
   win.selectTab('financials-tab');
   await flush();
 
-  const titles = $$('#charts h3').map((h) => h.textContent);
-  assert.deepEqual(titles, [
-    'PCI Over Time by Funding Level',
-    'Deferred Maintenance Backlog',
-    'Cumulative Spending',
-    'Annual Treatment Need by Condition Tier',
-  ], 'the funding-level charts did not render from scenarios.json');
+  // Four titled cards, each with a chart drawn on its canvas and data in it.
+  const titles = $$('#charts h3').map((h) => h.textContent.trim());
+  assert.equal(titles.length, 4, 'the funding-level charts did not render from scenarios.json');
+  assert.ok(titles.every((t) => t.length > 0), 'a chart card has no title');
+  assert.equal(new Set(titles).size, 4, 'two chart cards share a title');
+  const canvases = $$('#charts canvas');
+  assert.equal(canvases.length, 4);
+  for (const canvas of canvases) {
+    const drawn = win.__charts.filter((c) => c.ctx.canvas === canvas).at(-1);
+    assert.ok(drawn, 'a chart card has no chart on its canvas');
+    assert.ok(drawn.data.datasets.length > 0 && drawn.data.datasets.every((d) => d.data.length > 0),
+      'a chart was drawn without data');
+  }
 });
 
 // The other half of the same drift: meta.json's per-resource numbers live in
@@ -43,17 +49,20 @@ test('the stats panel renders a card per resource from meta.stats[]', async () =
 
   // Per-hex metric cards (fire response, …) are separate from the resource
   // cards meta.stats[] produces.
-  const cards = $$('#stats .stat-card:not(.metric-card) h3').map((h) => h.textContent.toLowerCase());
-  assert.deepEqual(cards.filter((c) => c !== 'city summary'), ['roads', 'parking', 'sidewalks'],
+  const cards = $$('#stats .stat-card:not(.metric-card):not(.summary-card) h3').map((h) => h.textContent.toLowerCase());
+  assert.deepEqual(cards, metaJSON.stats.map((s) => s.resource_type),
     'meta.stats[] did not produce a card per resource');
+  assert.equal(cards.length, 3, 'fixture: meta.stats[] should carry roads, parking and sidewalks');
 
   // Read the number, do not pattern-match around it: the drift this guards
   // showed up as Paved Footprint rendering 0.0 off a missing total_paved key, and
   // "does not say 0.0" is satisfied by a panel that says nothing at all.
-  const paved = $$('#stats .stat-row').find((r) => /Paved Footprint/.test(r.textContent));
-  assert.ok(paved, 'no Paved Footprint row in the stats panel');
-  assert.ok(parseFloat(paved.querySelector('.stat-value').textContent) > 0,
-    'Paved Footprint read zero — meta.total_paved did not reach the panel');
+  // The summary card's rows carry no key, so look for the figure itself.
+  assert.ok(metaJSON.total_paved > 0, 'fixture: meta.json has no total_paved');
+  const want = win.fmtNum1(win.toAreaLarge(metaJSON.total_paved));
+  assert.ok(parseFloat(want) > 0);
+  const summary = $$('#stats .summary-card .stat-value').map((v) => v.textContent);
+  assert.ok(summary.includes(want), `no summary row reads the paved footprint ${want} — meta.total_paved did not reach the panel: ${summary}`);
 });
 
 // The seed's area and cohort keys are what getControlValues ships to the WASM
@@ -207,7 +216,7 @@ test('the custom scenario, not the baseline, has the last word on the tiles', as
 
   const spend = win.document.getElementById('hl-total-spend');
   assert.ok(spend, '#hl-total-spend missing from the template');
-  assert.match(spend.textContent, /99|\$/,
+  assert.equal(spend.textContent, win.PvmtCommon.fmtMoney(99_000_000),
     'headline tiles were not written by the custom scenario');
 });
 
@@ -270,7 +279,9 @@ test('a city without scenarios destroys the previous city\'s charts', async () =
     else data['scenarios.json'] = scenarios;
     await win.loadFinancials();
     await flush();
-    assert.match(win.document.getElementById('charts').textContent, /No (financial|scenario) data/);
+    const charts = win.document.getElementById('charts');
+    assert.ok(charts.querySelector('.no-data').textContent.trim().length > 0, 'no no-data message');
+    assert.equal(charts.querySelector('canvas'), null, 'a chart card outlived the data');
     assert.equal(destroyed, before.length, 'the previous charts were not destroyed');
     assert.equal(get('currentCharts').length, 0);
   }

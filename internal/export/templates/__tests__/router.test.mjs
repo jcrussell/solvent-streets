@@ -293,13 +293,16 @@ test('the tab title follows the selected city', async () => {
   const { win, $, flush } = load({ data: fullData });
   await flush();
   const shown = $('#city-select').selectedOptions[0].textContent.trim();
-  assert.equal(win.document.title, 'Solvent Streets — ' + shown, 'the title must name the city the selector opened on');
+  assert.ok(shown.length > 0);
+  assert.ok(win.document.title.endsWith(shown), 'the title must name the city the selector opened on: ' + win.document.title);
+  const site = win.document.title.slice(0, -shown.length);
 
   // Checked before the city's data load settles: the fixtures serve one
   // meta.json (Alpha's) for every city, so the load would rename it back.
   win.selectCity('gamma-or');
   const gamma = $('#city-select option[value="gamma-or"]').textContent.trim();
-  assert.equal(win.document.title, 'Solvent Streets — ' + gamma);
+  assert.notEqual(gamma, shown);
+  assert.equal(win.document.title, site + gamma, 'only the city changes in the title');
   assert.equal($('#panel h2').textContent, gamma);
 });
 
@@ -318,7 +321,11 @@ test('no matching city shows the no-match panel; clearing restores the city', as
   await flush();
   assert.ok(win.document.body.classList.contains('no-city-match'));
   assert.equal($('#no-match').hidden, false, 'the Map tab must show the no-match panel');
-  assert.match($('#no-match-text').textContent, /No cities match .+\+.+\./, 'the panel names the filters');
+  // The panel names both filters by the labels their options show.
+  const named = ['group', 'state'].map((dim) => filter($, dim).selectedOptions[0].textContent);
+  const text = $('#no-match-text').textContent;
+  assert.ok(named.every((label) => label.length > 0 && text.includes(label)), 'the panel names the filters: ' + text);
+  assert.ok(text.indexOf(named[0]) < text.lastIndexOf(named[1]), text);
   assert.equal(params(win).get('city'), null, 'an empty match must not name a city in the URL');
   assert.deepEqual(params(win).getAll('tag').sort(), ['group:Top 50', 'state:OR'].sort());
 

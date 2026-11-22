@@ -33,15 +33,18 @@ test('the fixture horizon is not the default, and the page carries the seed sett
   });
 });
 
+// namesNumber matches a text that carries n as a whole number ("20-Year",
+// "20yr", "Year 20"), not as part of a longer one.
+/** @param {number} n */
+const namesNumber = (n) => new RegExp('(^|[^\\d.])' + n + '([^\\d.]|$)');
+
 test('the static markup names the configured horizon and initial PCI before any script runs', () => {
   const doc = served('index.html');
   const text = (id) => doc.getElementById(id).textContent;
-  assert.equal(text('hl-spend-label'), '20-Year Spend');
-  assert.equal(text('hl-deficit-label'), '20-Year Deficit');
-  assert.equal(text('cohort-spend-th'), '20yr Spend');
-  assert.equal(text('cohort-deficit-th'), '20yr Deficit');
-  assert.equal(text('compare-cost-title'), '20-Year Cost Trajectory');
-  assert.equal(text('compare-need-title'), 'Year 1 vs Year 20 Maintenance Need');
+  for (const id of ['hl-spend-label', 'hl-deficit-label', 'cohort-spend-th', 'cohort-deficit-th',
+    'compare-cost-title', 'compare-need-title']) {
+    assert.match(text(id), namesNumber(seedJSON.horizon_years), id + ' does not name the horizon');
+  }
 
   const pci = String(Math.round(seedJSON.initial_pci));
   const slider = doc.getElementById('pci-slider');
@@ -56,8 +59,9 @@ test('a city with no forecast to read is labelled with the page horizon', async 
     config: (cfg) => { cfg.forecast_defaults.horizon_years = 17; cfg.forecast_seed = null; },
   });
   await flush();
-  assert.equal($('#hl-spend-label').textContent, '17-Year Spend');
-  assert.equal($('#cohort-deficit-th').textContent, '17yr Deficit');
+  assert.match($('#hl-spend-label').textContent, namesNumber(17));
+  assert.match($('#cohort-deficit-th').textContent, namesNumber(17));
+  assert.doesNotMatch($('#hl-spend-label').textContent, namesNumber(seedJSON.horizon_years));
 });
 
 test('Materials falls back to the page treatment cycle and oil factor for a seed without them', async () => {
@@ -71,12 +75,17 @@ test('Materials falls back to the page treatment cycle and oil factor for a seed
   await flush();
   win.selectTab('materials-tab');
   await flush(12);
-  assert.match($('#materials-note').textContent, /~1\/7 of the network/);
+  assert.match($('#materials-note').textContent, /\b1\/7\b/);
   // The fixture page is imperial: 5.5 bbl per tonne is ~5 bbl per short ton.
-  assert.equal($('#hl-oil-sub').textContent, '~5 bbl per ton binder');
+  const imperial = { text: $('#hl-oil-sub').textContent, unit: win.massUnitSingular() };
+  assert.match(imperial.text, namesNumber(5));
+  assert.ok(imperial.text.includes(imperial.unit), imperial.text);
   win.selectUnits('metric');
   await flush(12);
-  assert.equal($('#hl-oil-sub').textContent, '~5.5 bbl per tonne binder');
+  const metric = { text: $('#hl-oil-sub').textContent, unit: win.massUnitSingular() };
+  assert.match(metric.text, namesNumber(5.5));
+  assert.ok(metric.text.includes(metric.unit), metric.text);
+  assert.notEqual(metric.unit, imperial.unit);
 });
 
 // The charts draw the scenarios the file describes, by the labels it gives
@@ -110,7 +119,10 @@ test('Financials and Materials plot whatever scenarios the set describes', async
   const mix = win.__charts.find((c) => c.config.type === 'line');
   assert.ok(mix, 'Materials drew no funding-level chart');
   // The baseline's line plots the material its decay would need, and says so.
-  assert.deepEqual(mix.data.datasets.map((d) => d.label), [all[0] + ' (material need)', ...all.slice(1)]);
+  const mixed = mix.data.datasets.map((d) => d.label);
+  assert.deepEqual(mixed.slice(1), all.slice(1));
+  assert.ok(mixed[0].startsWith(all[0]) && mixed[0].length > all[0].length,
+    'the baseline line is not told apart from a funded one: ' + mixed[0]);
 });
 
 // ---- Play ---------------------------------------------------------------

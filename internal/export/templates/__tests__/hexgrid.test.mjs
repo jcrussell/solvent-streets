@@ -75,9 +75,12 @@ test('an unsupported hexgrid version is refused rather than under-reported', asy
 
   assert.equal(Object.keys(get('hexDataByScope').city).length, 0,
     'a version-less file must not populate any scope');
-  const banner = doc.getElementById('load-error') || doc.querySelector('.load-error, #error-banner');
-  const text = banner ? banner.textContent : doc.body.textContent;
-  assert.match(text, /hexgrid|unsupported|v6/i, 'no error surfaced for an unsupported hexgrid format');
+  // The banner is up, with a line naming the file and the format the page reads.
+  assert.equal(doc.getElementById('error-banner').hidden, false, 'no error surfaced for an unsupported hexgrid format');
+  const version = get('PVMT_CONFIG.hexgrid_version');
+  assert.ok(Array.from(doc.querySelectorAll('#error-banner-list li'))
+    .some((li) => li.textContent.includes('hexgrid') && li.textContent.includes('v' + version)),
+  'no banner line names the hexgrid and v' + version);
 });
 
 test('multiple resource types stay separated per scope', async () => {

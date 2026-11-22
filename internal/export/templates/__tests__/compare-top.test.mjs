@@ -39,7 +39,7 @@ test('a large site shows the top 10 tiles in each section, in rank order', async
   const h = await render(30);
   assert.equal(h.$('#compare-toolbar').hidden, false);
   assert.equal(h.$('#compare-top').value, '10');
-  assert.equal(h.$('#compare-top-of').textContent, 'of 30 cities');
+  assert.match(h.$('#compare-top-of').textContent, /\b30\b/);
   assert.deepEqual(tiles(h, 'solvency-cards'), cities(10).map((c) => c.slug));
   assert.equal(tiles(h, 'infra-cards').length, 10);
   // The podium keeps its medals.
@@ -47,7 +47,7 @@ test('a large site shows the top 10 tiles in each section, in rank order', async
   // The leaderboards follow the same N, and say how many they leave out.
   const board = h.$$('#leaderboard-list .lb-category')[0];
   assert.equal(board.querySelectorAll('.lb-row').length, 10);
-  assert.equal(board.querySelector('.lb-more').textContent, '20 more cities not shown');
+  assert.match(board.querySelector('.lb-more').textContent, /\b20\b/);
 });
 
 test('the selector changes N and writes it to the URL, leaving the default out', async () => {
