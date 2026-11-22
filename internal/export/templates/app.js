@@ -3757,13 +3757,20 @@
         }
 
         // notWithinHTML says a city's backlog does not pass a full repair cycle
-        // within the forecast ("Not within 30 yrs"), with the last forecast
-        // year in a tooltip.
+        // within the forecast ("Not within 30 yrs"). Compare counts in years
+        // from each city's own start, so it names no calendar year: compared
+        // cities can be snapshotted in different years.
         /** @param {number} horizon */
         function notWithinHTML(horizon) {
-            var lastYear = forecastYearOne() + horizon - 1;
-            return '<span title="The backlog stays under a full repair cycle through ' + lastYear +
-                ', the end of the forecast">Not within ' + horizon + ' yrs</span>';
+            return '<span title="The backlog stays under a full repair cycle through the ' + horizon +
+                '-year forecast">Not within ' + horizon + ' yrs</span>';
+        }
+
+        // inYearsText is a forecast year as a count from the city's start
+        // ("In 14 yrs").
+        /** @param {number} year */
+        function inYearsText(year) {
+            return 'In ' + year + (year === 1 ? ' yr' : ' yrs');
         }
 
         // fundedShareText is the share of the hold-steady budget a city's
@@ -5581,7 +5588,7 @@
             function solvencyBreakdown(m) {
                 var gap = m.fundingGap !== null ? ((m.fundingGap >= 0 ? '+' : '') + m.fundingGap.toFixed(0) + '%') : '—';
                 var insolv = m.currentBudget > 0
-                    ? (m.insolvencyYear ? String(forecastYearOne() + m.insolvencyYear - 1) : notWithinHTML(compareHorizon))
+                    ? (m.insolvencyYear ? inYearsText(m.insolvencyYear) : notWithinHTML(compareHorizon))
                     : '—';
                 return (m.currentBudget > 0 ? '<div class="sb-row"><span>Current Budget</span><span>' + fmtMoney(m.currentBudget) + '/yr</span></div>' : '') +
                     (m.breakEvenBudget > 0 ? '<div class="sb-row"><span>Hold-Steady Budget</span><span>' + fmtMoney(m.breakEvenBudget) + '/yr</span></div>' : '') +
@@ -5655,7 +5662,7 @@
                 // the metric (no cited budget / no roads) so a null value never
                 // produces a NaN sort key or a corrupt bar width.
                 { key: 'fundingGap', needs: ['roads'],  label: 'Street Funding Gap (roads, lower is better)', award: 'Smallest Funding Gap', higher: false, medalIf: solvencyMedalOK, filter: function(m) { return m.fundingGap !== null; }, fmt: function(v) { return (v >= 0 ? '+' : '') + v.toFixed(0) + '%'; }, color: '#0ea5e9', note: 'Funding gap = (hold-steady budget − current budget) / current budget, computed on roads/streets only. Shown only for cities with a cited current_budget. Negative means the budget already exceeds the hold-steady level.' },
-                { key: 'insolvencyYear', needs: ['roads'],  label: 'Backlog Passes a Full Repair Cycle (roads, later is better)', award: 'Latest to Fall Behind', higher: true, medalIf: solvencyMedalOK, filter: function(m) { return m.insolvencyYear !== null; }, fmt: function(v) { return String(forecastYearOne() + v - 1); }, color: '#14b8a6', note: 'The year a city’s roads repair backlog, at its current budget, adds up to a full repair cycle of work: a whole network’s worth of treatment, more than it could catch up on. Shown only for cities with a cited budget that reach it within the forecast; the share of upkeep funded is the main comparison for the rest.' }
+                { key: 'insolvencyYear', needs: ['roads'],  label: 'Backlog Passes a Full Repair Cycle (roads, later is better)', award: 'Latest to Fall Behind', higher: true, medalIf: solvencyMedalOK, filter: function(m) { return m.insolvencyYear !== null; }, fmt: function(v) { return inYearsText(v); }, color: '#14b8a6', note: 'The year a city’s roads repair backlog, at its current budget, adds up to a full repair cycle of work: a whole network’s worth of treatment, more than it could catch up on. Shown only for cities with a cited budget that reach it within the forecast; the share of upkeep funded is the main comparison for the rest.' }
             ];
 
             var boards = categories.map(function(cat) {

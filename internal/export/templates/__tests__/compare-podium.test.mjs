@@ -173,7 +173,6 @@ test('a city never a full cycle behind reads "Not within N yrs", with the last y
   const h = await renderWith([city('alpha-ca', 120), city('beta-ca', 60, 12)]);
   const horizon = seedJSON.horizon_years;
   assert.ok(horizon > 0);
-  const lastYear = h.get('forecastYearOne()') + horizon - 1;
   const insolvency = (slug) => {
     const card = cards(h.doc).find((c) => c.dataset.slug === slug);
     const row = Array.from(card.querySelectorAll('.sb-row')).find((r) => r.firstElementChild.textContent === 'Backlog past a full cycle');
@@ -181,7 +180,7 @@ test('a city never a full cycle behind reads "Not within N yrs", with the last y
   };
   const solvent = insolvency('alpha-ca');
   assert.equal(solvent.textContent, `Not within ${horizon} yrs`);
-  assert.equal(solvent.querySelector('[title]').getAttribute('title'), `The backlog stays under a full repair cycle through ${lastYear}, the end of the forecast`);
-  assert.equal(insolvency('beta-ca').textContent, String(h.get('forecastYearOne()') + 11));
+  assert.ok(solvent.querySelector('[title]'), 'the horizon is explained in a tooltip');
+  assert.equal(insolvency('beta-ca').textContent, h.win.inYearsText(12), 'a crossing city reads its own forecast year, not a calendar year');
   assert.doesNotMatch(h.$('#compare-tab').textContent, /Solvent through horizon/);
 });

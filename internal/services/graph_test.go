@@ -715,3 +715,20 @@ func TestComputeCoverage_UnreachedInsideFallsBackToNearestRoad(t *testing.T) {
 		t.Errorf("hex = %+v, want ~%.1f s (the street below it, at its nearest point)", cov.Hexes, want)
 	}
 }
+
+// TestPartsInside_RoadOnSharedEdgeCountsOnce: a road lying exactly along the
+// edge two areas share belongs to exactly one of them, never both or
+// neither.
+func TestPartsInside_RoadOnSharedEdgeCountsOnce(t *testing.T) {
+	p := testProj()
+	ax, ay := p.ToProjected(lonA, latA)
+	pt := func(x, y float64) [2]float64 { lon, lat := p.FromProjected(x, y); return [2]float64{lon, lat} }
+	g := BuildGraph(context.Background(), []resource.Feature{
+		line(map[string]string{"highway": "residential"}, pt(ax+170, ay+50), pt(ax+230, ay+50)),
+	}, DefaultRoadSpeeds, p)
+	below := len(g.PartsInside(square(ax+200, ay))) // its top edge is y = ay+50
+	above := len(g.PartsInside(square(ax+200, ay+100)))
+	if below+above != 1 {
+		t.Errorf("road on the shared edge: %d parts below, %d above; want it in exactly one", below, above)
+	}
+}
