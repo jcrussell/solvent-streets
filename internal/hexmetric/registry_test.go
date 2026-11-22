@@ -3,7 +3,6 @@ package hexmetric
 import (
 	"encoding/json"
 	"errors"
-	"slices"
 	"testing"
 
 	"github.com/jcrussell/solvent-streets/internal/metric"
@@ -12,7 +11,7 @@ import (
 // Scratch catalog keys the tests present: durations, so validSpec's unit
 // matches the catalog's.
 func init() {
-	for _, k := range []string{"test_metric_s", "ok_key_s", "zz_test_a_s", "zz_test_b_s", "one_band_s", "ramp_s", "ratio_s", "x_s"} {
+	for _, k := range []string{"test_metric_s", "ok_key_s", "zz_test_a_s", "zz_test_b_s", "one_band_s", "share_s", "ratio_s", "x_s"} {
 		metric.Register(metric.Def{Key: k, Unit: metric.UnitSeconds, Level: metric.Hex, Description: "test"})
 	}
 	metric.Register(metric.Def{Key: "zz_city_count", Unit: metric.UnitCount, Level: metric.City, Description: "test"})
@@ -37,10 +36,6 @@ func TestSpecValidate(t *testing.T) {
 		"unknown kind":        func(s *Spec) { s.Scale.Kind = "rainbow" },
 		"unknown transform":   func(s *Spec) { s.Scale.Transform = "sqrt" },
 		"non-ascending bands": func(s *Spec) { s.Scale.Bands = []float64{60, 60} },
-		"unknown mode":        func(s *Spec) { s.Scale.Mode = "smooth" },
-		"ticks on bands":      func(s *Spec) { s.Scale.Ticks = []float64{60} },
-		"one-stop ramp":       func(s *Spec) { s.Scale.Mode = ModeRamp; s.Scale.Bands = []float64{1} },
-		"non-ascending ticks": func(s *Spec) { s.Scale.Mode = ModeRamp; s.Scale.Ticks = []float64{2, 1} },
 		"unknown op":          func(s *Spec) { s.Derive = &Derivation{Op: "max", Prop: PropArea} },
 		"unknown prop":        func(s *Spec) { s.Derive = &Derivation{Op: OpSum, Prop: "width"} },
 		"sum with den":        func(s *Spec) { s.Derive = &Derivation{Op: OpSum, Prop: PropArea, Den: "population"} },
@@ -118,12 +113,11 @@ func TestRegisterLookupAll(t *testing.T) {
 }
 
 func TestSpecValidate_Derived(t *testing.T) {
-	ramp := validSpec("ramp_s")
-	ramp.Format = FormatPercent
-	ramp.Scale = Scale{Kind: KindCoverage, Transform: TransformLinear, Mode: ModeRamp, Bands: []float64{0, 1}, Ticks: []float64{0, 0.5, 1}}
-	ramp.Derive = &Derivation{Op: OpSum, Prop: PropShare, Max: 100}
-	if err := ramp.Validate(); err != nil {
-		t.Errorf("valid ramp sum rejected: %v", err)
+	share := validSpec("share_s")
+	share.Format = FormatPercent
+	share.Derive = &Derivation{Op: OpSum, Prop: PropShare, Max: 1}
+	if err := share.Validate(); err != nil {
+		t.Errorf("valid capped sum rejected: %v", err)
 	}
 	ratio := validSpec("ratio_s")
 	ratio.Derive = &Derivation{Op: OpRatio, Prop: PropArea, Den: "population", MinDen: 10}
@@ -136,7 +130,7 @@ func TestSpecValidate_Derived(t *testing.T) {
 }
 
 // TestBuiltins pins the pavement colorings as registered derived metrics,
-// with the coverage ramp's stops and legend ticks the dashboard always had.
+// % Paved capped at a share of 1.
 func TestBuiltins(t *testing.T) {
 	for _, key := range []string{metric.PavedShare, metric.PavedArea, metric.EstimatedSpaces, metric.Year1Need} {
 		s, ok := Lookup(key)
@@ -147,20 +141,14 @@ func TestBuiltins(t *testing.T) {
 			t.Errorf("%s must be a derived sum, got %+v", key, s.Derive)
 		}
 	}
-	cov, _ := Lookup(metric.PavedShare)
-	if cov.Scale.Mode != ModeRamp || cov.Derive.Max != 1 {
-		t.Errorf("coverage must be a ramp capped at a share of 1: %+v", cov)
-	}
-	if got, want := cov.Scale.Bands, []float64{0, 0.1, 0.25, 0.5, 0.75, 1}; !slices.Equal(got, want) {
-		t.Errorf("coverage stops = %v, want %v", got, want)
-	}
-	if got, want := cov.Scale.Ticks, []float64{0, 0.25, 0.5, 0.75, 1}; !slices.Equal(got, want) {
-		t.Errorf("coverage ticks = %v, want %v", got, want)
+	paved, _ := Lookup(metric.PavedShare)
+	if paved.Derive.Max != 1 {
+		t.Errorf("%% Paved must be capped at a share of 1: %+v", paved)
 	}
 }
 
-// TestScaleJSON_BandsOnly: Mode and Ticks are omitempty, so a bands scale
-// serializes as kind, transform and bands only.
+// TestScaleJSON_BandsOnly: a scale serializes as kind, transform and bands
+// only.
 func TestScaleJSON_BandsOnly(t *testing.T) {
 	b, err := json.Marshal(Scale{Kind: KindSequential, Transform: TransformLinear, Bands: []float64{1, 2}})
 	if err != nil {

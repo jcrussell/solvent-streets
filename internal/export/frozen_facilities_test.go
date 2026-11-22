@@ -106,7 +106,7 @@ func TestBuildHexMetrics_SourceStatesTheRunsTurnout(t *testing.T) {
 		want    string
 	}{
 		{80, "NFPA 1710 80 s turnout"},
-		{60, ": 60 s turnout plus travel"},
+		{60, ": 60 s turnout plus driving"},
 	} {
 		ctx := context.Background()
 		cfg := &config.Config{}

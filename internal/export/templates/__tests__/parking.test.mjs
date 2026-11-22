@@ -17,7 +17,7 @@ test('the fixture parking stat carries estimated_spaces', () => {
   }
 });
 
-test('the stats panel shows Est. Spaces on the parking card only', async () => {
+test('the stats panel shows Est. spaces on the parking card only', async () => {
   const { win, $$, flush } = load({ data: fullData });
   await flush();
   await win.loadCityData();
@@ -25,10 +25,10 @@ test('the stats panel shows Est. Spaces on the parking card only', async () => {
   const cards = $$('#stats .stat-card').filter((c) => !c.classList.contains('summary-card'));
   const parking = cards.find((c) => c.querySelector('h3').textContent === 'parking');
   assert.ok(parking, 'no parking card rendered');
-  assert.match(parking.textContent, /Est\. Spaces/);
+  assert.match(parking.textContent, /Est\. spaces/);
   assert.ok(parking.textContent.includes(fixtureSpaces.toLocaleString()));
   for (const c of cards) {
-    if (c !== parking) assert.doesNotMatch(c.textContent, /Est\. Spaces/, 'only parking carries a spaces row');
+    if (c !== parking) assert.doesNotMatch(c.textContent, /Est\. spaces/, 'only parking carries a spaces row');
   }
 });
 

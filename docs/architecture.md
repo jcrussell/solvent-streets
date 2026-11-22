@@ -140,13 +140,15 @@ use, so hex ids line up. No producer reads another producer's stored results.
 
 The dashboard paints every coloring from the `internal/hexmetric` registry. Stored metrics ship in
 `hex-metrics.json`. *Derived* metrics are registered beside
-them under the key of the measure they compute: coverage % (`paved_share`),
-paved area (`paved_area`), parking spaces (`estimated_spaces`) and year-1
-need (`year1_need`) in
+them under the key of the measure they compute: % Paved (`paved_share`),
+maintained area (`paved_area`), estimated spaces (`estimated_spaces`) and
+year-1 need (`year1_need`) in
 `internal/hexmetric/builtin.go`, and the per-resident ratios in
 `internal/population`. Each declares how to combine the per-resource values in
-`hexgrid.geojson`, and the browser resolves it. A new coloring is therefore a
-registry entry, plus a producer if it needs stored data, and no client code.
+`hexgrid.geojson`, and the browser resolves it. A spec's `Source` is its
+one-line definition for readers: the legend shows it under the title. A new
+coloring is therefore a registry entry, plus a producer if it needs stored
+data, and no client code.
 `hexgrid.geojson` carries every hex of the clipped grid the export draws,
 pavement or not, so a stored metric can paint a hex that has no pavement. The
 drawn grid is not quite the one the producers computed on: the export drops

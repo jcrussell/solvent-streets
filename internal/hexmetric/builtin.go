@@ -18,20 +18,19 @@ func init() {
 	Register(Spec{
 		// The default "Color by" metric. It stays out of the URL.
 		Key:    metric.PavedShare,
-		Label:  "Coverage %",
-		Source: "Share of the hex covered by the toggled resources (pvmt all compute)",
+		Label:  "% Paved",
+		Source: "Share of the hex's land the toggled resources cover, each resource's share added together and capped at 100%.",
 		Format: FormatPercent,
 		Scale: Scale{
-			Kind: KindCoverage, Transform: TransformLinear, Mode: ModeRamp,
-			Bands: []float64{0, 0.1, 0.25, 0.5, 0.75, 1},
-			Ticks: []float64{0, 0.25, 0.5, 0.75, 1},
+			Kind: KindSequential, Transform: TransformLinear,
+			Bands: []float64{0.05, 0.1, 0.2, 0.3, 0.5},
 		},
 		Derive: &Derivation{Op: OpSum, Prop: PropShare, Max: 1},
 	})
 	Register(Spec{
 		Key:    metric.PavedArea,
 		Label:  "Maintained area",
-		Source: "Area of the toggled resources inside the hex, summed per resource as the forecast prices them (pvmt all compute)",
+		Source: "Area of the toggled resources inside the hex, each resource counted as the forecast prices it, so a sidewalk beside a road counts in both.",
 		Format: FormatArea,
 		Scale: Scale{
 			Kind: KindSequential, Transform: TransformLinear,
@@ -41,8 +40,8 @@ func init() {
 	})
 	Register(Spec{
 		Key:    metric.EstimatedSpaces,
-		Label:  "Parking spaces",
-		Source: "Estimated parking spaces apportioned to the hex by lot area (pvmt all compute)",
+		Label:  "Est. spaces",
+		Source: "Estimated parking spaces, from each lot's capacity tag or its area, shared among hexes by how much of the lot each holds.",
 		Format: FormatInt,
 		Scale: Scale{
 			Kind: KindSequential, Transform: TransformLinear,
@@ -52,8 +51,8 @@ func init() {
 	})
 	Register(Spec{
 		Key:    metric.Year1Need,
-		Label:  "Est. year-1 cost",
-		Source: "Each toggled resource's year-1 need (pvmt forecast) split by the hex's share of its area",
+		Label:  "Year-1 need",
+		Source: "First-year repair need of the toggled resources, backlog included, shared among hexes by area.",
 		Format: FormatUSD,
 		Scale: Scale{
 			Kind: KindSequential, Transform: TransformLinear,

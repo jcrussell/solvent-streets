@@ -316,7 +316,9 @@ The site reports two areas, and each keeps one name on every tab:
 - **Paved footprint** is the ground pavement covers: roads, parking and
   sidewalks buffered and unioned, so where a sidewalk or lot meets a road the
   overlap counts once. It is used only for itself (the Map's City Summary)
-  and for **% Paved**, which divides it by the city's area.
+  and for the city's **% Paved**, which divides it by the city's area (the
+  per-hex % Paved coloring adds each resource's share instead; see
+  [Color by](#color-by)).
 - **Maintained area** is the resources' areas summed as the forecast prices
   them, so a sidewalk beside a road counts in both. Over all three
   resources it is never smaller than the footprint. Everything priced or
@@ -414,13 +416,29 @@ are hex-clipped the same way). Limitations:
 ### Color by
 
 The map's **Color by** selector offers every per-hex metric available for
-the city. The pavement colorings — **Coverage %** (the default), **Maintained
-area**, **Parking spaces** and **Est. year-1 cost** — are computed in the
-browser from the hex grid over the resources currently toggled on, so they
-change as you toggle roads, parking or sidewalks; a coloring with nothing to
-show (no parking, no forecast) is not offered. Stored metrics such as fire
-response come from a compute pass and can also paint hexes that hold no
-pavement. Band edges are fixed values, the same in every city, so colors
+the city. The map legend shows the chosen coloring's one-line definition.
+
+- **% Paved** (the default): the share of the hex's land the toggled
+  resources cover. Each resource's share is added and the total capped at
+  100%, so where a sidewalk overlaps a road the hex reads a little high. The
+  city-wide % Paved uses the paved footprint instead.
+- **Maintained area**: the toggled resources' area inside the hex, each
+  counted as the forecast prices it (see [Area figures](#area-figures)).
+- **Est. spaces**: estimated parking spaces, shared among hexes by how
+  much of each lot they hold.
+- **Year-1 need**: the toggled resources' first-year repair need, backlog
+  included, shared among hexes by area.
+- **Population**, **Housing units**, **Population density** and the two
+  **per resident** ratios: see [Population and per-resident
+  figures](#population-and-per-resident-figures).
+- **Fire response**: see [Service coverage](#service-coverage-fire-response).
+
+The first four are computed in the browser from the hex grid over the
+resources currently toggled on, so they change as you toggle roads, parking
+or sidewalks; a coloring with nothing to show (no parking, no forecast) is
+not offered. Stored metrics such as fire response come from a compute pass
+and can also paint hexes that hold no pavement. Each coloring paints six
+bands whose edges are fixed values, the same in every city, so colors
 compare across cities.
 
 ### Population and per-resident figures

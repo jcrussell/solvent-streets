@@ -28,7 +28,6 @@ import (
 const (
 	KindSequential  = "sequential" // low → high, one hue ramp
 	KindDiverging   = "diverging"  // two hues around a midpoint
-	KindCoverage    = "coverage"   // the blue pavement-coverage ramp (--legend-*)
 	TransformLinear = "linear"
 	TransformLog    = "log"
 )
@@ -42,15 +41,6 @@ const (
 	FormatPercent = "percent" // a 0..1 share in, "N%" out
 	FormatArea    = "area"    // square metres in, the viewer's area unit out
 	FormatDensity = "density" // per m² in, per the viewer's large area unit (km² or sq mi) out
-)
-
-// Scale modes. Bands (the default, and what an empty Mode means so files
-// written before Mode existed read unchanged) paints one discrete colour per
-// band; Ramp interpolates continuously between the edges, which are then
-// the colour stops.
-const (
-	ModeBands = "bands"
-	ModeRamp  = "ramp"
 )
 
 // Derivation ops. A derived metric is computed by the dashboard from data it
@@ -114,17 +104,10 @@ func (d Derivation) validate(key string) error {
 // an edge fall in that band, values above the last edge in the final band).
 // At least one edge is required — a bandless scale would be a single colour
 // and produces an invalid map paint expression.
-//
-// Mode and Ticks are omitempty, so a bands scale carries only its bands.
 type Scale struct {
 	Kind      string    `json:"kind"`
 	Transform string    `json:"transform"`
 	Bands     []float64 `json:"bands"`
-	// Mode is ModeBands (or empty) or ModeRamp; a ramp needs two or more
-	// edges, which are its colour stops.
-	Mode string `json:"mode,omitempty"`
-	// Ticks are the legend labels for a ramp; empty labels the edges.
-	Ticks []float64 `json:"ticks,omitempty"`
 }
 
 // Spec describes how the dashboard presents one catalog metric per hex.
@@ -175,7 +158,7 @@ func (s Spec) Validate() error {
 		return fmt.Errorf("hexmetric: %s has unknown format %q", s.Key, s.Format)
 	}
 	switch s.Scale.Kind {
-	case KindSequential, KindDiverging, KindCoverage:
+	case KindSequential, KindDiverging:
 	default:
 		return fmt.Errorf("hexmetric: %s has unknown scale kind %q", s.Key, s.Scale.Kind)
 	}
@@ -189,21 +172,6 @@ func (s Spec) Validate() error {
 	}
 	if !ascending(s.Scale.Bands) {
 		return fmt.Errorf("hexmetric: %s band edges must be strictly ascending, got %v", s.Key, s.Scale.Bands)
-	}
-	switch s.Scale.Mode {
-	case "", ModeBands:
-		if len(s.Scale.Ticks) > 0 {
-			return fmt.Errorf("hexmetric: %s has ticks but is not a ramp", s.Key)
-		}
-	case ModeRamp:
-		if len(s.Scale.Bands) < 2 {
-			return fmt.Errorf("hexmetric: %s ramp needs at least two stops", s.Key)
-		}
-		if !ascending(s.Scale.Ticks) {
-			return fmt.Errorf("hexmetric: %s ticks must be strictly ascending, got %v", s.Key, s.Scale.Ticks)
-		}
-	default:
-		return fmt.Errorf("hexmetric: %s has unknown scale mode %q", s.Key, s.Scale.Mode)
 	}
 	if s.Derive != nil {
 		return s.Derive.validate(s.Key)

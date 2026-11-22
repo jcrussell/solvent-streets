@@ -188,25 +188,12 @@
             font-size: 12px;
         }
         #legend .legend-title { font-weight: 600; margin-bottom: 4px; }
-        /* The ramp spans the legend's width (at least 180px), the width
-           its labels spread over, so each label sits under its stop. */
-        #legend .legend-bar {
-            min-width: 180px; height: 12px; border-radius: 3px;
-            /* Stops match the hex-fill paint breakpoints (0/10/25/50/75/100)
-               so a color on the bar sits at its true coverage value. */
-            background: linear-gradient(90deg, var(--legend-1) 0%, var(--legend-2) 10%, var(--legend-3) 25%, var(--legend-4) 50%, var(--legend-5) 75%, var(--legend-6) 100%);
-        }
+        #legend .legend-def { margin: 0 0 6px; max-width: 320px; color: var(--text-muted); line-height: 1.35; }
+        #legend .legend-def[hidden] { display: none; }
+        /* The bar spans the legend's width (at least 180px), the width its
+           labels spread over, so each label sits under its band. */
+        #legend .legend-bar { min-width: 180px; height: 12px; border-radius: 3px; }
         #legend .legend-labels { display: flex; justify-content: space-between; margin-top: 2px; color: var(--text-muted); }
-        /* Ramp ticks (renderLegend): each label at its value's position
-           (style.left), centred on it but kept inside the bar at either
-           end, under a short tick mark. */
-        #legend .legend-labels.ticks { display: block; position: relative; height: 1.5em; margin-top: 0; }
-        #legend .legend-labels.ticks span { position: absolute; top: 4px; transform: translateX(-50%); white-space: nowrap; }
-        #legend .legend-labels.ticks span:first-child { transform: none; }
-        #legend .legend-labels.ticks span:last-child { transform: translateX(-100%); }
-        #legend .legend-labels.ticks span::before { content: ""; position: absolute; top: -4px; left: 50%; width: 1px; height: 4px; background: var(--text-muted); }
-        #legend .legend-labels.ticks span:first-child::before { left: 0; }
-        #legend .legend-labels.ticks span:last-child::before { left: auto; right: 0; }
         /* Metric legend: one label centred under each colour block. */
         #legend .legend-labels.discrete { display: grid; text-align: center; font-size: 11px; gap: 2px; }
         #legend .legend-labels.discrete span { white-space: nowrap; }
@@ -1015,7 +1002,7 @@
             <div class="map-ctrl color-by" id="map-color-by">
                 <label for="hex-metric">Color by</label>
                 <select id="hex-metric" autocomplete="off">
-                    <option value="paved_share">Coverage %</option>
+                    <option value="paved_share">% Paved</option>
                 </select>
             </div>
             <button id="region-select-btn" class="map-ctrl" type="button" aria-pressed="false" disabled
@@ -1044,11 +1031,10 @@
             <!-- The key for the metric the toolbar's Color by selects:
                  renderLegend titles it and redraws the bar + labels from the
                  metric's scale. -->
-            <div class="legend-title" id="legend-title">Coverage %</div>
+            <div class="legend-title" id="legend-title">% Paved</div>
+            <p class="legend-def" id="legend-def" hidden></p>
             <div class="legend-bar"></div>
-            <div class="legend-labels">
-                <span>0%</span><span>25%</span><span>50%</span><span>75%</span><span>100%</span>
-            </div>
+            <div class="legend-labels"></div>
         </div>
         <div id="hex-tooltip"></div>
         <!-- Announces the hex popup's totals (renderHexPopup). -->

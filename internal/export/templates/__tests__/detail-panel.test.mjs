@@ -205,14 +205,14 @@ test('the region panel stays open and closable after a resource toggle and follo
   drag('mousedown', 0);
   drag('mouseup', 10);
   assert.ok(h.$('#stats .region-detail'), 'the drag did not open the region panel');
-  assert.equal(statValue(h, 'Est. year-1 cost'), '$21.0K');
+  assert.equal(statValue(h, 'Year-1 need'), '$21.0K');
   // One name for the metric: the panel row reads as the "Color by" option
   // does.
-  assert.equal(h.win.PVMT_CONFIG.hex_metrics.find((m) => m.key === 'year1_need').label, 'Est. year-1 cost');
+  assert.equal(h.win.PVMT_CONFIG.hex_metrics.find((m) => m.key === 'year1_need').label, 'Year-1 need');
 
   untick(h, 'parking');
   assert.ok(h.$('#stats .region-detail'), 'the toggle closed the region panel');
-  assert.equal(statValue(h, 'Est. year-1 cost'), '$15.0K', 'the region panel kept the toggled-off resource');
+  assert.equal(statValue(h, 'Year-1 need'), '$15.0K', 'the region panel kept the toggled-off resource');
 
   h.$('#close-region').click();
   assert.equal(h.$('#stats .region-detail'), null, 'the close button stopped working after the toggle');
@@ -318,11 +318,11 @@ test('the region shows the city panel\'s cards: summary, each resource, each met
   assert.equal(statValue(h, 'Land area (acres)'), '1.7');
   assert.equal(statValue(h, 'Paved area (acres)'), '1.1');
   assert.equal(statValue(h, '% paved (of land)'), '66.3%');
-  assert.equal(statValue(h, 'Est. year-1 cost'), '$21.0K');
+  assert.equal(statValue(h, 'Year-1 need'), '$21.0K');
   const titles = h.$$('#stats .stat-card h3').map((e) => e.firstChild.textContent);
   assert.deepEqual(titles.slice(0, 3), ['Selected Region', 'parking', 'roads']);
-  assert.equal(cardValue(h, 'parking', 'Est. Spaces'), '120');
-  assert.equal(cardValue(h, 'roads', 'Est. year-1 cost'), '$15.0K');
+  assert.equal(cardValue(h, 'parking', 'Est. spaces'), '120');
+  assert.equal(cardValue(h, 'roads', 'Year-1 need'), '$15.0K');
   // The median of 205 s and 300 s, as the city's fire card shows it.
   assert.equal(cardValue(h, 'Fire response', 'Median per hex'), '4:13');
   assert.equal(cardValue(h, 'Population', 'Median per hex'), '66');

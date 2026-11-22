@@ -55,7 +55,7 @@ interface PvmtHexMetric {
   unit: string;
   format: string;
   source: string;
-  scale: { kind: string; transform: string; bands: number[] | null; mode?: string; ticks?: number[] };
+  scale: { kind: string; transform: string; bands: number[] | null };
   derive?: { op: string; prop: string; max?: number; den?: string; min_den?: number };
   threshold_s?: number;
   values?: Record<string, number>;

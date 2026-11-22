@@ -1098,7 +1098,7 @@
 
         // updateHexGrid re-blends after a scope swap or a resource toggle.
         // Either can change which derived metrics have inputs (untoggling
-        // parking leaves nothing for "Parking spaces"), so the selector is
+        // parking leaves nothing for "Est. spaces"), so the selector is
         // rebuilt and an orphaned selection falls back to the default.
         function updateHexGrid() {
             const src = map.getSource('hexgrid');
@@ -1185,7 +1185,7 @@
                     '<div class="stat-row"><span class="stat-label">Area (' + areaLargeUnit() + ')</span><span class="stat-value">' + fmtNum1(areaLargeVal) + '</span></div>' +
                     '<div class="stat-row"><span class="stat-label">Area (' + areaVeryLargeUnit() + ')</span><span class="stat-value">' + toAreaVeryLarge(s.area).toFixed(2) + '</span></div>' +
                     // Parking only: a unitless count, so no units conversion.
-                    (s.estimated_spaces > 0 ? '<div class="stat-row"><span class="stat-label">Est. Spaces</span><span class="stat-value">' + s.estimated_spaces.toLocaleString('en-US') + '</span></div>' : '') +
+                    (s.estimated_spaces > 0 ? '<div class="stat-row"><span class="stat-label">Est. spaces</span><span class="stat-value">' + s.estimated_spaces.toLocaleString('en-US') + '</span></div>' : '') +
                     (partial.includes(s.resource_type) ? '<div class="stat-row stat-note">Partial: no ' + esc(sourceNames(failures[s.resource_type])) + ' data (its last ingest failed)</div>' : '') +
                     '</div>';
             });
@@ -1528,7 +1528,7 @@
                             });
                         }
                         updateMetricPoints();
-                        toggles += '<label><input type="checkbox" checked data-layers="hex-fill,hex-outline"><span class="legend-gradient" style="background:linear-gradient(90deg,var(--legend-2),var(--legend-6))"></span>hex grid</label>';
+                        toggles += '<label><input type="checkbox" checked data-layers="hex-fill,hex-outline"><span class="legend-gradient" style="background:linear-gradient(90deg,var(--metric-seq-2),var(--metric-seq-6))"></span>hex grid</label>';
                         // Hover/click handlers for the hex-fill layer are registered
                         // ONCE at startup (registerHexHandlers), not here. MapLibre
                         // layer-scoped listeners are keyed by layer id and survive
@@ -1588,7 +1588,7 @@
                     tooltip.innerHTML =
                         '<strong>Coverage:</strong> ' + (p.share != null ? Math.round(p.share * 100) : 0) + '%<br>' +
                         '<strong>Area:</strong> ' + fmtArea(p.area || 0) + '<br>' +
-                        '<strong>Est. year-1 cost:</strong> ' + fmtMoney(p.year1_need || 0) +
+                        '<strong>Year-1 need:</strong> ' + fmtMoney(p.year1_need || 0) +
                         (p.spaces > 0 ? '<br><strong>Est. Parking Spaces:</strong> ' + Math.round(p.spaces).toLocaleString('en-US') : '') +
                         metricTooltipLine(p);
                     tooltip.style.display = 'block';
@@ -1820,18 +1820,16 @@
         // the legend bar is built from the same colours and edges, so the map
         // and its legend always agree. Rebuilt on theme toggle. Every metric
         // paints its value (metric_v) through its registry scale: Kind picks
-        // the colour family (coverage → --legend-*, sequential →
-        // --metric-seq-*, diverging → --metric-div-*); a "ramp" interpolates
-        // between its edges, "bands" (the default) paints one discrete colour
-        // per band. A hex with no value gets --metric-none (a bare step or
-        // interpolate on a missing property would be an expression error).
+        // the colour family (sequential → --metric-seq-*, diverging →
+        // --metric-div-*) and each band gets one discrete colour. A hex with
+        // no value gets --metric-none (a bare step on a missing property
+        // would be an expression error).
         function cssVar(name) {
             return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
         }
         /** @param {{kind?: string}} scale */
         function scaleFamily(scale) {
             const kind = scale && scale.kind;
-            if (kind === 'coverage') return '--legend-';
             if (kind === 'diverging') return '--metric-div-';
             return '--metric-seq-';
         }
@@ -1846,15 +1844,11 @@
             }
             return colors;
         }
-        /** @param {{mode?: string}} scale */
-        function isRamp(scale) {
-            return !!scale && scale.mode === 'ramp';
-        }
-        /** @param {{kind?: string, bands?: number[] | null, mode?: string}} scale */
+        /** @param {{kind?: string, bands?: number[] | null}} scale */
         function metricBandColors(scale) {
             const bands = (scale && scale.bands) || [];
-            // A ramp has one colour per stop; bands one per band (edges + 1).
-            return scaleColors(scale, isRamp(scale) ? bands.length : bands.length + 1);
+            // One colour per band: the edges plus one.
+            return scaleColors(scale, bands.length + 1);
         }
         // lookupMetric resolves a key against the derived specs and this
         // city's stored metrics. Own-property lookup, so a shared link like
@@ -1942,12 +1936,7 @@
             const colors = metricBandColors(metric.scale);
             /** @type {any[] | string} */
             let expr;
-            if (isRamp(metric.scale) && bands.length >= 2) {
-                /** @type {any[]} */
-                const ramp = ['interpolate', ['linear'], ['get', 'metric_v']];
-                bands.forEach((edge, i) => { ramp.push(edge, colors[i]); });
-                expr = ramp;
-            } else if (bands.length === 0) {
+            if (bands.length === 0) {
                 // The style spec's `step` needs at least one stop; a bandless
                 // scale (rejected by the registry, but the file is data) is
                 // one flat colour.
@@ -2069,11 +2058,10 @@
             if (ctrl) ctrl.hidden = keys.length <= 1;
         }
 
-        // renderLegend redraws the legend bar + labels for the active metric:
-        // a ramp is a continuous gradient with its colour stops at their
-        // values' positions and its ticks as evenly spaced labels; bands are
-        // one hard-stop block per band, labelled with its range ("≤ 5:20",
-        // "5:20–6:40", …, "> 11:20").
+        // renderLegend redraws the legend for the active metric: its title,
+        // its one-line definition (the registry's source), and one hard-stop
+        // block per band, labelled with its range ("≤ 5:20", "5:20–6:40", …,
+        // "> 11:20").
         function renderLegend() {
             const bar = queryEl('#legend .legend-bar');
             const labels = queryEl('#legend .legend-labels');
@@ -2081,10 +2069,15 @@
             const metric = shownMetric();
             const title = document.getElementById('legend-title');
             if (title) title.textContent = (metric && metric.label) || '';
+            const def = document.getElementById('legend-def');
+            if (def) {
+                def.textContent = (metric && metric.source) || '';
+                def.hidden = !def.textContent;
+            }
             if (!metric) {
                 bar.classList.remove('discrete');
                 bar.style.background = cssVar('--metric-none');
-                labels.classList.remove('discrete', 'ticks');
+                labels.classList.remove('discrete');
                 labels.style.gridTemplateColumns = '';
                 labels.innerHTML = '';
                 return;
@@ -2092,24 +2085,6 @@
             const bands = (metric.scale && metric.scale.bands) || [];
             const colors = metricBandColors(metric.scale);
             const f = (v, withUnit) => fmtLegend(v, metric.format, withUnit);
-            if (isRamp(metric.scale) && bands.length >= 2) {
-                const lo = bands[0], span = bands[bands.length - 1] - lo;
-                const stops = bands.map((b, i) => colors[i] + ' ' + ((b - lo) * 100 / span) + '%');
-                bar.classList.remove('discrete');
-                bar.style.background = 'linear-gradient(90deg, ' + stops.join(', ') + ')';
-                const ticks = (metric.scale.ticks && metric.scale.ticks.length) ? metric.scale.ticks : bands;
-                labels.classList.remove('discrete');
-                labels.classList.add('ticks');
-                labels.style.gridTemplateColumns = '';
-                // Each tick sits at its value's position on the bar, with a
-                // tick mark, so the top of the scale (100% coverage) is
-                // labelled where the bar ends rather than past it.
-                labels.innerHTML = ticks.map(t => {
-                    const pos = Math.min(100, Math.max(0, (t - lo) * 100 / span));
-                    return '<span style="left:' + pos + '%">' + esc(f(t, true)) + '</span>';
-                }).join('');
-                return;
-            }
             const n = colors.length;
             const stops = colors.map((c, i) => c + ' ' + (i * 100 / n) + '% ' + ((i + 1) * 100 / n) + '%');
             bar.classList.add('discrete');
@@ -2124,7 +2099,6 @@
                 if (i === bands.length) return '> ' + f(bands[bands.length - 1], true);
                 return f(bands[i - 1], false) + '–' + f(bands[i], false);
             });
-            labels.classList.remove('ticks');
             labels.classList.add('discrete');
             labels.style.gridTemplateColumns = 'repeat(' + n + ', 1fr)';
             labels.innerHTML = parts.map(t => '<span>' + esc(t) + '</span>').join('');
@@ -2405,8 +2379,8 @@
                     return '<div class="stat-card"><h3>' + esc(t) + '</h3>' +
                         statRow('Area (' + areaLargeUnit() + ')', fmtNum1(toAreaLarge(b.area))) +
                         statRow('Area (' + areaVeryLargeUnit() + ')', toAreaVeryLarge(b.area).toFixed(2)) +
-                        (b.spaces > 0 ? statRow('Est. Spaces', Math.round(b.spaces).toLocaleString('en-US')) : '') +
-                        (hasCost ? statRow('Est. year-1 cost', fmtMoney(b.cost)) : '') +
+                        (b.spaces > 0 ? statRow('Est. spaces', Math.round(b.spaces).toLocaleString('en-US')) : '') +
+                        (hasCost ? statRow('Year-1 need', fmtMoney(b.cost)) : '') +
                         '</div>';
                 }).join('');
 
@@ -2420,7 +2394,7 @@
                     statRow('Land area (' + areaLargeUnit() + ')', fmtNum1(toAreaLarge(land))) +
                     statRow('Paved area (' + areaLargeUnit() + ')', fmtNum1(toAreaLarge(sumArea))) +
                     statRow('% paved (of land)', pct.toFixed(1) + '%') +
-                    (hasCost ? statRow('Est. year-1 cost', fmtMoney(sumCost)) : '') +
+                    (hasCost ? statRow('Year-1 need', fmtMoney(sumCost)) : '') +
                     '<button type="button" class="region-clear" id="clear-region">Clear selection</button>' +
                     '</div>' +
                     typeCards +

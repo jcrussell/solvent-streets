@@ -5,9 +5,6 @@
 // the Map tab, and falls back to coverage when the city lacks the metric.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { load } from './harness.mjs';
 import { metaJSON, fullData, readFixture } from './fixtures.mjs';
 
@@ -114,7 +111,7 @@ test('an unreachable hex has no value on the map but counts against the within-t
 
 test('selecting a metric paints discrete bands guarded for missing values, redraws the legend, and shows points', async () => {
   const { win, $, $$, get } = await loadWithMetrics();
-  assert.equal(plain(win.hexFillColor())[2][0], 'interpolate', 'coverage paints the continuous ramp');
+  assert.equal(plain(win.hexFillColor())[2][0], 'step', '% Paved paints discrete bands');
 
   win.selectHexMetric('fire_response_s');
   const paint = plain(win.hexFillColor());
@@ -145,9 +142,9 @@ test('selecting a metric paints discrete bands guarded for missing values, redra
   assert.ok(get('map').__layers.has('metric-points'));
 
   win.selectHexMetric('paved_share');
-  assert.equal(plain(win.hexFillColor())[2][0], 'interpolate');
-  assert.equal(get('map').__sources.has('metric-points'), false, 'switching back to coverage drops the points layer');
-  assert.equal($$('#legend .legend-labels span')[0].textContent, '0%');
+  assert.equal(plain(win.hexFillColor())[2][0], 'step');
+  assert.equal(get('map').__sources.has('metric-points'), false, 'switching back to % Paved drops the points layer');
+  assert.equal($$('#legend .legend-labels span')[0].textContent, '≤ 5%');
 });
 
 test('?metric= rides the URL only on the Map tab and restores on load', async () => {
@@ -180,7 +177,7 @@ test('a city without the requested metric falls back to coverage, leaves it off 
   const opts = h.$$('#hex-metric option').map((o) => o.value);
   assert.ok(!opts.includes('fire_response_s'), 'an absent stored metric must not be offered');
   assert.equal(h.$('#map-color-by').hidden, opts.length <= 1);
-  assert.equal(h.$('#legend-title').textContent, 'Coverage %', 'the fallback metric titles the legend');
+  assert.equal(h.$('#legend-title').textContent, '% Paved', 'the fallback metric titles the legend');
   assert.equal(params(h.win).get('metric'), null, 'the address bar must stop claiming the metric');
 });
 
@@ -214,7 +211,7 @@ test('an unknown hex-metrics.json version is refused with the error banner', asy
 test('a prototype key in ?metric= does not resolve to a metric', async () => {
   const h = await loadWithMetrics('https://example.test/index.html?metric=constructor');
   assert.equal(h.get('hexMetric'), 'paved_share');
-  assert.equal(plain(h.win.hexFillColor())[2][0], 'interpolate');
+  assert.equal(plain(h.win.hexFillColor())[2][0], 'step');
 });
 
 test('Back across a city change restores the metric for the returned-to city', async () => {
@@ -235,47 +232,24 @@ test('Back across a city change restores the metric for the returned-to city', a
   assert.equal(h.get('hexMetric'), 'fire_response_s', 'the metric must be restored, not collapsed to coverage by the empty map mid-load');
 });
 
-// Goldens for the generic-coloring refactor: the
-// coverage ramp and the fire bands must paint and label exactly as they did
-// when each had its own code path. Colours resolve to '' in jsdom (no
-// stylesheet), so the expression SHAPE and stops are what is pinned.
-//
-// Coverage now paints metric_v (its registry value) under the generic
-// has-value guard; every pavement hex carries metric_v === share, so the guard
-// never fires and the ramp interpolates over 0/0.1/0.25/0.5/0.75/1.
-test('golden: coverage paint ramp and legend labels', async () => {
-  const { win, $$ } = await loadWithMetrics();
+// Goldens: % Paved and fire paint and label through the same band path.
+// Colours resolve to '' in jsdom (no stylesheet), so the expression SHAPE
+// and stops are what is pinned. Every pavement hex carries metric_v ===
+// share, so the has-value guard never fires for % Paved.
+test('golden: % Paved paint bands, legend labels and definition', async () => {
+  const { win, $, $$ } = await loadWithMetrics();
   const paint = plain(win.hexFillColor());
   assert.deepEqual(paint.slice(0, 2), ['case', ['has', 'metric_v']]);
-  const ramp = paint[2];
-  assert.deepEqual(ramp.slice(0, 3), ['interpolate', ['linear'], ['get', 'metric_v']]);
-  assert.deepEqual(ramp.slice(3).filter((_, i) => i % 2 === 0), [0, 0.1, 0.25, 0.5, 0.75, 1]);
+  const step = paint[2];
+  assert.deepEqual(step.slice(0, 2), ['step', ['get', 'metric_v']]);
+  assert.deepEqual(step.slice(3).filter((_, i) => i % 2 === 0), [0.05, 0.1, 0.2, 0.3, 0.5]);
   for (const f of plain(win.buildBlendedHexFC()).features) {
-    assert.equal(f.properties.metric_v, f.properties.share, 'every coverage hex paints its own share');
+    assert.equal(f.properties.metric_v, f.properties.share, 'every pavement hex paints its own share');
   }
-  assert.deepEqual($$('#legend .legend-labels span').map((s) => s.textContent), ['0%', '25%', '50%', '75%', '100%']);
-  // Each tick sits at its value's position, so 100% is labelled where the
-  // bar ends, not spread past it.
-  assert.deepEqual($$('#legend .legend-labels span').map((s) => s.style.left), ['0%', '25%', '50%', '75%', '100%']);
-});
-
-// The coverage ramp's top two stops must read as different colours in both
-// themes, or the bar looks as if it stops at 75%.
-test('coverage ramp: the 75% and 100% stops are distinct in both themes', () => {
-  const theme = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'theme.html.tmpl'), 'utf8');
-  const stops = (name) => [...theme.matchAll(new RegExp('--' + name + ':\\s*(#[0-9a-f]{6})', 'gi'))].map((m) => m[1]);
-  const top = stops('legend-6');
-  const below = stops('legend-5');
-  assert.equal(top.length, 2, 'a light and a dark --legend-6');
-  const lum = (hex) => {
-    const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
-      .map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
-    return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
-  };
-  for (let i = 0; i < 2; i++) {
-    const [a, b] = [lum(top[i]), lum(below[i])].sort((x, y) => y - x);
-    assert.ok((a + 0.05) / (b + 0.05) >= 1.4, `--legend-5 ${below[i]} and --legend-6 ${top[i]} are too close`);
-  }
+  assert.deepEqual($$('#legend .legend-labels span').map((s) => s.textContent), ['≤ 5%', '5%–10%', '10%–20%', '20%–30%', '30%–50%', '> 50%']);
+  assert.equal($('#legend-title').textContent, '% Paved');
+  assert.match($('#legend-def').textContent, /^Share of the hex's land/, 'the legend defines the coloring');
+  assert.equal($('#legend-def').hidden, false);
 });
 
 test('golden: fire paint bands and legend labels', async () => {

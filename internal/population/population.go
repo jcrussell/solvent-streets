@@ -13,6 +13,7 @@ package population
 
 import (
 	"context"
+	"fmt"
 	"sync/atomic"
 
 	"github.com/jcrussell/solvent-streets/internal/db"
@@ -27,7 +28,11 @@ import (
 // alarming outlier.
 const MinResidents = 10
 
-const source = "2020 Census blocks (TIGERweb), apportioned to hexes by area"
+// census says where the counts come from; perResident ends each ratio's
+// definition.
+const census = "2020 Census, spread from each census block onto the hexes it overlaps by area."
+
+var perResident = fmt.Sprintf(" divided by the hex's population; blank where fewer than %d people live.", MinResidents)
 
 func init() {
 	// Band edges are absolute (the Spec is static per key). Counts depend on
@@ -35,32 +40,32 @@ func init() {
 	// density does not. Skewed values get roughly log-spaced edges by hand —
 	// Transform is advisory and the dashboard paints the literal edges.
 	hexmetric.Register(hexmetric.Spec{
-		Key: metric.Population, Label: "Population", Source: source,
+		Key: metric.Population, Label: "Population", Source: "People counted in the " + census,
 		Format: hexmetric.FormatInt, Additive: true,
 		Scale: hexmetric.Scale{Kind: hexmetric.KindSequential, Transform: hexmetric.TransformLog, Bands: []float64{10, 50, 100, 200, 400}},
 	})
 	hexmetric.Register(hexmetric.Spec{
-		Key: metric.HousingUnits, Label: "Housing units", Source: source,
+		Key: metric.HousingUnits, Label: "Housing units", Source: "Homes counted in the " + census,
 		Format: hexmetric.FormatInt, Additive: true,
 		Scale: hexmetric.Scale{Kind: hexmetric.KindSequential, Transform: hexmetric.TransformLog, Bands: []float64{5, 25, 50, 100, 200}},
 	})
 	hexmetric.Register(hexmetric.Spec{
 		// FormatDensity: stored per m², shown per the viewer's large area
 		// unit. The edges are 500 to 20,000 residents per km².
-		Key: metric.PopulationDensity, Label: "Population density", Source: source,
+		Key: metric.PopulationDensity, Label: "Population density", Source: "Residents per unit of the hex's land inside the city, from the " + census,
 		Format: hexmetric.FormatDensity,
 		Scale:  hexmetric.Scale{Kind: hexmetric.KindSequential, Transform: hexmetric.TransformLog, Bands: []float64{0.0005, 0.002, 0.005, 0.01, 0.02}},
 	})
 	hexmetric.Register(hexmetric.Spec{
 		// FormatArea: stored in m² per resident, shown in the viewer's unit.
-		Key: metric.MaintainedAreaPerResident, Label: "Maintained area per resident", Source: "Maintained area of the toggled resources ÷ " + source,
+		Key: metric.MaintainedAreaPerResident, Label: "Maintained area per resident", Source: "Maintained area of the toggled resources" + perResident,
 		Format: hexmetric.FormatArea,
 		Scale:  hexmetric.Scale{Kind: hexmetric.KindSequential, Transform: hexmetric.TransformLog, Bands: []float64{20, 40, 60, 100, 200}},
 		Derive: &hexmetric.Derivation{Op: hexmetric.OpRatio, Prop: hexmetric.PropArea, Den: metric.Population, MinDen: MinResidents},
 	})
 	hexmetric.Register(hexmetric.Spec{
 		Key: metric.Year1NeedPerResident, Label: "Year-1 need per resident",
-		Source: "Year-1 do-nothing need (incl. backlog) of the toggled resources ÷ " + source,
+		Source: "Year-1 need of the toggled resources, backlog included," + perResident,
 		Format: hexmetric.FormatUSD,
 		Scale:  hexmetric.Scale{Kind: hexmetric.KindSequential, Transform: hexmetric.TransformLog, Bands: []float64{25, 50, 100, 200, 400}},
 		Derive: &hexmetric.Derivation{Op: hexmetric.OpRatio, Prop: hexmetric.PropYear1Need, Den: metric.Population, MinDen: MinResidents},
