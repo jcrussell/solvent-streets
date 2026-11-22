@@ -51,7 +51,29 @@
            link is a link, not a tab, so it sits beside it in the strip. */
         .tab-list { display: flex; min-width: 0; }
         .tab-tabs { display: flex; flex-shrink: 0; }
-        .tab-bar h1 { color: var(--header-fg); font-size: 16px; line-height: 48px; margin-right: 32px; }
+        /* At any width the strip clips and scrolls sideways rather than
+           running under the controls beside it, with a fade at each edge
+           that has more beyond it (app.js bindTabStripFades sets
+           fade-left / fade-right). */
+        .tab-list {
+            overflow-x: auto; overflow-y: hidden;
+            -webkit-overflow-scrolling: touch; scrollbar-width: none;
+        }
+        .tab-list::-webkit-scrollbar { display: none; }
+        .tab-list.fade-right {
+            -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+            mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+        }
+        .tab-list.fade-left {
+            -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 28px), transparent);
+            mask-image: linear-gradient(to left, #000 calc(100% - 28px), transparent);
+        }
+        .tab-list.fade-left.fade-right {
+            -webkit-mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent);
+            mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent);
+        }
+        .tab-bar .tab-btn, .tab-bar a.nav-link { flex-shrink: 0; white-space: nowrap; }
+        .tab-bar h1 { color: var(--header-fg); font-size: 16px; line-height: 48px; margin-right: 32px; white-space: nowrap; flex-shrink: 0; }
         .tab-btn {
             background: none;
             border: none;
@@ -122,7 +144,7 @@
         .panel-head { display: flex; align-items: flex-start; gap: 8px; }
         .panel-head h2 { flex: 1; min-width: 0; }
         .panel-toggle {
-            flex: none; width: 26px; height: 26px; margin: -2px -8px 0 0; padding: 0;
+            flex: none; width: 26px; height: 26px; margin: -10px -12px 0 0; padding: 0;
             display: inline-flex; align-items: center; justify-content: center;
             background: none; color: var(--text-muted);
             border: 1px solid transparent; border-radius: 4px; cursor: pointer;
@@ -240,21 +262,18 @@
         #region-select-btn:hover { border-color: var(--text); }
         #region-rubberband {
             position: absolute; z-index: 10; pointer-events: none;
-            border: 1.5px dashed var(--accent, #2563eb);
-            background: rgba(37, 99, 235, 0.12);
+            /* The theme's strongest text colour, not the accent: the
+               accent is the blue of the colour scales under it. */
+            border: 2px solid var(--text-strong);
+            background: color-mix(in srgb, var(--text-strong) 14%, transparent);
         }
         #region-rubberband[hidden] { display: none; }
 
         /* Region detail panel */
-        .region-detail { font-size: 13px; }
-        .region-detail h3 { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .region-detail .summary-card h3 { display: flex; justify-content: space-between; align-items: center; }
         .region-detail .close-btn {
             background: none; border: none; font-size: 18px; cursor: pointer; color: var(--text-muted); padding: 0 4px; line-height: 1;
         }
-        .region-detail .region-types { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12px; }
-        .region-detail .region-types th, .region-detail .region-types td { text-align: left; padding: 3px 4px; border-bottom: 1px solid var(--border); }
-        .region-detail .region-types th { color: var(--text-muted); font-weight: 500; }
-        .region-detail .region-types td:first-child { text-transform: capitalize; }
         .region-clear {
             display: block; width: 100%; margin-top: 10px; padding: 5px 10px;
             background: var(--panel); color: var(--text);
@@ -375,7 +394,7 @@
         #gear-toggles-row { flex-direction: column; align-items: stretch; }
         /* Tag filters (one select per dimension) narrow the city selector on
            every tab. In the top bar beside it, styled as it is; below
-           1100px they fold into a popover behind the Filter button, styled
+           1400px they fold into a popover behind the Filter button, styled
            as the gear menu. */
         .topbar-filters { margin-left: auto; align-self: center; display: flex; align-items: center; }
         .topbar-filters + #city-select { margin-left: 8px; }
@@ -400,7 +419,7 @@
         }
         .filter-count[hidden] { display: none; }
         .filter-toggle:focus-visible, .filter-clear:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-        @media (max-width: 1100px) {
+        @media (max-width: 1400px) {
             .filter-toggle { display: inline-flex; }
             .tag-filter-pop {
                 display: none; position: fixed; right: 8px;
@@ -452,7 +471,9 @@
             line-height: 1;
         }
         .gear-menu .theme-toggle:hover { border-color: var(--text); }
-        .solvency-headline {
+        /* Every tab opens with one of these: a sentence naming what the
+           page covers (a city, or the cities in view), then notes. */
+        .solvency-headline, .page-lead {
             background: var(--panel);
             border: 1px solid var(--border);
             border-left: 4px solid var(--accent);
@@ -460,9 +481,9 @@
             padding: 20px 24px;
             margin-bottom: 24px;
         }
-        .solvency-headline .lead { font-size: 20px; font-weight: 700; color: var(--text-strong); line-height: 1.4; }
-        .solvency-headline .lead .num { color: var(--accent); }
-        .solvency-headline .detail { font-size: 14px; color: var(--text-muted); margin-top: 8px; }
+        .solvency-headline .lead, .page-lead .lead { font-size: 20px; font-weight: 700; color: var(--text-strong); line-height: 1.4; }
+        .solvency-headline .lead .num, .page-lead .lead .num { color: var(--accent); }
+        .solvency-headline .detail, .page-lead .detail { font-size: 14px; color: var(--text-muted); margin-top: 8px; }
         .default-pci { color: var(--text-muted); cursor: help; }
         /* The default-PCI flag on a Compare score card (defaultPCIBadge):
            a quiet pill in the corner, clear of the centred medal. */
@@ -648,14 +669,11 @@
 
         /* Compare tab */
         .compare { padding: 24px; max-width: 1200px; margin: 0 auto; }
-        .compare-header { text-align: center; margin-bottom: 32px; }
-        .compare-header h2 { font-size: 28px; color: var(--text-strong); margin-bottom: 4px; }
-        .compare-header .compare-sub { font-size: 14px; color: var(--text-muted); }
         .score-section-title { font-size: 18px; color: var(--text-strong); margin-bottom: 4px; }
         .score-sub { font-size: 13px; color: var(--text-muted); margin-bottom: 16px; }
         .compare-toolbar {
             display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
-            margin: -16px 0 24px; font-size: 13px; color: var(--text-muted);
+            margin: 0 0 24px; font-size: 13px; color: var(--text-muted);
         }
         .compare-toolbar[hidden] { display: none; }
         .compare-toolbar label { font-weight: 600; color: var(--text); }
@@ -670,6 +688,7 @@
         .score-card.score-card-muted .score-value { color: var(--text-muted); }
         /* A layer with no data (meta.json missing_resources). */
         .lb-row.lb-na { opacity: 0.6; }
+        .lb-more { padding: 6px 8px 0; font-size: 12px; color: var(--text-muted); }
         .stat-card.missing-card .stat-label, .stat-row.stat-note { color: var(--text-muted); font-size: 12px; }
         .score-card {
             background: var(--panel);
@@ -753,7 +772,6 @@
         .config-tab { padding: 24px; max-width: 900px; margin: 0 auto; overflow-y: auto; height: 100%; }
         .config-tab h2 { font-size: 18px; margin-bottom: 16px; color: var(--text); }
         .config-tab h3 { font-size: 15px; margin-bottom: 8px; color: var(--text-muted); }
-        .config-tab .config-note { font-size: 13px; margin-bottom: 12px; color: var(--text-muted); }
         .config-tab pre {
             background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px;
             padding: 20px; overflow-x: auto; font-size: 14px; line-height: 1.6; color: var(--text);
@@ -801,6 +819,20 @@
             outline-offset: 2px;
         }
 
+        /* Too narrow for the title, tabs, filters and city select in one
+           row (about 1170px with the filters folded): two rows. The title,
+           Filter, city select and gear on top, always in view; the tabs
+           below, scrolling sideways in their own row. */
+        @media (max-width: 1200px) {
+            :root { --tabbar-h: 84px; }
+            .tab-bar { flex-wrap: wrap; align-items: center; }
+            .tab-bar h1 { line-height: 40px; }
+            #city-select { flex: 1 1 0; min-width: 0; max-width: 260px; margin-right: 8px; }
+            .gear-toggle { margin-right: 0; }
+            .tab-list { order: 1; flex: 0 0 100%; height: 44px; }
+            .tab-bar .tab-btn, .tab-bar a.nav-link { line-height: 42px; }
+        }
+
         /* Narrow viewport (phones / small tablets in portrait).
            The desktop layout assumes ~1200px-wide canvases for the
            Financials/Compare grids and a fixed top-right map panel; on a
@@ -816,33 +848,11 @@
                 display: flex; align-items: center; justify-content: center;
                 line-height: 1.25; white-space: normal; font-size: 11px; padding: 0 8px;
             }
-            /* Two rows: the title, city select and gear on top, always in
-               view; the tabs below, scrolling sideways in their own row with
-               a fade at each edge that has more beyond it (app.js
-               bindTabStripFades sets fade-left / fade-right). */
-            .tab-bar { padding: 0 8px; flex-wrap: wrap; align-items: center; }
-            .tab-bar h1 { font-size: 14px; line-height: 40px; margin-right: 12px; flex-shrink: 0; }
-            #city-select { flex: 1 1 0; min-width: 0; max-width: 260px; margin-right: 8px; font-size: 13px; }
-            .gear-toggle { margin-right: 0; }
-            .tab-list {
-                order: 1; flex: 0 0 100%; height: 44px;
-                overflow-x: auto; overflow-y: hidden;
-                -webkit-overflow-scrolling: touch; scrollbar-width: none;
-            }
-            .tab-list.fade-right {
-                -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
-                mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
-            }
-            .tab-list.fade-left {
-                -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 28px), transparent);
-                mask-image: linear-gradient(to left, #000 calc(100% - 28px), transparent);
-            }
-            .tab-list.fade-left.fade-right {
-                -webkit-mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent);
-                mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent);
-            }
-            .tab-list::-webkit-scrollbar { display: none; }
-            .tab-bar .tab-btn, .tab-bar a.nav-link { padding: 0 10px; font-size: 13px; flex-shrink: 0; line-height: 42px; white-space: nowrap; }
+            /* The two-row tab bar (below 1200px) in smaller type. */
+            .tab-bar { padding: 0 8px; }
+            .tab-bar h1 { font-size: 14px; margin-right: 12px; }
+            #city-select { font-size: 13px; }
+            .tab-bar .tab-btn, .tab-bar a.nav-link { padding: 0 10px; font-size: 13px; }
             .jurisdiction-toggle button { padding: 4px 8px; font-size: 12px; }
 
             /* Map panel: stop covering the map; dock at the bottom with a
@@ -884,7 +894,6 @@
             .controls-grid { grid-template-columns: 1fr; gap: 12px; --control-h: 24px; }
             .compare-charts { grid-template-columns: 1fr; gap: 16px; }
             .compare-chart-card { padding: 14px; }
-            .compare-header h2 { font-size: 22px; }
             .score-cards { grid-template-columns: 1fr; gap: 12px; }
             .score-card { padding: 16px; }
             .score-card .score-value { font-size: 36px; }
@@ -1134,6 +1143,10 @@
 
     <div id="materials-tab" class="tab-content" data-city-scoped role="tabpanel" aria-labelledby="materials-tab-btn">
         <div class="financials">
+            <div class="page-lead" id="materials-lead" style="display:none">
+                <div class="lead" id="materials-lead-text"></div>
+                <div class="detail">The hot-mix asphalt and the binder in it that keeping the network in repair takes, averaged over the forecast.</div>
+            </div>
             <div class="headlines" id="materials-headlines" style="display:none">
                 <div class="headline-card">
                     <div class="label">Annual Asphalt Mix</div>
@@ -1183,8 +1196,10 @@
                  switched with the city select by app.js renderCitySettings:
                  the combined file of a multi-city site is far too long to
                  show whole. -->
-            <h2>Settings for <span id="config-city-name">{{.HeadingName}}</span></h2>
-            <p class="config-note">The settings this city's figures are computed under, with defaults filled in.</p>
+            <div class="page-lead">
+                <div class="lead">Settings for <span id="config-city-name">{{.HeadingName}}</span></div>
+                <div class="detail">The settings this city's figures are computed under, with defaults filled in.</div>
+            </div>
             <pre><code id="config-city-toml">Loading…</code></pre>
             {{else}}
             <h2>Project Configuration</h2>
@@ -1201,9 +1216,9 @@
     {{if .Cities}}
     <div id="compare-tab" class="tab-content" data-city-scoped role="tabpanel" aria-labelledby="compare-tab-btn" style="overflow-y:auto;">
         <div class="compare">
-            <div class="compare-header">
-                <h2>City Showdown</h2>
-                <div class="compare-sub">How does your city's pavement stack up?</div>
+            <div class="page-lead">
+                <div class="lead" id="compare-scope">How the cities compare.</div>
+                <div class="detail">Each city's street solvency and infrastructure, ranked side by side.</div>
             </div>
             {{if .HasTagFilters}}<div class="filter-status" hidden><span class="filter-status-text"></span><button type="button" class="filter-clear">Clear</button></div>{{end}}
             <div class="compare-loading" id="compare-loading">Loading city data...</div>
@@ -1251,9 +1266,9 @@
     </div>
     <div id="aggregate-tab" class="tab-content" data-city-scoped role="tabpanel" aria-labelledby="aggregate-tab-btn" style="overflow-y:auto;">
         <div class="compare">
-            <div class="compare-header">
-                <h2>Region Rollup</h2>
-                <div class="compare-sub">The whole network as one fiscal entity — what does it cost to keep solvent?</div>
+            <div class="page-lead">
+                <div class="lead" id="aggregate-scope">The cities as one fiscal entity: what does it cost to keep them solvent?</div>
+                <div class="detail">Every city's streets, parking and sidewalks summed into one network.</div>
             </div>
             {{if .HasTagFilters}}<div class="filter-status" hidden><span class="filter-status-text"></span><button type="button" class="filter-clear">Clear</button></div>{{end}}
             <div class="compare-loading" id="aggregate-loading">Loading region data...</div>
@@ -1299,7 +1314,7 @@
     <script src="selectors.js"></script>
     <script src="app.js"></script>
     <footer class="site-footer">
-        Generated {{.GeneratedDate}} · {{.BuildVersion}} · <a href="https://github.com/jcrussell/solvent-streets">solvent-streets</a>
+        {{.BuildVersion}} · <a href="https://github.com/jcrussell/solvent-streets">solvent-streets</a>
     </footer>
     {{template "theme_toggle" .}}
 </body>

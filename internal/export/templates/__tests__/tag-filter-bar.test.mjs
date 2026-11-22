@@ -1,7 +1,8 @@
 // The city tag filters sit in the top bar beside the city selector (behind
 // a Filter button on a narrow screen), not in the gear menu, and Compare and
-// Aggregate say when they are filtered: "Showing N of M cities · <values>"
-// with a Clear. The fixture's three cities carry a "group" dimension (Metro,
+// Aggregate open with the cities they cover ("How the 2 cities in Metro
+// compare") and, when filtered, a "Filtered from M cities" line with a
+// Clear. The fixture's three cities carry a "group" dimension (Metro,
 // Top 50) and a "state" one (CA, OR).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -43,19 +44,24 @@ test('a filter narrows the city selector and the Compare tiles, and reaches the 
 
   const status = h.$('#compare-tab .filter-status');
   assert.equal(status.hidden, false);
-  assert.equal(status.querySelector('.filter-status-text').textContent, 'Showing 2 of 3 cities · Metro');
-  assert.equal(h.$('#aggregate-tab .filter-status .filter-status-text').textContent, 'Showing 2 of 3 cities · Metro');
+  assert.equal(status.querySelector('.filter-status-text').textContent, 'Filtered from 3 cities');
+  assert.equal(h.$('#aggregate-tab .filter-status .filter-status-text').textContent, 'Filtered from 3 cities');
+  assert.equal(h.$('#compare-scope').textContent, 'How the 2 cities in Metro compare.');
+  assert.equal(h.$('#aggregate-scope').textContent,
+    'The 2 cities in Metro as one fiscal entity: what does it cost to keep them solvent?');
 });
 
 test('Clear on the status line drops every filter', async () => {
   const h = load({ data: fullData, url: 'https://example.test/index.html?tab=compare-tab&tag=group:Metro&tag=state:CA' });
   await h.flush(12);
   const status = h.$('#compare-tab .filter-status');
-  assert.equal(status.querySelector('.filter-status-text').textContent, 'Showing 2 of 3 cities · Metro · CA');
+  assert.equal(status.querySelector('.filter-status-text').textContent, 'Filtered from 3 cities');
+  assert.equal(h.$('#compare-scope').textContent, 'How the 2 cities in Metro, CA compare.');
 
   status.querySelector('.filter-clear').click();
   await h.flush(12);
   assert.equal(status.hidden, true);
+  assert.equal(h.$('#compare-scope').textContent, 'How all 3 cities compare.');
   assert.deepEqual(tags(h), []);
   assert.equal(filter(h, 'group').value, '');
   assert.equal(filter(h, 'state').value, '');

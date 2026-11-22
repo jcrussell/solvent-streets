@@ -13,7 +13,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jcrussell/solvent-streets/internal/build"
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/forecast"
@@ -102,9 +101,9 @@ type TemplateData struct {
 	// export. Gates server-only UI (e.g. the snapshot picker) that depends
 	// on live /api endpoints absent from the static output.
 	IsLiveServer bool
-	// GeneratedDate is the YYYY-MM-DD date this page was rendered.
-	GeneratedDate string
-	// BuildVersion is the pvmt version that rendered the page (FooterInfo).
+	// BuildVersion is the pvmt version that rendered the page, shown in the
+	// footer. A release names its tag, and a development build's version
+	// already carries its commit (v0.4.1-532-gb5bbc142).
 	BuildVersion string
 }
 
@@ -282,14 +281,6 @@ func (d TemplateData) ForecastDefaults() ForecastDefaults {
 // TemplateData construction site — static export and live server — gets it
 // without remembering to set it.
 func (TemplateData) BandCount() int { return game.BandCount }
-
-// FooterInfo returns the values shown in the page footer: the generation
-// date (YYYY-MM-DD) and the pvmt version that rendered it. The version
-// alone: a release names its tag, and a development build's version already
-// carries its commit (v0.4.1-532-gb5bbc142).
-func FooterInfo() (generatedDate, buildVersion string) {
-	return time.Now().Format(time.DateOnly), build.Current().Version
-}
 
 // resourceColorsJSOnce lazily marshals ResourceColors. Lazy so a binary
 // like `pvmt --version` that never touches the exporter doesn't pay

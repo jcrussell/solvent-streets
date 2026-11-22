@@ -2171,8 +2171,10 @@
         }
 
         // The selected region's hexes, outlined on the map over the heatmap
-        // while the region card is open. Cleared with the card (its close
-        // and Clear selection buttons), and on a city change.
+        // while the region card is open, in the theme's strongest text
+        // colour: the accent is the blue of the colour scales under it.
+        // Cleared with the card (its close and Clear selection buttons), and
+        // on a city change.
         /** @param {any[]} features */
         function setRegionHighlight(features) {
             const data = { type: 'FeatureCollection', features };
@@ -2181,7 +2183,9 @@
             map.addSource('region-highlight', { type: 'geojson', data });
             map.addLayer({
                 id: 'region-highlight', type: 'line', source: 'region-highlight',
-                paint: { 'line-color': cssVar('--accent'), 'line-width': 2.5 },
+                // Thin while the hexes are small on screen, so the outlines
+                // do not cover the colours they enclose.
+                paint: { 'line-color': cssVar('--text-strong'), 'line-width': ['interpolate', ['linear'], ['zoom'], 11, 0.6, 13, 1.2, 15, 2.5] },
             });
         }
         function clearRegionHighlight() {
@@ -2189,7 +2193,7 @@
             if (map.getSource('region-highlight')) map.removeSource('region-highlight');
         }
         document.addEventListener('pvmt:themechange', () => {
-            if (map.getLayer('region-highlight')) map.setPaintProperty('region-highlight', 'line-color', cssVar('--accent'));
+            if (map.getLayer('region-highlight')) map.setPaintProperty('region-highlight', 'line-color', cssVar('--text-strong'));
         });
 
         // --- Drag-to-select region -> aggregate totals ---------------------
@@ -2309,18 +2313,40 @@
                 return !!c && c[0] >= bbox[0] && c[0] <= bbox[2] && c[1] >= bbox[1] && c[1] <= bbox[3];
             }
 
-            // regionMetricRow is the region's figure for the active Color by
-            // metric when the pavement rows do not already give it: a stored
-            // count's total (meta.json gives an additive metric a city
-            // total), a per-resident ratio's Σ numerator / Σ denominator, or
-            // for a time or density the mean weighted by hex land area. It
-            // reads every hex in the box the metric covers, pavement or not.
+            // regionMetricCards are the city panel's metric cards over the
+            // region: for each stored metric, the total where the city card
+            // has one, the share within its threshold, and the median and
+            // range per hex, over every hex in the box the metric covers
+            // (pavement or not). Then the per-resident card, each ratio as
+            // the region's Σ numerator / Σ denominator.
             /** @param {number[]} bbox @param {Record<string, any>} paved */
-            function regionMetricRow(bbox, paved) {
-                const m = activeMetric();
-                if (!m || (m.derive && m.derive.op === 'sum')) return '';
-                const summary = lastCityMeta && lastCityMeta.metrics ? lastCityMeta.metrics[hexMetric] : null;
-                if (m.derive && m.derive.op === 'ratio') {
+            function regionMetricCards(bbox, paved) {
+                const metas = (lastCityMeta && lastCityMeta.metrics) || {};
+                let html = '';
+                for (const key of Object.keys(hexMetrics).sort()) {
+                    const m = hexMetrics[key];
+                    const s = metas[key] || {};
+                    const vals = [];
+                    for (const [hid, v] of Object.entries(m.values || {})) {
+                        if (centroidIn({ geometry: hexGeomById[hid] }, bbox)) vals.push(v);
+                    }
+                    if (vals.length === 0) continue;
+                    vals.sort((a, b) => a - b);
+                    const mid = vals.length >> 1;
+                    const med = vals.length % 2 ? vals[mid] : (vals[mid - 1] + vals[mid]) / 2;
+                    const total = vals.reduce((a, b) => a + b, 0);
+                    const within = s.threshold_s > 0 ? vals.filter(v => v <= s.threshold_s).length / vals.length : null;
+                    html += '<div class="stat-card metric-card"><h3>' + esc(s.label || m.label) + '</h3>' +
+                        (s.total != null ? statRow('Total', fmtMetric(total, m.format)) : '') +
+                        (within != null ? statRow('Within ' + fmtMetric(s.threshold_s, m.format), (within * 100).toFixed(1) + '%') : '') +
+                        statRow('Median per hex', fmtMetric(med, m.format)) +
+                        statRow('Range per hex', fmtLegend(vals[0], m.format, false) + ' – ' + fmtLegend(vals[vals.length - 1], m.format, true)) +
+                        '</div>';
+                }
+                let ratios = '';
+                for (const key of availableMetricKeys()) {
+                    const m = lookupMetric(key);
+                    if (!m || !m.derive || m.derive.op !== 'ratio') continue;
                     const den = hexMetrics[m.derive.den || ''];
                     let num = 0, d = 0;
                     for (const [hid, v] of Object.entries((den && den.values) || {})) {
@@ -2328,36 +2354,27 @@
                         d += v;
                         if (paved[hid]) num += paved[hid][DERIVE_PROPS[m.derive.prop]] || 0;
                     }
-                    return d > 0 ? statRow(esc(m.label) + ' (region)', fmtMetric(num / d, m.format)) : '';
+                    if (d > 0) ratios += statRow(esc(m.label), fmtMetric(num / d, m.format));
                 }
-                let sum = 0, wsum = 0, w = 0, n = 0;
-                for (const [hid, v] of Object.entries(m.values || {})) {
-                    const geom = hexGeomById[hid];
-                    if (!centroidIn({ geometry: geom }, bbox)) continue;
-                    const land = geomAreaM2(geom) || 1;
-                    sum += v; wsum += v * land; w += land; n++;
-                }
-                if (n === 0) return '';
-                const unit = m.format === 'minutes' ? ' min' : '';
-                if (summary && summary.total != null) return statRow(esc(m.label) + ' (total)', fmtMetric(sum, m.format) + unit);
-                return statRow(esc(m.label) + ' (area-weighted mean)', fmtMetric(wsum / w, m.format) + unit);
+                if (ratios) html += '<div class="stat-card metric-card ratio-card"><h3>Per resident (region)</h3>' + ratios + '</div>';
+                return html;
             }
 
             // renderRegionDetail totals the hexes with toggled pavement whose
             // centre falls in bbox, highlights them on the map, and renders
-            // the region card into #stats: the hex count, their land and
-            // paved area and the share paved (paved over land, so a dense
-            // hex counts by its land, not its paving), est. year-1 cost and
-            // parking spaces, the per-resource breakdown, and the Color by
-            // metric's figure. An empty selection shows zeros, not an error.
+            // the region into #stats with the city panel's cards: a summary
+            // (hex count, land and paved area, the share paved — paved over
+            // land, so a dense hex counts by its land, not its paving — and
+            // est. year-1 cost), a card per resource, and the metric cards.
+            // An empty selection shows zeros, not an error.
             function renderRegionDetail(bbox) {
                 const fc = buildBlendedHexFC();
                 /** @type {any[]} */
                 const selected = [];
                 /** @type {Record<string, any>} */
                 const paved = {};
-                let land = 0, sumArea = 0, sumCost = 0, sumSpaces = 0;
-                /** @type {Record<string, {area: number, cost: number}>} */
+                let land = 0, sumArea = 0, sumCost = 0;
+                /** @type {Record<string, {area: number, cost: number, spaces: number}>} */
                 const byType = {};
                 let hasCost = false;
                 for (const f of (fc.features || [])) {
@@ -2373,23 +2390,25 @@
                     land += fig.land;
                     sumArea += fig.total.area;
                     sumCost += fig.total.cost;
-                    sumSpaces += fig.total.spaces;
                     if (fig.total.hasCost) hasCost = true;
                     for (const t of fig.types) {
-                        const acc = byType[t.type] || (byType[t.type] = { area: 0, cost: 0 });
+                        const acc = byType[t.type] || (byType[t.type] = { area: 0, cost: 0, spaces: 0 });
                         acc.area += t.area;
                         acc.cost += t.cost;
+                        acc.spaces += t.spaces;
                     }
                 }
                 setRegionHighlight(selected);
                 const pct = land > 0 ? (sumArea / land) * 100 : 0;
-                const types = Object.keys(layerColors).filter(t => byType[t]);
-                const table = types.length > 0
-                    ? '<table class="region-types"><tr><th>Type</th><th>Paved area</th>' + (hasCost ? '<th>Est. cost</th>' : '') + '</tr>' +
-                        types.map(t => '<tr><td>' + esc(t) + '</td><td>' + fmtNum1(toAreaLarge(byType[t].area)) + ' ' + areaLargeUnit() + '</td>' +
-                            (hasCost ? '<td>' + fmtMoney(byType[t].cost) + '</td>' : '') + '</tr>').join('') +
-                        '</table>'
-                    : '';
+                const typeCards = Object.keys(layerColors).filter(t => byType[t]).map(t => {
+                    const b = byType[t];
+                    return '<div class="stat-card"><h3>' + esc(t) + '</h3>' +
+                        statRow('Area (' + areaLargeUnit() + ')', fmtNum1(toAreaLarge(b.area))) +
+                        statRow('Area (' + areaVeryLargeUnit() + ')', toAreaVeryLarge(b.area).toFixed(2)) +
+                        (b.spaces > 0 ? statRow('Est. Spaces', Math.round(b.spaces).toLocaleString('en-US')) : '') +
+                        (hasCost ? statRow('Est. year-1 cost', fmtMoney(b.cost)) : '') +
+                        '</div>';
+                }).join('');
 
                 const statsEl = document.getElementById('stats');
                 if (!statsEl) return;
@@ -2401,12 +2420,12 @@
                     statRow('Land area (' + areaLargeUnit() + ')', fmtNum1(toAreaLarge(land))) +
                     statRow('Paved area (' + areaLargeUnit() + ')', fmtNum1(toAreaLarge(sumArea))) +
                     statRow('% paved (of land)', pct.toFixed(1) + '%') +
-                    statRow('Est. year-1 cost', fmtMoney(sumCost)) +
-                    (sumSpaces > 0 ? statRow('Est. parking spaces', Math.round(sumSpaces).toLocaleString('en-US')) : '') +
-                    regionMetricRow(bbox, paved) +
-                    table +
+                    (hasCost ? statRow('Est. year-1 cost', fmtMoney(sumCost)) : '') +
                     '<button type="button" class="region-clear" id="clear-region">Clear selection</button>' +
-                    '</div></div>';
+                    '</div>' +
+                    typeCards +
+                    regionMetricCards(bbox, paved) +
+                    '</div>';
             }
         })();
 
@@ -3469,6 +3488,7 @@
         /** @param {string} msg */
         function showMaterialsEmpty(msg) {
             destroyMaterialsCharts();
+            document.getElementById('materials-lead').style.display = 'none';
             document.getElementById('materials-headlines').style.display = 'none';
             document.getElementById('materials-tier-section').style.display = 'none';
             document.getElementById('materials-note').style.display = 'none';
@@ -3530,6 +3550,9 @@
             document.getElementById('hl-oil-sub').textContent = '~' + Number(perTonneToDisplay(barrelsPerTonBinder).toFixed(1)) +
                 ' bbl per ' + massUnitSingular() + ' binder';
             document.getElementById('materials-headlines').style.display = '';
+            document.getElementById('materials-lead-text').innerHTML = 'Keeping ' + esc(currentCityName()) +
+                '’s pavement in repair takes about <span class="num">' + esc(fmtMass(avgMix)) + '</span> of asphalt mix a year.';
+            document.getElementById('materials-lead').style.display = '';
 
             var note = document.getElementById('materials-note');
             var noteText = 'Each year ~1/' + Math.round(cycleYears) + ' of the network (area ÷ ' +
@@ -5048,8 +5071,28 @@
             queryAll('.filter-status').forEach(el => {
                 el.hidden = n === 0;
                 const text = el.querySelector('.filter-status-text');
-                if (text) text.textContent = n > 0 ? 'Showing ' + shown + ' of ' + CITIES.length + ' cities · ' + labels.join(' · ') : '';
+                if (text) text.textContent = n > 0 ? 'Filtered from ' + CITIES.length + ' cities' : '';
             });
+            syncGroupScope(shown, labels);
+        }
+
+        // syncGroupScope opens Compare and Aggregate with the cities they
+        // cover, as Financials opens with the city it covers: "How the 12
+        // cities in College Towns compare", or all of them with no filter.
+        /**
+         * @param {number} shown
+         * @param {string[]} labels
+         */
+        function syncGroupScope(shown, labels) {
+            const one = shown === 1;
+            const cities = labels.length > 0
+                ? 'the ' + shown + (one ? ' city' : ' cities') + ' in ' + labels.join(', ')
+                : (one ? 'the one city' : 'all ' + shown + ' cities');
+            const cmp = document.getElementById('compare-scope');
+            if (cmp) cmp.textContent = 'How ' + cities + (one ? ' compares.' : ' compare.');
+            const agg = document.getElementById('aggregate-scope');
+            if (agg) agg.textContent = cities.charAt(0).toUpperCase() + cities.slice(1) +
+                ' as one fiscal entity: what does it cost to keep ' + (one ? 'it' : 'them') + ' solvent?';
         }
 
         // The Filter button (narrow screens) opens the filters as a
@@ -5369,11 +5412,15 @@
             });
         }
 
-        // compareTiles holds each tile section's cards, ranked first, as
-        // renderCompare built them; renderCompareTiles draws the top
-        // compareTopN of each, so a change of N redraws no chart.
+        // compareTiles holds each tile section's cards and each leaderboard's
+        // rows, ranked first, as renderCompare built them; renderCompareTiles
+        // draws the top compareTopN of each, so a change of N redraws no chart.
         /** @type {{solvency: string[], infra: string[]}} */
-        var compareTiles = { solvency: [], infra: [] };
+        // Each leaderboard category keeps its ranked rows and its n/a rows
+        // apart, so the top N cuts the ranking and an n/a row shows only
+        // under a board drawn in full.
+        /** @type {{solvency: string[], infra: string[], boards: {head: string, ranked: string[], na: string[]}[]}} */
+        var compareTiles = { solvency: [], infra: [], boards: [] };
         function renderCompareTiles() {
             const solvEl = document.getElementById('solvency-cards');
             const infraEl = document.getElementById('infra-cards');
@@ -5401,6 +5448,14 @@
             }
             solvEl.innerHTML = compareTiles.solvency.slice(0, n).join('');
             infraEl.innerHTML = compareTiles.infra.slice(0, n).join('');
+            const lbEl = document.getElementById('leaderboard-list');
+            if (lbEl) lbEl.innerHTML = compareTiles.boards.map(function(b) {
+                const cut = b.ranked.length > n;
+                const more = cut ? b.ranked.length - n : 0;
+                return '<div class="lb-category">' + b.head + b.ranked.slice(0, n).join('') +
+                    (cut ? '<div class="lb-more">' + more + ' more ' + (more === 1 ? 'city' : 'cities') + ' not shown</div>' : b.na.join('')) +
+                    '</div>';
+            }).join('');
             markCurrentCity();
         }
         {
@@ -5555,7 +5610,6 @@
             }).concat(allMetrics.filter(function(m) { return m.unranked.length > 0; }).map(function(m) {
                 return scoreCard(m, { ranked: false, muted: true, value: 'N/A', label: unrankedLabel(m) + ' — unranked', breakdown: infraBreakdown(m) });
             }));
-            renderCompareTiles();
 
             // Leaderboards — data-driven categories
             var categories = [
@@ -5581,7 +5635,7 @@
                 { key: 'insolvencyYear', needs: ['roads'],  label: 'Years to Insolvency (roads, higher is better)', award: 'Latest Insolvency', higher: true, medalIf: solvencyMedalOK, filter: function(m) { return m.insolvencyYear !== null; }, fmt: function(v) { return 'Year ' + v; }, color: '#14b8a6', note: 'Insolvency year = the first forecast year a city’s cumulative roads backlog grows to an entire treatment cycle of deferred work — a whole network’s worth of treatment, unrecoverable. Computed on roads/streets only at the current budget; shown only for cities with a cited current_budget that go insolvent within the horizon. Cities that stay solvent (most, with realistic budgets) are omitted — funding gap is the primary metric there.' }
             ];
 
-            var lbHtml = categories.map(function(cat) {
+            var boards = categories.map(function(cat) {
                 // Restrict to cities that actually have this metric. Without
                 // this, a null/undefined value yields NaN sort keys and bar
                 // widths that corrupt the whole category.
@@ -5590,7 +5644,7 @@
                 var lacks = function(m) { return (cat.needs || []).filter(function(rt) { return m.unranked.includes(rt); }); };
                 var unavailable = allMetrics.filter(function(m) { return lacks(m).length > 0; });
                 var pool = allMetrics.filter(function(m) { return lacks(m).length === 0 && (!cat.filter || cat.filter(m)); });
-                if (pool.length === 0) return '';
+                if (pool.length === 0) return null;
                 var sorted = pool.slice().sort(function(a, b) {
                     return cat.higher ? (b[cat.key] - a[cat.key]) : (a[cat.key] - b[cat.key]);
                 });
@@ -5615,7 +5669,7 @@
                     var firstFail = sorted.findIndex(function(m) { return !cat.medalIf(m); });
                     if (firstFail >= 0) medalRows = firstFail;
                 }
-                var rows = sorted.map(function(m, i) {
+                var ranked = sorted.map(function(m, i) {
                     // Clamp to [0,100]: the funding-gap metric is signed
                     // (negative when over-funded), which would otherwise produce
                     // an invalid bar width. maxVal is floored at 0 above, so the
@@ -5628,23 +5682,24 @@
                         '<div class="lb-bar-wrap"><div class="lb-bar" style="width:' + pct + '%;background:' + cat.color + ';"></div></div>' +
                         '<span class="lb-val">' + cat.fmt(m[cat.key]) + '</span>' +
                     '</div>';
-                }).join('') + unavailable.map(function(m) {
+                });
+                var na = unavailable.map(function(m) {
                     return '<div class="lb-row lb-na" data-slug="' + esc(m.slug || '') + '">' +
                         '<span class="lb-medal">–</span>' +
                         '<span class="lb-name">' + esc(m.name) + defaultPCIMark(m) + '</span>' +
                         '<div class="lb-bar-wrap"></div>' +
                         '<span class="lb-val" title="No complete ' + esc(lacks(m).join(', ')) + ' data for this city">n/a</span>' +
                     '</div>';
-                }).join('');
+                });
 
                 var noteIcon = cat.note ? ' <span class="lb-note" title="' + cat.note.replace(/"/g, '&quot;') + '">ⓘ</span>' : '';
-                return '<div class="lb-category">' +
-                    '<div class="lb-title"><h4>' + cat.label + noteIcon + '</h4>' + (cat.award && sorted.length >= 2 && medalRows > 0 ? '<span class="lb-award">' + medals[0] + ' ' + cat.award + ': ' + esc(sorted[0].name) + '</span>' : '') + '</div>' +
-                    rows +
-                '</div>';
-            }).join('');
-            document.getElementById('leaderboard-list').innerHTML = lbHtml;
-            markCurrentCity();
+                return {
+                    head: '<div class="lb-title"><h4>' + cat.label + noteIcon + '</h4>' + (cat.award && sorted.length >= 2 && medalRows > 0 ? '<span class="lb-award">' + medals[0] + ' ' + cat.award + ': ' + esc(sorted[0].name) + '</span>' : '') + '</div>',
+                    ranked: ranked, na: na,
+                };
+            }).filter(Boolean);
+            compareTiles.boards = boards;
+            renderCompareTiles();
 
             // Charts
             compareCharts.forEach(function(c) { c.destroy(); });

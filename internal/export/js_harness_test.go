@@ -341,7 +341,6 @@ func writeJSFixtureSite(t *testing.T, dir string, seed template.JS) {
 		UnitSystem:    "imperial",
 		Cities:        cities,
 		TagDimensions: GroupCitiesByDimension(cities),
-		GeneratedDate: "2026-01-01",
 		BuildVersion:  "test",
 	}
 

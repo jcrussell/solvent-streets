@@ -44,8 +44,10 @@ test('a large site shows the top 10 tiles in each section, in rank order', async
   assert.equal(tiles(h, 'infra-cards').length, 10);
   // The podium keeps its medals.
   assert.equal(h.$('#solvency-cards .score-card').querySelector('.rank-medal').textContent, '\u{1F947}');
-  // The leaderboards still rank every city.
-  assert.equal(h.$$('#leaderboard-list .lb-category')[0].querySelectorAll('.lb-row').length, 30);
+  // The leaderboards follow the same N, and say how many they leave out.
+  const board = h.$$('#leaderboard-list .lb-category')[0];
+  assert.equal(board.querySelectorAll('.lb-row').length, 10);
+  assert.equal(board.querySelector('.lb-more').textContent, '20 more cities not shown');
 });
 
 test('the selector changes N and writes it to the URL, leaving the default out', async () => {
@@ -54,9 +56,12 @@ test('the selector changes N and writes it to the URL, leaving the default out',
   assert.equal(tiles(h, 'solvency-cards').length, 3);
   assert.equal(tiles(h, 'infra-cards').length, 3);
   assert.equal(top(h), '3');
+  assert.equal(h.$$('#leaderboard-list .lb-category')[0].querySelectorAll('.lb-row').length, 3);
 
   choose(h, 'all');
   assert.equal(tiles(h, 'solvency-cards').length, 30);
+  assert.equal(h.$$('#leaderboard-list .lb-category')[0].querySelectorAll('.lb-row').length, 30);
+  assert.equal(h.$('#leaderboard-list .lb-more'), null);
   assert.equal(top(h), 'all');
 
   choose(h, '10');

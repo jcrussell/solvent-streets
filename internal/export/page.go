@@ -10,6 +10,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 
+	"github.com/jcrussell/solvent-streets/internal/build"
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/redact"
 )
@@ -89,7 +90,6 @@ func NewTemplateData(cfg *config.Config, meta MetaJSON, seed template.JS, cities
 		}
 		resolvedTOML = ResolvedTOMLWithEdges(cfg, hexEdges)
 	}
-	date, ver := FooterInfo()
 	return TemplateData{
 		MetaJSON:      meta,
 		ForecastSeed:  seed,
@@ -100,8 +100,7 @@ func NewTemplateData(cfg *config.Config, meta MetaJSON, seed template.JS, cities
 		Cities:        cities,
 		TagDimensions: GroupCitiesByDimension(cities),
 		AboutHTML:     about,
-		GeneratedDate: date,
-		BuildVersion:  ver,
+		BuildVersion:  build.Current().Version,
 	}, nil
 }
 

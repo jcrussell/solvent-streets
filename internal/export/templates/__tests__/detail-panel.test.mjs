@@ -299,7 +299,14 @@ const highlighted = (h) => {
   return src && h.win._map.getLayer('region-highlight') ? Array.from(src.data.features, (f) => f.properties.hex_id).sort() : null;
 };
 
-test('the region card totals land, paving, resources and the Color by metric', async () => {
+// cardValue is a stat row's value inside the region card titled `title`.
+const cardValue = (h, title, label) => {
+  const card = h.$$('#stats .stat-card').find((c) => c.querySelector('h3').firstChild.textContent === title);
+  const row = card && Array.from(card.querySelectorAll('.stat-row')).find((r) => r.querySelector('.stat-label').textContent === label);
+  return row && row.querySelector('.stat-value').textContent;
+};
+
+test('the region shows the city panel\'s cards: summary, each resource, each metric', async () => {
   const h = await loadGrid();
   h.win.selectScope('all', { push: false });
   h.win.selectHexMetric('fire_response_s', { push: false });
@@ -311,11 +318,14 @@ test('the region card totals land, paving, resources and the Color by metric', a
   assert.equal(statValue(h, 'Land area (acres)'), '1.7');
   assert.equal(statValue(h, 'Paved area (acres)'), '1.1');
   assert.equal(statValue(h, '% paved (of land)'), '66.3%');
-  assert.equal(statValue(h, 'Est. parking spaces'), '120');
-  // (205 + 300) / 2 s over two equal hexes.
-  assert.equal(statValue(h, 'Fire response (area-weighted mean)'), '4:13 min');
-  const types = h.$$('#stats .region-types tr td:first-child').map((td) => td.textContent);
-  assert.deepEqual(types, ['parking', 'roads']);
+  assert.equal(statValue(h, 'Est. year-1 cost'), '$21.0K');
+  const titles = h.$$('#stats .stat-card h3').map((e) => e.firstChild.textContent);
+  assert.deepEqual(titles.slice(0, 3), ['Selected Region', 'parking', 'roads']);
+  assert.equal(cardValue(h, 'parking', 'Est. Spaces'), '120');
+  assert.equal(cardValue(h, 'roads', 'Est. year-1 cost'), '$15.0K');
+  // The median of 205 s and 300 s, as the city's fire card shows it.
+  assert.equal(cardValue(h, 'Fire response', 'Median per hex'), '4:13');
+  assert.equal(cardValue(h, 'Population', 'Median per hex'), '66');
 });
 
 test('the region\'s hexes are highlighted until the selection is cleared or the city changes', async () => {
