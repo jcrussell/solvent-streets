@@ -402,8 +402,9 @@
         .tag-filter[hidden] { display: none; }
         .tab-bar .tag-filter {
             background: var(--header-bg); color: var(--header-fg);
-            border: 1px solid var(--header-muted); border-radius: 4px;
-            padding: 4px 8px; font-size: 13px; cursor: pointer; max-width: 160px;
+            border: 1px solid var(--header-muted); border-radius: 6px;
+            box-sizing: border-box; height: 32px;
+            padding: 0 8px; font-size: 13px; cursor: pointer; max-width: 160px;
         }
         .tab-bar .tag-filter.active { border-color: var(--accent); }
         .filter-toggle {
@@ -793,8 +794,9 @@
         #city-select {
             margin-left: auto; margin-right: 16px; align-self: center;
             background: var(--header-bg); color: var(--header-fg);
-            border: 1px solid var(--header-muted); border-radius: 4px;
-            padding: 4px 8px; font-size: 14px; cursor: pointer;
+            border: 1px solid var(--header-muted); border-radius: 6px;
+            box-sizing: border-box; height: 32px;
+            padding: 0 8px; font-size: 14px; cursor: pointer;
         }
 
         /* Honor the user's OS-level reduced-motion preference: disable
