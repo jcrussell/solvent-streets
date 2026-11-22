@@ -147,8 +147,21 @@ func TestRunPrune_RemovesStaleEntriesAndReports(t *testing.T) {
 	// run's.)
 	blocks := reportBlocks(stdout.String())
 	if len(blocks) != 2 || !strings.Contains(blocks[0], dir) {
-		t.Errorf("report should be a plan naming %s and an outcome, got %d blocks:\n%s", dir, len(blocks), stdout.String())
+		t.Fatalf("report should be a plan naming %s and an outcome, got %d blocks:\n%s", dir, len(blocks), stdout.String())
 	}
+	// The outcome gives the size reclaimed (the stale pair) and the size
+	// remaining (the fresh pair): 200 bytes each.
+	if size := cmdutil.HumanSize(200); strings.Count(blocks[1], size) != 2 {
+		t.Errorf("outcome %q should give %s reclaimed and %s remaining", blocks[1], size, size)
+	}
+}
+
+// endsAcknowledged reports whether a plan block closes with a line of its
+// own after the indented rows: the acknowledgement that there is nothing to
+// prune.
+func endsAcknowledged(plan string) bool {
+	lines := strings.Split(plan, "\n")
+	return len(lines) > 1 && !strings.HasPrefix(lines[len(lines)-1], " ")
 }
 
 // reportBlocks splits prune's text report into its blank-line-separated
@@ -223,8 +236,8 @@ func TestRunPrune_EmptyCacheSaysSo(t *testing.T) {
 		t.Fatalf("pruning a cache that was never created must not error: %v", err)
 	}
 	// The plan alone: no outcome block follows it.
-	if blocks := reportBlocks(stdout.String()); len(blocks) != 1 {
-		t.Errorf("want the plan and no removal summary, got %d blocks:\n%s", len(blocks), stdout.String())
+	if blocks := reportBlocks(stdout.String()); len(blocks) != 1 || !endsAcknowledged(blocks[0]) {
+		t.Errorf("want the plan, closed by a line saying there is nothing to prune, and no removal summary; got %d blocks:\n%s", len(blocks), stdout.String())
 	}
 }
 
@@ -418,8 +431,8 @@ func TestRunPrune_NothingToPruneNeverPrompts(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The plan alone, and the fresh entry is still there.
-	if blocks := reportBlocks(stdout.String()); len(blocks) != 1 {
-		t.Errorf("want the plan and no outcome, got %d blocks:\n%s", len(blocks), stdout.String())
+	if blocks := reportBlocks(stdout.String()); len(blocks) != 1 || !endsAcknowledged(blocks[0]) {
+		t.Errorf("want the plan, closed by a line saying there is nothing to prune, and no outcome; got %d blocks:\n%s", len(blocks), stdout.String())
 	}
 	if _, err := os.Stat(fresh); err != nil {
 		t.Errorf("the fresh entry was removed: %v", err)
@@ -448,8 +461,8 @@ func TestRunPrune_SkippedPathsReportedWhenIdle(t *testing.T) {
 			t.Fatal(err)
 		}
 		blocks := reportBlocks(stdout.String())
-		if len(blocks) != 1 {
-			t.Fatalf("want the plan and no outcome, got %d blocks:\n%s", len(blocks), stdout.String())
+		if len(blocks) != 1 || !endsAcknowledged(blocks[0]) {
+			t.Fatalf("want the plan, closed by a line saying there is nothing to prune, and no outcome; got %d blocks:\n%s", len(blocks), stdout.String())
 		}
 		return strings.Split(blocks[0], "\n")
 	}

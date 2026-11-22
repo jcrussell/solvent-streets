@@ -291,6 +291,11 @@ func TestRunCreate_RealStore(t *testing.T) {
 	if _, err = run("v1"); !errors.As(err, &taken) || !strings.Contains(taken.Hint, "'pvmt snapshots delete v1'") {
 		t.Fatalf("second create of v1: err = %v, want a refusal hinting 'pvmt snapshots delete v1'", err)
 	}
+	// docs/troubleshooting.md ("Snapshot create is refused") quotes this
+	// message for users to search for; this is the one test that pins it.
+	if !strings.Contains(err.Error(), `snapshot "v1" already exists`) {
+		t.Errorf("second create of v1: err = %v, want the documented already-exists message", err)
+	}
 	if again, _ := store.ListSnapshots(ctx); len(again) != 1 {
 		t.Fatalf("second create of v1 left %d snapshots, want 1", len(again))
 	}

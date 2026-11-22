@@ -309,7 +309,7 @@ func TestRunResourceWithBoundary_RoadsStepReusesBoundaryRoads(t *testing.T) {
 // city with no stored boundary saves the roads its boundary fetched, and
 // says so, before its own parking fetch.
 func TestRunIngest_ParkingOnFreshBoundarySavesRoads(t *testing.T) {
-	ios, _, _, _ := iostreams.Test()
+	ios, _, _, errOut := iostreams.Test()
 	city := cmdtest.NewTestCity()
 	city.Overpass = true
 	up := &fakeUpstream{boundary: noSourceBoundary, roadsBody: oneRoadInNoSourceBoundary}
@@ -328,6 +328,17 @@ func TestRunIngest_ParkingOnFreshBoundarySavesRoads(t *testing.T) {
 	}
 	if want := []string{"roads:1"}; !slices.Equal(upserts, want) {
 		t.Errorf("feature upserts = %q, want %q", upserts, want)
+	}
+	// It says so: one progress line counts the 1 road saved, for which city
+	// and from which source.
+	noted := 0
+	for line := range strings.SplitSeq(errOut.String(), "\n") {
+		if regexp.MustCompile(`\b1 roads\b`).MatchString(line) && strings.Contains(line, city.Name) && strings.Contains(line, "overpass") {
+			noted++
+		}
+	}
+	if noted != 1 {
+		t.Errorf("stderr = %q; want one line noting the 1 roads saved for %s from overpass", errOut, city.Name)
 	}
 	got := map[string]db.IngestOutcome{}
 	for _, a := range store.Attempts {
@@ -1784,24 +1795,41 @@ func TestNewCmdIngest_RebuildBoundaryFlag(t *testing.T) {
 // TestResolveBoundary_RebuildReResolvesStoredBoundary: --rebuild-boundary
 // re-resolves a boundary the store already holds, as --force does, but
 // without marking the context to bypass the HTTP cache, so the replay reads
-// the cached responses.
+// the cached responses. With neither flag the stored boundary is reused.
 func TestResolveBoundary_RebuildReResolvesStoredBoundary(t *testing.T) {
 	stored := `{"type":"Polygon","coordinates":[[[-122.5,37.5],[-122.4,37.5],[-122.4,37.6],[-122.5,37.6],[-122.5,37.5]]]}`
-	var saves []string
-	store := &dbtest.MockStore{
-		GetBoundaryFunc:  func(context.Context) (string, error) { return stored, nil },
-		SaveBoundaryFunc: func(_ context.Context, _, source string) error { saves = append(saves, source); return nil },
-	}
-	var name string
-	ios, _, _, _ := iostreams.Test()
-	_, fresh, err := resolveBoundary(context.Background(), &Options{IO: ios, RebuildBoundary: true}, store, &http.Client{},
-		&config.CityConfig{Name: "Oakland, CA"},
-		boundaryFetchers{byName: recordingNominatim(stored, &name), byRelation: recordingRelation("", nil), water: fakeWaterFetcher(""), roads: noRoads})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if name != "Oakland, CA" || len(saves) != 1 || fresh == nil {
-		t.Errorf("nominatim asked for %q, saves = %q, fresh = %v; want the stored boundary re-resolved and saved once", name, saves, fresh)
+	for _, tc := range []struct {
+		flag    string
+		opts    Options
+		rebuild bool
+	}{
+		{"--rebuild-boundary", Options{RebuildBoundary: true}, true},
+		{"--force", Options{Force: true}, true},
+		{"neither", Options{}, false},
+	} {
+		t.Run(tc.flag, func(t *testing.T) {
+			var saves []string
+			store := &dbtest.MockStore{
+				GetBoundaryFunc:  func(context.Context) (string, error) { return stored, nil },
+				SaveBoundaryFunc: func(_ context.Context, _, source string) error { saves = append(saves, source); return nil },
+			}
+			var name string
+			ios, _, _, _ := iostreams.Test()
+			opts := tc.opts
+			opts.IO = ios
+			_, fresh, err := resolveBoundary(context.Background(), &opts, store, &http.Client{},
+				&config.CityConfig{Name: "Oakland, CA"},
+				boundaryFetchers{byName: recordingNominatim(stored, &name), byRelation: recordingRelation("", nil), water: fakeWaterFetcher(""), roads: noRoads})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.rebuild && (name != "Oakland, CA" || len(saves) != 1 || fresh == nil) {
+				t.Errorf("nominatim asked for %q, saves = %q, fresh = %v; want the stored boundary re-resolved and saved once", name, saves, fresh)
+			}
+			if !tc.rebuild && (name != "" || len(saves) != 0) {
+				t.Errorf("nominatim asked for %q, saves = %q; want the stored boundary reused", name, saves)
+			}
+		})
 	}
 }
 
@@ -2375,7 +2403,7 @@ func TestFetchBoundary_CityOnALakeIslandIsNotASubtractFailure(t *testing.T) {
 	}
 	// The saved source is "nominatim" both when there was no water and when
 	// the strip was skipped after a failure; only the progress line tells
-	// them apart, so its wording is pinned here (see the findings notes).
+	// them apart, so its wording is pinned here.
 	if strings.Contains(errOut.String(), "water strip skipped") || !slices.Equal(saved, []string{"nominatim"}) {
 		t.Errorf("saves = %q, stderr = %q; want the boundary saved with no water and no skipped-strip warning", saved, errOut)
 	}

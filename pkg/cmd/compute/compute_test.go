@@ -7,6 +7,7 @@ import (
 	"io"
 	"maps"
 	"math"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -867,7 +868,7 @@ func TestRunCompute_ParkingEstimatesSpaces(t *testing.T) {
 	// without spaces prints (TestRunCompute_RoadsCarryNoSpaces).
 	for _, label := range []string{"parking Results (all)", "parking Results (city only)"} {
 		b := blockLabeled(t, stdout.String(), testCity.Slug(), label)
-		if len(b.lines) != resultLinesWithoutSpaces+1 || !strings.Contains(b.lines[len(b.lines)-1], "65") {
+		if len(b.lines) != resultLinesWithoutSpaces+1 || !regexp.MustCompile(`\b65\b`).MatchString(b.lines[len(b.lines)-1]) {
 			t.Errorf("%s block should end with a line reporting 65 spaces, got %q", label, b.lines)
 		}
 	}
@@ -921,7 +922,7 @@ func TestRunCompute_RoadsCarryNoSpaces(t *testing.T) {
 	// The report has no spaces line either: the block is the feature count
 	// and the three area lines, and the tagged capacity appears nowhere.
 	b := blockLabeled(t, stdout.String(), testCity.Slug(), "roads Results (all)")
-	if len(b.lines) != resultLinesWithoutSpaces || strings.Contains(stdout.String(), "99") {
+	if len(b.lines) != resultLinesWithoutSpaces || regexp.MustCompile(`\b99\b`).MatchString(stdout.String()) {
 		t.Errorf("roads output must not report spaces:\n%s", stdout.String())
 	}
 }

@@ -96,9 +96,20 @@ func TestPinEntries(t *testing.T) {
 	if w := entries[1].SnapshotSettingsWarning(&entries[1].Snapshots[0]); w == "" || !strings.Contains(got, "warning: "+w) {
 		t.Errorf("output lacks Stale City's settings warning %q; got:\n%s", w, got)
 	}
-	// Draft City's names the command that publishes its latest compute.
-	if w := warningsNaming(got, "Draft City"); len(w) != 1 || !strings.Contains(w[0], "'pvmt snapshots create <name>'") {
-		t.Errorf("Draft City's warning %q lacks the snapshots create command", w)
+	// docs/troubleshooting.md ("City has no snapshot") quotes the next two
+	// warnings for users to search for; this is the one test that pins them.
+	// Draft City's also names the command that publishes its latest compute.
+	if w := warningsNaming(got, "Draft City"); len(w) != 1 ||
+		!strings.HasPrefix(w[0], "warning: Draft City has no snapshot; serving its latest compute (not snapshotted)") ||
+		!strings.Contains(w[0], "'pvmt snapshots create <name>'") {
+		t.Errorf("Draft City's warning = %q, want the documented one with the snapshots create command", w)
+	}
+	if w := warningsNaming(got, "Empty City"); len(w) != 1 || w[0] != "warning: no snapshot for Empty City; serving it without data" {
+		t.Errorf("Empty City's warning = %q, want the documented one", w)
+	}
+	// Empty City's hint names the compute that gives it data.
+	if !strings.Contains(got, "hint: ") || !strings.Contains(got, "'pvmt --city empty-city all compute'") {
+		t.Errorf("output lacks Empty City's hint naming its compute; got:\n%s", got)
 	}
 }
 

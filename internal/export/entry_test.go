@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"testing"
 
@@ -121,8 +120,10 @@ func TestPinNewest_RefusesCitiesWithNoSnapshot(t *testing.T) {
 	if strings.Contains(h.Hint, "Done") || strings.Contains(h.Hint, "Unbounded") {
 		t.Errorf("hint %q names a city with a snapshot or one the export skips", h.Hint)
 	}
-	if !regexp.MustCompile(`\b2\b`).MatchString(err.Error()) {
-		t.Errorf("err = %q, want the count of cities with none, 2", err)
+	// docs/troubleshooting.md ("City has no snapshot") quotes this error for
+	// users to search for; this is the one test that pins it.
+	if got, want := err.Error(), "no snapshot to export: 2 cities have none"; got != want {
+		t.Errorf("err = %q, want %q", got, want)
 	}
 	if pins != 0 {
 		t.Errorf("a refused export pinned %d cities, want none", pins)

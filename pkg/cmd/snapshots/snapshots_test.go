@@ -432,9 +432,11 @@ func TestRunPrune_NothingToDo(t *testing.T) {
 	if err := runPrune(context.Background(), opts); err != nil {
 		t.Fatal(err)
 	}
-	// Nothing is deleted, and the report lists no snapshot as going.
-	if out := stdout.String(); len(deleted) != 0 || strings.Contains(out, "v1") || strings.Contains(out, "v2") {
-		t.Errorf("deleted %v, stdout %q", deleted, stdout)
+	// Nothing is deleted; stdout says so in a line, and lists no snapshot as
+	// going.
+	if out := stdout.String(); len(deleted) != 0 || strings.Count(out, "\n") != 1 || strings.TrimSpace(out) == "" ||
+		strings.Contains(out, "v1") || strings.Contains(out, "v2") {
+		t.Errorf("deleted %v, stdout %q; want one line acknowledging there was nothing to prune", deleted, stdout)
 	}
 }
 

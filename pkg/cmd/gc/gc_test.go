@@ -444,9 +444,12 @@ func TestRunGC_NothingToCollect(t *testing.T) {
 	if swept {
 		t.Error("GCSweep was called when there was nothing to collect")
 	}
-	// The scan is still reported, under the city's header.
-	if !strings.Contains(stdout.String(), "=== alpha ===") {
-		t.Errorf("expected the city's (empty) report on stdout, got: %s", stdout.String())
+	// The scan is still reported, under the city's header, and after its
+	// indented rows a closing line says there was nothing to do.
+	lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
+	last := lines[len(lines)-1]
+	if !strings.Contains(stdout.String(), "=== alpha ===") || strings.HasPrefix(last, " ") || strings.HasPrefix(last, "===") {
+		t.Errorf("expected the city's (empty) report and a closing line on stdout, got: %s", stdout.String())
 	}
 }
 

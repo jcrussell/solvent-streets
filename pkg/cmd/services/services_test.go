@@ -311,11 +311,15 @@ func TestServicesCompute_NoReachCommitsEmptyRun(t *testing.T) {
 	if strings.Contains(out.String(), "%") {
 		t.Errorf("printed a within-threshold share with no station routing:\n%s", out.String())
 	}
-	// The last warning is the summary one: it names the service whose
-	// stations reached nothing.
+	// Three warnings: the missing routing roads (with the command that
+	// fetches them), the station, which names it and not the city, and last
+	// the summary, which names the service and the city left without a
+	// coverage figure.
 	warned := warningLines(errOut.String())
-	if len(warned) == 0 || !strings.Contains(warned[len(warned)-1], "fire") {
-		t.Errorf("no warning that no fire station reached the network; stderr:\n%s", errOut.String())
+	if len(warned) != 3 || !strings.Contains(warned[0], "'pvmt services ingest'") ||
+		!strings.Contains(warned[1], "osm:node:far") || strings.Contains(warned[1], testCity.Name) ||
+		!strings.Contains(warned[2], "fire") || !strings.Contains(warned[2], testCity.Name) || strings.Contains(warned[2], "'pvmt services ingest'") {
+		t.Errorf("warnings = %q, want the routing roads', the far station's, then the summary naming fire and %s", warned, testCity.Name)
 	}
 	for _, r := range saved {
 		if r.Metric != metric.FireResponseS || r.Subject != services.SubjectUnreachable || r.RunID != saved[0].RunID {

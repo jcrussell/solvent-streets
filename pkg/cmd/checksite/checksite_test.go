@@ -319,6 +319,8 @@ func TestCheckSite_ZeroBaselineAreaWarns(t *testing.T) {
 	if fs := failures(out); len(fs) != 0 {
 		t.Errorf("zero baseline area failed: %+v", fs)
 	}
+	// The summary counts the warning.
+	assertTallyMatches(t, out)
 	// --strict promotes the warning to a failure.
 	if _, err := run(t, dir, true); !errors.Is(err, cmdutil.ErrSilent) {
 		t.Errorf("strict should fail on the zero-area warning, got %v", err)

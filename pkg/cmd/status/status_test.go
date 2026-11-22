@@ -541,8 +541,9 @@ func TestRunStatus_StaleSnapshotsSayWhy(t *testing.T) {
 	}
 	// The only snapshot is the newest, so it carries that one mark and not
 	// the current-settings one.
-	if marks, ok := snapshotMarks(stdout.String(), "0ld0ld0ld0ld0ld0"); !ok || len(marks) != 1 {
-		t.Errorf("snapshot history should list the old hash with one mark (newest), got %q:\n%s", marks, stdout.String())
+	newestMarks, ok := snapshotMarks(stdout.String(), "0ld0ld0ld0ld0ld0")
+	if !ok || len(newestMarks) != 1 {
+		t.Fatalf("snapshot history should list the old hash with one mark (newest), got %q:\n%s", newestMarks, stdout.String())
 	}
 
 	// Once computed under the current settings, and snapshotted: no hint, and
@@ -568,8 +569,11 @@ func TestRunStatus_StaleSnapshotsSayWhy(t *testing.T) {
 	}
 	// The newest snapshot is under the current hash: two marks. The older
 	// one is neither newest nor current: none.
-	if marks, ok := snapshotMarks(stdout.String(), cur); !ok || len(marks) != 2 {
-		t.Errorf("newest snapshot under the current hash has marks %q, want two:\n%s", marks, stdout.String())
+	// The first of the two is the mark the lone old snapshot carried above,
+	// the newest's; the second, which that one lacked, is the
+	// current-settings mark.
+	if marks, ok := snapshotMarks(stdout.String(), cur); !ok || len(marks) != 2 || marks[0] != newestMarks[0] || marks[1] == newestMarks[0] {
+		t.Errorf("newest snapshot under the current hash has marks %q, want %q and the current-settings mark:\n%s", marks, newestMarks[0], stdout.String())
 	}
 	if marks, ok := snapshotMarks(stdout.String(), "0ld0ld0ld0ld0ld0"); !ok || len(marks) != 0 {
 		t.Errorf("older snapshot under other settings has marks %q, want none:\n%s", marks, stdout.String())
