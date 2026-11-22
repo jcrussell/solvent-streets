@@ -3811,9 +3811,9 @@
                 var budget = roads.current_budget;
                 var funded = budget >= breakEven;
                 lead = funded
-                    ? name + '’s street budget covers what keeping its streets steady takes.'
-                    : name + ' funds <span class="num">' + fundedShareText(budget, breakEven) + '</span> of what keeping its streets steady takes.';
-                detail = fmtMoney(budget) + ' a year against ' + fmtMoney(breakEven) + ' (streets/roads only).';
+                    ? name + ' fully funds its streets’ upkeep.'
+                    : name + ' funds <span class="num">' + fundedShareText(budget, breakEven) + '</span> of its streets’ upkeep.';
+                detail = fmtMoney(budget) + ' a year against the ' + fmtMoney(breakEven) + ' needed to hold them steady (streets/roads only).';
                 var lastYear = forecastYearOne() + financialsHorizon() - 1;
                 var path = liveSolvency && liveSolvency.end_pci != null
                     ? conditionPathText(liveSolvency.start_pci, liveSolvency.end_pci, lastYear) : '';

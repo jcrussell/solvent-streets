@@ -68,6 +68,6 @@ test('the Financials headline says when a city funds its streets\' upkeep in ful
   const h = await ready(solvent, 'https://example.test/index.html?tab=financials-tab');
   h.win.eval('liveSolvency = null');
   h.win.renderSolvencyHeadline();
-  assert.match(h.$('#solvency-headline .lead').textContent, /street budget covers what keeping its streets steady takes\.$/);
+  assert.match(h.$('#solvency-headline .lead').textContent, /fully funds its streets’ upkeep\.$/);
   assert.doesNotMatch(h.$('#solvency-headline').textContent, /full cycle/, 'a funded city never names a backlog year');
 });

@@ -102,12 +102,12 @@ test('?budget= seeds the slider and a drag writes it back', async () => {
 test('the solvency headline follows the cost multiplier', async () => {
   const { win, doc } = await ready();
   const headline = () => doc.getElementById('solvency-headline').textContent;
-  assert.match(headline(), /against \$30\.0M/, 'the headline is not the live figure');
-  assert.match(headline(), /funds 66% of what keeping its streets steady takes/, 'the headline leads with the share funded');
+  assert.match(headline(), /\$30\.0M/, 'the headline is not the live figure');
+  assert.match(headline(), /funds 66% of its streets’ upkeep/, 'the headline leads with the share funded');
   assert.match(headline(), /its streets slip from PCI \d+ today to about \d+ by \d{4}/, 'the headline gives the condition path at today\'s budget');
 
   drag(win, '#multiplier-slider', '2');
-  assert.match(headline(), /against \$60\.0M/, 'the headline ignored the multiplier');
+  assert.match(headline(), /\$60\.0M/, 'the headline ignored the multiplier');
   assert.match(headline(), /2.*cost multiplier.*slider/i, 'the basis note must name the slider');
 
   // The headline probe is roads-only at today's budget, worst-first.
