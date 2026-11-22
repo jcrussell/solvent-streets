@@ -445,6 +445,110 @@ func (g *Graph) SnapWhere(x, y, maxDist float64, ok func(Snap) bool) (Snap, bool
 	return motorway, foundMotorway
 }
 
+// InsidePart is the stretch [T0, T1] of segment Seg that lies inside an area.
+type InsidePart struct {
+	Seg    int
+	T0, T1 float64
+}
+
+// PartsInside returns the stretches of road segments inside area: each runs
+// from where the segment enters the area (or its own end, when that lies
+// inside) to where it leaves. Arrival from the segment's end vertices changes
+// linearly along it, so the earliest such arrival on a stretch is at T0 or
+// T1; a facility snapped onto the stretch itself is reached there at no
+// travel, which the caller checks separately. Motorway carriageways are
+// skipped: an engine passing through on the freeway has not reached the
+// area. area is a polygon or multipolygon in projected coordinates; holes are
+// outside it.
+func (g *Graph) PartsInside(area geom.Geometry) []InsidePart {
+	if g.segIndex == nil || g.segIndex.Len() == 0 || area.IsEmpty() {
+		return nil
+	}
+	rings := polygonRings(area)
+	if len(rings) == 0 {
+		return nil
+	}
+	var out []InsidePart
+	for _, id := range g.segIndex.SearchIDs(area.Envelope()) {
+		sg := g.segs[id]
+		if sg.motorway {
+			continue
+		}
+		ax, ay, cx, cy := g.xs[sg.a], g.ys[sg.a], g.xs[sg.c], g.ys[sg.c]
+		for _, iv := range insideIntervals(ax, ay, cx, cy, rings) {
+			out = append(out, InsidePart{Seg: id, T0: iv[0], T1: iv[1]})
+		}
+	}
+	return out
+}
+
+// polygonRings lists every ring (exterior and holes) of every polygon in g.
+func polygonRings(g geom.Geometry) [][]geom.XY {
+	var rings [][]geom.XY
+	for _, part := range g.Dump() {
+		poly, ok := part.AsPolygon()
+		if !ok || poly.IsEmpty() {
+			continue
+		}
+		for _, ring := range poly.DumpRings() {
+			seq := ring.Coordinates()
+			r := make([]geom.XY, seq.Length())
+			for i := range r {
+				r[i] = seq.GetXY(i)
+			}
+			rings = append(rings, r)
+		}
+	}
+	return rings
+}
+
+// insideIntervals returns the parameter intervals [t0, t1] of the segment
+// a→c that lie inside rings (even-odd, so holes are outside): the segment is
+// cut where it crosses any ring edge, and each piece whose midpoint is
+// inside is kept.
+func insideIntervals(ax, ay, cx, cy float64, rings [][]geom.XY) [][2]float64 {
+	ts := []float64{0, 1}
+	dx, dy := cx-ax, cy-ay
+	for _, r := range rings {
+		for i := 0; i+1 < len(r); i++ {
+			ex, ey := r[i+1].X-r[i].X, r[i+1].Y-r[i].Y
+			den := dx*ey - dy*ex
+			if den == 0 {
+				continue
+			}
+			wx, wy := r[i].X-ax, r[i].Y-ay
+			t := (wx*ey - wy*ex) / den
+			u := (wx*dy - wy*dx) / den
+			if t > 0 && t < 1 && u >= 0 && u <= 1 {
+				ts = append(ts, t)
+			}
+		}
+	}
+	slices.Sort(ts)
+	var out [][2]float64
+	for i := 0; i+1 < len(ts); i++ {
+		t0, t1 := ts[i], ts[i+1]
+		m := (t0 + t1) / 2
+		if t1 > t0 && pointInRings(ax+m*dx, ay+m*dy, rings) {
+			out = append(out, [2]float64{t0, t1})
+		}
+	}
+	return out
+}
+
+// pointInRings is the even-odd test of (x, y) against every ring.
+func pointInRings(x, y float64, rings [][]geom.XY) bool {
+	in := false
+	for _, r := range rings {
+		for i, j := 0, len(r)-1; i < len(r); j, i = i, i+1 {
+			if (r[i].Y > y) != (r[j].Y > y) && x < (r[j].X-r[i].X)*(y-r[i].Y)/(r[j].Y-r[i].Y)+r[i].X {
+				in = !in
+			}
+		}
+	}
+	return in
+}
+
 // SnapConnected is SnapWhere biased toward the street network: among the
 // segments within maxDist it returns the nearest position on one that
 // belongs to the LARGEST connected component in range, passing over

@@ -504,14 +504,23 @@ city-builder's service-coverage overlay. It is computed, not observed:
 4. **Travel time.** One shortest-path run from every station at once gives
    each point on the road network its travel time from the nearest station.
    A hex's value is the **turnout** time (80 s, from NFPA 1710) plus the
-   travel time to the nearest point along a road from the hex's centre,
-   provided that point is within 300 m. Nearest *point*, not nearest
+   travel time to the **first point an engine reaches on any road inside
+   the hex**: first arrival anywhere in the hex, not at its centre. Timing
+   to the road nearest the centre landed many hexes on a driveway or a
+   private campus road that joins the streets far away, and made
+   neighbouring hexes differ by minutes. A hex with no road inside it that
+   an engine reaches (a park, a hillside, open land, or only a freeway
+   passing through) is timed to the nearest reachable point along a road
+   from its centre, within 300 m. Its value reads slow because an engine
+   can only stop at that road. Nearest *point*, not nearest
    intersection, so a long straight road still reaches the hexes it
-   crosses. An edge hex clipped to the city boundary is measured from a
-   point inside what remains of it when its centre was clipped away, so a
-   sliver is not timed to a road across a river or in the next city.
-5. **Freeways.** Neither a station nor a hex centre is placed on a motorway
-   or ramp while any other road is within reach. A freeway carriageway is
+   crosses. An edge hex clipped to the city boundary counts only the roads
+   inside what remains of it, and with none is measured from a point
+   inside that remainder, so a sliver is not timed to a road across a
+   river or in the next city.
+5. **Freeways.** A motorway or ramp passing through a hex does not count
+   as reaching it, and neither a station nor a roadless hex's centre is
+   placed on one while any other road is within reach. A freeway carriageway is
    one-way with no frontage, so a point beside it placed on it would be
    timed as reachable in one direction only. Trunk roads, often surface
    arterials, are not excluded.

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"math"
+	"slices"
 	"strings"
 	"testing"
 
@@ -593,4 +594,124 @@ func shortestFrom(g *Graph, sources []int) (dist []float64, src []int) {
 		seeds = append(seeds, Seed{Node: s, Source: i})
 	}
 	return g.ShortestFromSeeds(seeds)
+}
+
+// square is an axis-aligned 100 m square polygon around (x, y), about a
+// default hex.
+func square(x, y float64) geom.Geometry {
+	const r = 50
+	return geom.NewPolygon([]geom.LineString{geom.NewLineString(geom.NewSequence([]float64{
+		x - r, y - r, x + r, y - r, x + r, y + r, x - r, y + r, x - r, y - r,
+	}, geom.DimXY))}).AsGeometry()
+}
+
+// TestPartsInside: a segment crossing the area yields its entry and exit,
+// one ending inside yields its entry and its end, a motorway carriageway
+// yields nothing, and a hole is outside the area.
+func TestPartsInside(t *testing.T) {
+	p := testProj()
+	ax, ay := p.ToProjected(lonA, latA)
+	pt := func(x, y float64) [2]float64 { lon, lat := p.FromProjected(x, y); return [2]float64{lon, lat} }
+	g := BuildGraph(context.Background(), []resource.Feature{
+		line(map[string]string{"highway": "residential"}, pt(ax, ay), pt(ax+400, ay)),
+		line(map[string]string{"highway": "motorway"}, pt(ax, ay+20), pt(ax+400, ay+20)),
+	}, DefaultRoadSpeeds, p)
+	at := func(seg int, t float64) float64 {
+		sg := g.segs[seg]
+		return g.xs[sg.a] + t*(g.xs[sg.c]-g.xs[sg.a]) - ax
+	}
+	xs := func(ps []InsidePart) []float64 {
+		var out []float64
+		for _, p := range ps {
+			out = append(out, math.Round(at(p.Seg, p.T0)), math.Round(at(p.Seg, p.T1)))
+		}
+		slices.Sort(out)
+		return out
+	}
+	if got := xs(g.PartsInside(square(ax+200, ay))); !slices.Equal(got, []float64{150, 250}) {
+		t.Errorf("crossing street positions = %v, want entry 150 and exit 250 (the motorway passes through)", got)
+	}
+	if got := xs(g.PartsInside(square(ax+380, ay))); !slices.Equal(got, []float64{330, 400}) {
+		t.Errorf("street ending inside = %v, want entry 330 and its end 400", got)
+	}
+	holed := geom.NewPolygon([]geom.LineString{
+		geom.NewLineString(geom.NewSequence([]float64{ax + 100, ay - 50, ax + 300, ay - 50, ax + 300, ay + 10, ax + 100, ay + 10, ax + 100, ay - 50}, geom.DimXY)),
+		geom.NewLineString(geom.NewSequence([]float64{ax + 150, ay - 10, ax + 250, ay - 10, ax + 250, ay + 5, ax + 150, ay + 5, ax + 150, ay - 10}, geom.DimXY)),
+	}).AsGeometry()
+	if got := xs(g.PartsInside(holed)); !slices.Equal(got, []float64{100, 150, 250, 300}) {
+		t.Errorf("street through a holed area = %v, want 100–150 and 250–300", got)
+	}
+}
+
+// TestComputeCoverage_HexTimedByFirstRoadInside: a hex whose centre sits 3 m
+// from the dead end of a long driveway, joined to the street only at the far
+// end, is timed by the street running through the hex, not by the driveway's
+// end (reached only by driving to the far end and back along it).
+func TestComputeCoverage_HexTimedByFirstRoadInside(t *testing.T) {
+	p := testProj()
+	ax, ay := p.ToProjected(lonA, latA)
+	pt := func(x, y float64) [2]float64 { lon, lat := p.FromProjected(x, y); return [2]float64{lon, lat} }
+	g := BuildGraph(context.Background(), []resource.Feature{
+		line(map[string]string{"highway": "residential"}, pt(ax, ay), pt(ax+800, ay)),
+		// The driveway leaves the street's far end and runs back west, 30 m
+		// north of it, to a dead end at x = 400.
+		line(map[string]string{"highway": "service"}, pt(ax+800, ay), pt(ax+800, ay+30), pt(ax+400, ay+30)),
+	}, DefaultRoadSpeeds, p)
+	spec := Registry["fire"]
+	lon, lat := p.FromProjected(ax, ay)
+	hex := geo.Hex{ID: "h", CenterX: ax + 400, CenterY: ay + 27, Geom: square(ax+400, ay+27)}
+	cov := ComputeCoverage(context.Background(), spec, []geo.Hex{hex}, g, []Facility{{ID: "st", Lon: lon, Lat: lat}})
+	if len(cov.Hexes) != 1 {
+		t.Fatalf("hexes = %+v, want h", cov.Hexes)
+	}
+	// The street enters the hex at x = 350.
+	want := spec.TurnoutS + 350/(40/3.6)
+	if got := cov.Hexes[0].Seconds; math.Abs(got-want) > 1 {
+		t.Errorf("hex = %.1f s, want ~%.1f (the street where it enters the hex)", got, want)
+	}
+}
+
+// TestComputeCoverage_StationInsideHexReadsNoTravel: a station on a long road
+// through its own hex reaches that hex at no travel, not at the hex edge
+// where the road enters it.
+func TestComputeCoverage_StationInsideHexReadsNoTravel(t *testing.T) {
+	p := testProj()
+	ax, ay := p.ToProjected(lonA, latA)
+	pt := func(x, y float64) [2]float64 { lon, lat := p.FromProjected(x, y); return [2]float64{lon, lat} }
+	for _, oneway := range []string{"", "yes"} {
+		tags := map[string]string{"highway": "residential"}
+		if oneway != "" {
+			tags["oneway"] = oneway
+		}
+		g := BuildGraph(context.Background(), []resource.Feature{line(tags, pt(ax-1000, ay), pt(ax+1000, ay))}, DefaultRoadSpeeds, p)
+		spec := Registry["fire"]
+		lon, lat := p.FromProjected(ax, ay+5)
+		hex := geo.Hex{ID: "h", CenterX: ax, CenterY: ay, Geom: square(ax, ay)}
+		cov := ComputeCoverage(context.Background(), spec, []geo.Hex{hex}, g, []Facility{{ID: "st", Lon: lon, Lat: lat}})
+		if len(cov.Hexes) != 1 || math.Abs(cov.Hexes[0].Seconds-spec.TurnoutS) > 0.5 {
+			t.Errorf("oneway=%q: station's own hex = %+v, want turnout %v s and no travel", oneway, cov.Hexes, spec.TurnoutS)
+		}
+	}
+}
+
+// TestComputeCoverage_UnreachedInsideFallsBackToNearestRoad: a hex whose only
+// road inside is a fragment no station reaches is timed to the reachable
+// street just outside it, within HexSnapM.
+func TestComputeCoverage_UnreachedInsideFallsBackToNearestRoad(t *testing.T) {
+	p := testProj()
+	ax, ay := p.ToProjected(lonA, latA)
+	pt := func(x, y float64) [2]float64 { lon, lat := p.FromProjected(x, y); return [2]float64{lon, lat} }
+	g := BuildGraph(context.Background(), []resource.Feature{
+		line(map[string]string{"highway": "residential"}, pt(ax, ay), pt(ax+800, ay)),
+		// A fragment joined to nothing, inside the hex 80 m north of the street.
+		line(map[string]string{"highway": "service"}, pt(ax+380, ay+80), pt(ax+420, ay+80)),
+	}, DefaultRoadSpeeds, p)
+	spec := Registry["fire"]
+	lon, lat := p.FromProjected(ax, ay)
+	hex := geo.Hex{ID: "h", CenterX: ax + 400, CenterY: ay + 80, Geom: square(ax+400, ay+80)}
+	cov := ComputeCoverage(context.Background(), spec, []geo.Hex{hex}, g, []Facility{{ID: "st", Lon: lon, Lat: lat}})
+	want := spec.TurnoutS + 400/(40/3.6)
+	if len(cov.Hexes) != 1 || math.Abs(cov.Hexes[0].Seconds-want) > 1 {
+		t.Errorf("hex = %+v, want ~%.1f s (the street below it, at its nearest point)", cov.Hexes, want)
+	}
 }

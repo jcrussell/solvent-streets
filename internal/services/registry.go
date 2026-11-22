@@ -183,7 +183,7 @@ var Registry = map[string]Spec{
 		// the cities known to be missing stations in OSM sit: Bismarck 1.4,
 		// Montgomery 1.5, Stockton 1.9.
 		SparsePer100k: 2,
-		SourceFormat:  "Estimated time from the nearest fire station in OpenStreetMap: %s plus driving over the road network at posted or typical speeds.",
+		SourceFormat:  "Estimated time for the first engine from a fire station in OpenStreetMap to reach the hex's roads (for a hex without one, the nearest road): %s plus driving at posted or typical speeds.",
 	},
 }
 
