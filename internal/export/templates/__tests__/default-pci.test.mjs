@@ -58,7 +58,7 @@ test('the Financials headline names an assumed PCI', async () => {
   assert.doesNotMatch(cited.$('#solvency-headline').textContent, /Condition assumed/);
 });
 
-test('the Financials headline names the last forecast year a solvent city reaches', async () => {
+test('the Financials headline says when a city funds its streets\' upkeep in full', async () => {
   const solvent = forecastJSON.map((f) => {
     if (f.resource_type !== 'roads') return f;
     const rest = { ...f, current_budget: f.break_even_budget * 2 };
@@ -68,8 +68,6 @@ test('the Financials headline names the last forecast year a solvent city reache
   const h = await ready(solvent, 'https://example.test/index.html?tab=financials-tab');
   h.win.eval('liveSolvency = null');
   h.win.renderSolvencyHeadline();
-  const lead = h.$('#solvency-headline .lead');
-  const year = h.get('forecastYearOne() + financialsHorizon() - 1');
-  assert.match(lead.textContent, new RegExp('stay solvent through ' + year + '\\.'));
-  assert.match(lead.querySelector('.num').getAttribute('title'), /^Solvent through the \d+-year forecast horizon$/);
+  assert.match(h.$('#solvency-headline .lead').textContent, /street budget covers what keeping its streets steady takes\.$/);
+  assert.doesNotMatch(h.$('#solvency-headline').textContent, /full cycle/, 'a funded city never names a backlog year');
 });

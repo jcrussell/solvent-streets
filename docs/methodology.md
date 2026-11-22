@@ -248,13 +248,18 @@ models a shrinking network, floored at zero area.
 
 ### Solvency metrics (streets/roads only)
 
-The dashboard's Financials headline and the cross-city leaderboard report
-three solvency figures. They are computed on the **roads/streets** cohort
+A city's streets are **solvent** when its current budget at least matches
+the hold-steady budget below: it pays for its streets' upkeep. The
+Financials headline leads with the share of that budget a city funds and,
+from the run at its current budget, where the streets' average PCI goes by
+the last forecast year. The dashboard's Financials headline and the
+cross-city leaderboard report three solvency figures. They are computed on the **roads/streets** cohort
 only: a city's paving budget is a street budget, so a claim about what it
 covers is a claim about streets. They are derived from a
 **worst-first** run at the city's configured annual budget.
 
-- **Insolvency year** — the first forecast year in which the cumulative
+- **Full-cycle backlog year** (`insolvency_year` in the data) — the first
+  forecast year in which the cumulative
   deferred backlog reaches **one full treatment cycle of deferred work**
   (`N ×` the annual scheduled need — a whole network's worth of treatment).
   Because the deferred backlog is a monotonically non-decreasing
@@ -262,11 +267,13 @@ covers is a claim about streets. They are derived from a
   not recover within the model, so this is the "unrecoverable" threshold.
   A do-nothing network defers a full slice every year and crosses around
   year `N`; a city funding a fraction `f` of each slice crosses around
-  `N / (1 − f)`, so well-funded cities never reach it and are reported as
-  *solvent through the horizon* (Compare shows *After* the last forecast
-  year, e.g. "After 2055"). The metric therefore discriminates among
-  the genuinely underfunded; on the funded side, **funding gap is the
-  primary signal**. Reported only when a current budget is configured.
+  `N / (1 − f)`, so a city funding 90% of its slice crosses only after about
+  120 years. The headline names the year only when it falls within the
+  forecast (Compare shows "Not within 30 yrs" otherwise). It says nothing
+  about condition: a city that starts in good shape can cross while its
+  streets are still better than another city's today. The **share
+  funded** (and the funding gap) is the primary signal. Reported only
+  when a current budget is configured.
 
 - **Hold-steady (break-even) budget** — the smallest constant annual
   budget whose **final** deferred backlog is within a small relative

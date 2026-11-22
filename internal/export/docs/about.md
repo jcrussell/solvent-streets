@@ -24,16 +24,23 @@ and $150 to rebuild a failed one. The **hold-steady budget** is what a city
 would have to spend each year to keep its streets from falling further
 behind.
 
-### Solvency Score and insolvency year
+### What "solvent" means here
 
-The **Solvency Score** compares a city's current street budget with its
-hold-steady budget, on a scale of 0 to 100. A score of 100 means the city
-spends enough to hold its streets steady; 50 means it would need twice
-today's budget. A city that cites no budget cannot be scored and shows N/A.
+A city's streets are **solvent** when its street budget pays for their
+upkeep: it at least matches the hold-steady budget. Nothing happens to a
+city that isn't. Its streets just get worse each year it falls short, and
+the Financials headline says how far: what share of the upkeep the city
+funds, and where its streets' condition is headed at that rate.
 
-The **insolvency year** is the year a city's postponed repairs add up to a
-whole repair cycle's worth of work, the point at which, in the model, it can
-no longer catch up. A well-funded city may never reach it.
+The **Solvency Score** puts that share on a scale of 0 to 100. A score of
+100 means the city spends enough to hold its streets steady; 50 means it
+would need twice today's budget. A city that cites no budget cannot be
+scored and shows N/A.
+
+A city that falls far enough behind reaches a second marker: the year its
+postponed repairs add up to a **full repair cycle of work**, a whole
+network's worth, more than it could catch up on. The headline names that
+year only when it comes within the 30-year forecast.
 [How both are computed](../../../docs/methodology.md#solvency-metrics-streetsroads-only).
 
 ### Map colorings

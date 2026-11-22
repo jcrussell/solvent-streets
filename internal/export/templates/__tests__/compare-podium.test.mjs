@@ -112,9 +112,9 @@ test('when every gap is poor, the Street Funding Gap board gives no medal and no
   assert.equal(gap.querySelector('.lb-award'), null, 'a +233% gap must not be crowned');
 });
 
-test('Years to Insolvency medals follow the same floor', async () => {
+test('Backlog-cycle medals follow the same floor', async () => {
   const { doc } = await renderWith([city('alpha-ca', 60, 20), city('beta-ca', 20, 12), city('gamma-or', 10, 8)]);
-  const ins = lbBlock(doc, 'Years to Insolvency');
+  const ins = lbBlock(doc, 'Backlog Passes a Full Repair Cycle');
   assert.deepEqual(lbMedals(ins), [MEDALS[0], '2.', '3.']);
   assert.ok(ins.querySelector('.lb-award'));
 });
@@ -122,9 +122,9 @@ test('Years to Insolvency medals follow the same floor', async () => {
 // That board sorts by insolvency year, not by score, so its leader can fail
 // the floor while the runner-up passes. Medals stop at the first city under
 // the floor: no silver without a gold, and no award.
-test('Years to Insolvency shows no silver under an unmedalled leader', async () => {
+test('the backlog-cycle board shows no silver under an unmedalled leader', async () => {
   const { doc } = await renderWith([city('alpha-ca', 40, 20), city('beta-ca', 60, 12)]);
-  const ins = lbBlock(doc, 'Years to Insolvency');
+  const ins = lbBlock(doc, 'Backlog Passes a Full Repair Cycle');
   assert.deepEqual(lbMedals(ins), ['1.', '2.']);
   assert.equal(ins.querySelector('.lb-award'), null);
 });
@@ -160,28 +160,28 @@ test('back to an entry in another scope re-renders Compare in that scope', async
   assert.equal(text(), city, 'Compare still shows the all-jurisdiction figures');
 });
 
-test('the solvency card lists city-maintained roads before insolvency', async () => {
+test('the solvency card lists city-maintained roads before the backlog year', async () => {
   const roads = city('alpha-ca', 120, 12);
   roads.forecast = roads.forecast.map((f) => (f.resource_type === 'roads' ? { ...f, roads_area: 4e6 } : f));
   const { doc } = await renderWith([roads, city('beta-ca', 60)]);
   const card = cards(doc).find((c) => c.dataset.slug === 'alpha-ca');
   const labels = Array.from(card.querySelectorAll('.sb-row > span:first-child')).map((s) => s.textContent);
-  assert.deepEqual(labels, ['Current Budget', 'Hold-Steady Budget', 'Funding Gap', 'City-Maintained Roads', 'Insolvency']);
+  assert.deepEqual(labels, ['Current Budget', 'Hold-Steady Budget', 'Funding Gap', 'City-Maintained Roads', 'Backlog past a full cycle']);
 });
 
-test('a solvent city reads "After" its last forecast year, with the horizon in a tooltip', async () => {
+test('a city never a full cycle behind reads "Not within N yrs", with the last year in a tooltip', async () => {
   const h = await renderWith([city('alpha-ca', 120), city('beta-ca', 60, 12)]);
   const horizon = seedJSON.horizon_years;
   assert.ok(horizon > 0);
   const lastYear = h.get('forecastYearOne()') + horizon - 1;
   const insolvency = (slug) => {
     const card = cards(h.doc).find((c) => c.dataset.slug === slug);
-    const row = Array.from(card.querySelectorAll('.sb-row')).find((r) => r.firstElementChild.textContent === 'Insolvency');
+    const row = Array.from(card.querySelectorAll('.sb-row')).find((r) => r.firstElementChild.textContent === 'Backlog past a full cycle');
     return row.lastElementChild;
   };
   const solvent = insolvency('alpha-ca');
-  assert.equal(solvent.textContent, 'After ' + lastYear);
-  assert.equal(solvent.querySelector('[title]').getAttribute('title'), `Solvent through the ${horizon}-year forecast horizon`);
-  assert.equal(insolvency('beta-ca').textContent, 'Year 12');
+  assert.equal(solvent.textContent, `Not within ${horizon} yrs`);
+  assert.equal(solvent.querySelector('[title]').getAttribute('title'), `The backlog stays under a full repair cycle through ${lastYear}, the end of the forecast`);
+  assert.equal(insolvency('beta-ca').textContent, String(h.get('forecastYearOne()') + 11));
   assert.doesNotMatch(h.$('#compare-tab').textContent, /Solvent through horizon/);
 });

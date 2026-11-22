@@ -102,10 +102,12 @@ test('?budget= seeds the slider and a drag writes it back', async () => {
 test('the solvency headline follows the cost multiplier', async () => {
   const { win, doc } = await ready();
   const headline = () => doc.getElementById('solvency-headline').textContent;
-  assert.match(headline(), /\$30\.0M\/yr/, 'the headline is not the live figure');
+  assert.match(headline(), /against \$30\.0M/, 'the headline is not the live figure');
+  assert.match(headline(), /funds 66% of what keeping its streets steady takes/, 'the headline leads with the share funded');
+  assert.match(headline(), /its streets slip from PCI \d+ today to about \d+ by \d{4}/, 'the headline gives the condition path at today\'s budget');
 
   drag(win, '#multiplier-slider', '2');
-  assert.match(headline(), /\$60\.0M\/yr/, 'the headline ignored the multiplier');
+  assert.match(headline(), /against \$60\.0M/, 'the headline ignored the multiplier');
   assert.match(headline(), /2.*cost multiplier.*slider/i, 'the basis note must name the slider');
 
   // The headline probe is roads-only at today's budget, worst-first.
@@ -123,7 +125,7 @@ test('the solvency headline dates insolvency from the snapshot year', async () =
   const { doc, fireMap, flush } = await ready({ data });
   fireMap('style.load'); await flush(10);
   const headline = doc.getElementById('solvency-headline').textContent;
-  assert.match(headline, /by 2026 \(year 7\)/, headline);
+  assert.match(headline, /a full cycle of work by 2026,/, headline);
 });
 
 test('a snapshot_date that is not a date dates insolvency from the viewer\'s year', async () => {
@@ -131,7 +133,7 @@ test('a snapshot_date that is not a date dates insolvency from the viewer\'s yea
   const { doc, fireMap, flush, win } = await ready({ data });
   fireMap('style.load'); await flush(10);
   const want = new win.Date().getFullYear() + 6;
-  assert.match(doc.getElementById('solvency-headline').textContent, new RegExp('by ' + want + ' \\(year 7\\)'));
+  assert.match(doc.getElementById('solvency-headline').textContent, new RegExp('a full cycle of work by ' + want + ','));
 });
 
 const params = (win) => new URLSearchParams(win.location.search);

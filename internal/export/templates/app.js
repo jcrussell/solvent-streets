@@ -336,7 +336,7 @@
         // (computeLiveSolvency); null until the forecast simulator has run for
         // this city. Declared up here because renderSolvencyHeadline reads it
         // from the first financials load.
-        /** @type {{break_even_budget: number, current_budget: number, insolvency_year: number | null} | null} */
+        /** @type {{break_even_budget: number, current_budget: number, insolvency_year: number | null, start_pci: number | null, end_pci: number | null} | null} */
         let liveSolvency = null;
 
         // Compare/Aggregate tab state. These MUST be initialized above the
@@ -3756,21 +3756,42 @@
             return y > 0 ? y : new Date().getFullYear();
         }
 
-        // solventThroughHTML names a city that stays solvent by the last
-        // forecast year's calendar year, prefix first ("After 2055"), with the
-        // horizon it stands for in a tooltip. cls is an optional class.
-        /** @param {number} horizon @param {string} prefix @param {string} [cls] */
-        function solventThroughHTML(horizon, prefix, cls) {
+        // notWithinHTML says a city's backlog does not pass a full repair cycle
+        // within the forecast ("Not within 30 yrs"), with the last forecast
+        // year in a tooltip.
+        /** @param {number} horizon */
+        function notWithinHTML(horizon) {
             var lastYear = forecastYearOne() + horizon - 1;
-            return '<span' + (cls ? ' class="' + cls + '"' : '') + ' title="Solvent through the ' + horizon +
-                '-year forecast horizon">' + prefix + lastYear + '</span>';
+            return '<span title="The backlog stays under a full repair cycle through ' + lastYear +
+                ', the end of the forecast">Not within ' + horizon + ' yrs</span>';
+        }
+
+        // fundedShareText is the share of the hold-steady budget a city's
+        // budget covers, as a whole percent. Under 100% it rounds down, so a
+        // city short of need never reads as fully funded.
+        /** @param {number} budget @param {number} holdSteady */
+        function fundedShareText(budget, holdSteady) {
+            var pct = 100 * budget / holdSteady;
+            return (pct < 100 ? Math.floor(pct) : Math.round(pct)) + '%';
+        }
+
+        // conditionPathText describes where the streets' condition goes at the
+        // city's budget: from today's PCI to the forecast's last year.
+        /** @param {number} start @param {number} end @param {number} lastYear */
+        function conditionPathText(start, end, lastYear) {
+            var a = Math.round(start), b = Math.round(end);
+            if (b < a) return 'its streets slip from PCI ' + a + ' today to about <span class="num">' + b + '</span> by ' + lastYear;
+            if (b > a) return 'its streets improve from PCI ' + a + ' today to about <span class="num">' + b + '</span> by ' + lastYear;
+            return 'its streets hold at about PCI ' + a + ' through ' + lastYear;
         }
 
         // Render the roads-only solvency headline above the Financials charts
         // from the per-city forecast.json (the selected city's forecastData).
-        // Break-even is always shown; the insolvency year and funding gap are
-        // shown only when a current_budget is configured (cited). Metrics are
-        // roads-only and labeled as such, so they don't read as whole-network.
+        // With a cited budget it leads with the share of the hold-steady
+        // budget the city funds, then where condition goes at that budget (from
+        // the live run), and the year the repair backlog passes a full cycle
+        // of work only when that happens within the forecast. Without one it
+        // states the hold-steady budget. Roads/streets only, and labeled so.
         function renderSolvencyHeadline() {
             var el = document.getElementById('solvency-headline');
             if (!el) return;
@@ -3787,21 +3808,24 @@
             var lead, detail;
             var hasBudget = roads.current_budget > 0;
             if (hasBudget) {
-                var gapDollars = breakEven - roads.current_budget;
-                if (roads.insolvency_year) {
-                    var crossYear = forecastYearOne() + roads.insolvency_year - 1;
-                    lead = 'At current funding, ' + name + '’s street-repair backlog grows to an entire treatment cycle of deferred work by <span class="num">' + crossYear + '</span> (year ' + roads.insolvency_year + ').';
-                } else {
-                    lead = 'At current funding, ' + name + '’s streets stay solvent through ' + solventThroughHTML(financialsHorizon(), '', 'num') + '.';
-                }
-                if (gapDollars > 0) {
-                    detail = 'Holding the network steady would take <strong>' + fmtMoney(breakEven) + '/yr</strong> — <strong>' + fmtMoney(gapDollars) + ' more</strong> than today’s ' + fmtMoney(roads.current_budget) + ' (streets/roads only).';
-                } else {
-                    detail = 'Today’s ' + fmtMoney(roads.current_budget) + '/yr is at or above the ' + fmtMoney(breakEven) + '/yr needed to hold the network steady (streets/roads only).';
+                var budget = roads.current_budget;
+                var funded = budget >= breakEven;
+                lead = funded
+                    ? name + '’s street budget covers what keeping its streets steady takes.'
+                    : name + ' funds <span class="num">' + fundedShareText(budget, breakEven) + '</span> of what keeping its streets steady takes.';
+                detail = fmtMoney(budget) + ' a year against ' + fmtMoney(breakEven) + ' (streets/roads only).';
+                var lastYear = forecastYearOne() + financialsHorizon() - 1;
+                var path = liveSolvency && liveSolvency.end_pci != null
+                    ? conditionPathText(liveSolvency.start_pci, liveSolvency.end_pci, lastYear) : '';
+                var cross = roads.insolvency_year
+                    ? 'the repair backlog grows past a full cycle of work by <span class="num">' + (forecastYearOne() + roads.insolvency_year - 1) + '</span>, more than the city could catch up on'
+                    : '';
+                if (path || cross) {
+                    detail += ' At that rate ' + [path, cross].filter(Boolean).join(', and ') + '.';
                 }
             } else {
                 lead = 'Holding ' + name + '’s streets steady would take <span class="num">' + fmtMoney(breakEven) + '/yr</span> (streets/roads only).';
-                detail = 'No cited street budget for ' + name + ' is on file, so its funding gap and insolvency year aren’t shown.';
+                detail = 'No cited street budget for ' + name + ' is on file, so the share it funds isn’t shown.';
             }
             var fe = forecastData ? forecastData.find(function(f) { return f.resource_type === 'roads'; }) : null;
             var seededPCI = FORECAST_SEED ? Number(FORECAST_SEED.initial_pci) : NaN;
@@ -4589,10 +4613,15 @@
                 strategy: 'worst_first',
             }));
             if (!r || !(r.break_even_budget > 0)) return null;
+            // The run at the city's budget, for the headline's condition path:
+            // today's PCI to the last forecast year's.
+            const ys = current > 0 && Array.isArray(r.years) ? r.years : [];
             return {
                 break_even_budget: r.break_even_budget,
                 current_budget: current,
                 insolvency_year: current > 0 && r.insolvency_year ? r.insolvency_year : null,
+                start_pci: ys.length ? input.initial_pci : null,
+                end_pci: ys.length ? ys[ys.length - 1].pci : null,
             };
         }
 
@@ -5552,7 +5581,7 @@
             function solvencyBreakdown(m) {
                 var gap = m.fundingGap !== null ? ((m.fundingGap >= 0 ? '+' : '') + m.fundingGap.toFixed(0) + '%') : '—';
                 var insolv = m.currentBudget > 0
-                    ? (m.insolvencyYear ? 'Year ' + m.insolvencyYear : solventThroughHTML(compareHorizon, 'After '))
+                    ? (m.insolvencyYear ? String(forecastYearOne() + m.insolvencyYear - 1) : notWithinHTML(compareHorizon))
                     : '—';
                 return (m.currentBudget > 0 ? '<div class="sb-row"><span>Current Budget</span><span>' + fmtMoney(m.currentBudget) + '/yr</span></div>' : '') +
                     (m.breakEvenBudget > 0 ? '<div class="sb-row"><span>Hold-Steady Budget</span><span>' + fmtMoney(m.breakEvenBudget) + '/yr</span></div>' : '') +
@@ -5560,7 +5589,7 @@
                     // The budgets above price city-maintained roads only, so
                     // show that network, not the all-resource total.
                     (m.solvencyRoadsAreaLarge > 0 ? '<div class="sb-row"><span>City-Maintained Roads</span><span>' + fmtNum(m.solvencyRoadsAreaLarge) + ' ' + areaLargeUnit() + '</span></div>' : '') +
-                    '<div class="sb-row"><span>Insolvency</span><span>' + insolv + '</span></div>';
+                    '<div class="sb-row"><span>Backlog past a full cycle</span><span>' + insolv + '</span></div>';
             }
 
             function infraBreakdown(m) {
@@ -5626,7 +5655,7 @@
                 // the metric (no cited budget / no roads) so a null value never
                 // produces a NaN sort key or a corrupt bar width.
                 { key: 'fundingGap', needs: ['roads'],  label: 'Street Funding Gap (roads, lower is better)', award: 'Smallest Funding Gap', higher: false, medalIf: solvencyMedalOK, filter: function(m) { return m.fundingGap !== null; }, fmt: function(v) { return (v >= 0 ? '+' : '') + v.toFixed(0) + '%'; }, color: '#0ea5e9', note: 'Funding gap = (hold-steady budget − current budget) / current budget, computed on roads/streets only. Shown only for cities with a cited current_budget. Negative means the budget already exceeds the hold-steady level.' },
-                { key: 'insolvencyYear', needs: ['roads'],  label: 'Years to Insolvency (roads, higher is better)', award: 'Latest Insolvency', higher: true, medalIf: solvencyMedalOK, filter: function(m) { return m.insolvencyYear !== null; }, fmt: function(v) { return 'Year ' + v; }, color: '#14b8a6', note: 'Insolvency year = the first forecast year a city’s cumulative roads backlog grows to an entire treatment cycle of deferred work — a whole network’s worth of treatment, unrecoverable. Computed on roads/streets only at the current budget; shown only for cities with a cited current_budget that go insolvent within the horizon. Cities that stay solvent (most, with realistic budgets) are omitted — funding gap is the primary metric there.' }
+                { key: 'insolvencyYear', needs: ['roads'],  label: 'Backlog Passes a Full Repair Cycle (roads, later is better)', award: 'Latest to Fall Behind', higher: true, medalIf: solvencyMedalOK, filter: function(m) { return m.insolvencyYear !== null; }, fmt: function(v) { return String(forecastYearOne() + v - 1); }, color: '#14b8a6', note: 'The year a city’s roads repair backlog, at its current budget, adds up to a full repair cycle of work: a whole network’s worth of treatment, more than it could catch up on. Shown only for cities with a cited budget that reach it within the forecast; the share of upkeep funded is the main comparison for the rest.' }
             ];
 
             var boards = categories.map(function(cat) {

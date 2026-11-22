@@ -26,18 +26,6 @@ const (
 	methodologyFile     = "../../" + methodologyRepoPath
 )
 
-// aboutMarkers are prose markers unique to the About source of truth. If
-// any disappear from the rendered output, the markdown embed or the render
-// pipeline has broken.
-var aboutMarkers = []string{
-	"OpenStreetMap",
-	"2020 U.S. Census",
-	"hold-steady budget",
-	"Solvency Score",
-	"insolvency year",
-	"Full methodology",
-}
-
 // forbiddenHTML are substrings that must never appear in the rendered
 // About prose. Goldmark's default renderer escapes raw HTML blocks, so a
 // <script> tag in the markdown source surfaces as &lt;script&gt;. This is
@@ -113,10 +101,13 @@ func TestDashboardAboutRenders(t *testing.T) {
 	if !strings.Contains(tail, `class="about-prose"`) {
 		t.Error("rendered dashboard missing about-prose wrapper inside #about-tab")
 	}
-	for _, s := range aboutMarkers {
-		if !strings.Contains(tail, s) {
-			t.Errorf("rendered dashboard missing %q inside About tab", s)
-		}
+	// The embedded markdown, rendered, is what the tab carries, whatever
+	// the prose says.
+	if len(about) == 0 || !strings.Contains(string(about), "<h3") {
+		t.Fatalf("AboutHTML rendered no sections: %q", about)
+	}
+	if !strings.Contains(tail, string(about)) {
+		t.Error("the About tab does not carry the rendered about.md")
 	}
 	// The About tab's heading ids must be unique on the dashboard, which
 	// carries its own ids beside the prose.
