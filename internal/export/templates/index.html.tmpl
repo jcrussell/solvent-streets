@@ -275,7 +275,9 @@
         /* Hex popup (openHexPopup): a MapLibre popup restyled as a panel
            surface in either theme. Above the stats panel and legend, below
            the map toolbar. */
-        .hex-popup { z-index: 3; }
+        /* Above the map toolbar (11), so a popup opened near the top of the
+           map is not covered by Color by or Select Region. */
+        .hex-popup { z-index: 12; }
         .hex-popup .maplibregl-popup-content {
             background: var(--panel); color: var(--text);
             border: 1px solid var(--border); border-radius: 8px;
@@ -313,6 +315,11 @@
         }
         .hex-detail .hex-group .stat-row { margin-top: 0; gap: 12px; }
         .hex-detail .stat-label, .hex-detail .stat-value { font-size: 12px; }
+        /* A long value (a time and the station's name) wraps on its own
+           side; the label keeps one line. */
+        .hex-detail .stat-label { white-space: nowrap; }
+        .hex-detail .stat-value { text-align: right; }
+        .hex-detail .stat-ref { display: block; font-weight: 400; color: var(--text-muted); }
 
         /* Financials tab */
         .financials { padding: 24px; max-width: 1200px; margin: 0 auto; overflow-y: auto; height: 100%; }
@@ -420,8 +427,10 @@
                 padding: 12px; min-width: 220px; z-index: 1100;
             }
             .topbar-filters.open .tag-filter-pop { display: block; }
-            .tag-filter-pop .tag-filters { flex-direction: column; }
-            .tab-bar .tag-filter-pop .tag-filter { background: var(--bg); color: var(--text); border-color: var(--border); max-width: none; }
+            .tag-filter-pop .tag-filters { flex-direction: column; gap: 8px; }
+            /* In the popover the selects are the content, not header chrome:
+               body-size text on a taller control. */
+            .tab-bar .tag-filter-pop .tag-filter { background: var(--bg); color: var(--text); border-color: var(--border); max-width: none; height: 38px; font-size: 15px; padding: 0 10px; }
             .tab-bar .tag-filter-pop .tag-filter.active { border-color: var(--accent); }
         }
         /* The filters' effect on Compare and Aggregate, with a way out. */

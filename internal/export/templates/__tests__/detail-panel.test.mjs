@@ -269,7 +269,7 @@ test('the hex popup groups pavement, people and services under friendly labels',
   assert.deepEqual(groupRows(h, 'Pavement'), [['Parking spaces', '120']]);
   assert.match(p.querySelector('.total-row').textContent, /\$16\.0K/, 'the cost summary\'s year-1 cost is missing');
   assert.deepEqual(groupRows(h, 'People'), [['Population', '50']], 'per-resident ratios are city and region figures, not per hex');
-  assert.deepEqual(groupRows(h, 'Services'), [['Fire response', '3:25 min · Station 4']]);
+  assert.deepEqual(groupRows(h, 'Services'), [['Fire response', '3:25 minStation 4']]);
 });
 
 test('a hex with no stored metrics shows no People or Services group', async () => {

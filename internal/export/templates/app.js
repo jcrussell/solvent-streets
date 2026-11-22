@@ -1770,7 +1770,9 @@
                 if (v == null || !Number.isFinite(v)) continue;
                 const refIdx = m.refs ? m.refs[hexId] : undefined;
                 const pt = refIdx != null && m.points ? m.points[refIdx] : null;
-                const ref = pt ? ' · ' + esc(String(pt.name || pt.id)) : '';
+                // The point of service (the nearest station) on its own line
+                // under the value, so a long name never squeezes the row.
+                const ref = pt ? '<span class="stat-ref">' + esc(String(pt.name || pt.id)) + '</span>' : '';
                 const unit = m.format === 'minutes' ? ' min' : '';
                 groups[metricGroup(m)] += statRow(esc(m.label), fmtMetric(v, m.format) + unit + ref);
             }
