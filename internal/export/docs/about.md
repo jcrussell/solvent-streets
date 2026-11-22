@@ -54,7 +54,7 @@ limitations](../../../docs/methodology.md#assumptions-and-limitations).
 
 ### Learn more
 
-- [Full methodology →](../../../docs/methodology.md): every model, setting and source.
+- [Full methodology](../../../docs/methodology.md): every model, setting and source.
 - [Validation](../../../docs/validation.md): how the estimates compare with
   cities' published figures.
 - [README](../../../README.md) and the
