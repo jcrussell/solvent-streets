@@ -18,7 +18,9 @@ func init() {
 	Register(Spec{
 		// The default "Color by" metric. It stays out of the URL.
 		Key:    metric.MaintainedShare,
-		Label:  "% Paved",
+		Label:  "Paved share",
+		Group:  GroupPavement,
+		Order:  1,
 		Source: "Share of the hex's land the toggled resources cover, each resource's share added together and capped at 100%.",
 		Format: FormatPercent,
 		Scale: Scale{
@@ -30,6 +32,8 @@ func init() {
 	Register(Spec{
 		Key:    metric.MaintainedArea,
 		Label:  "Maintained area",
+		Group:  GroupPavement,
+		Order:  2,
 		Source: "Area of the toggled resources inside the hex, each resource counted as the forecast prices it, so a sidewalk beside a road counts in both.",
 		Format: FormatArea,
 		Scale: Scale{
@@ -40,7 +44,9 @@ func init() {
 	})
 	Register(Spec{
 		Key:    metric.ParkingSpaces,
-		Label:  "Est. spaces",
+		Label:  "Parking spaces",
+		Group:  GroupPavement,
+		Order:  3,
 		Source: "Estimated parking spaces, from each lot's capacity tag or its area, shared among hexes by how much of the lot each holds.",
 		Format: FormatInt,
 		Scale: Scale{
@@ -52,6 +58,8 @@ func init() {
 	Register(Spec{
 		Key:    metric.Year1Need,
 		Label:  "Year-1 need",
+		Group:  GroupPavement,
+		Order:  4,
 		Source: "First-year repair need of the toggled resources, backlog included, shared among hexes by area.",
 		Format: FormatUSD,
 		Scale: Scale{

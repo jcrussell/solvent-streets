@@ -56,12 +56,12 @@ async function loadWithMetrics(url) {
 test('the Color-by selector lists the available derived metrics plus each stored metric, and the stats card summarises it', async () => {
   const { $, $$ } = await loadWithMetrics();
   const opts = $$('#hex-metric option').map((o) => o.value);
-  // Derived pavement colorings first (default first, then registry order;
-  // spaces and est. cost are absent: the fixture has no parking or cost
-  // summary), then stored metrics.
+  // Grouped in display order: pavement, then services (spaces and year-1
+  // need are absent: the fixture has no parking or cost summary).
   assert.deepEqual(opts, ['maintained_share', 'maintained_area', 'fire_response_s']);
+  assert.deepEqual($$('#hex-metric optgroup').map((g) => g.label), ['Pavement', 'Services']);
   assert.equal($('#map-color-by').hidden, false);
-  const card = $$('#stats .stat-card').find((c) => c.querySelector('h3').textContent === 'Fire response');
+  const card = $$('#stats .stat-card').find((c) => c.querySelector('h3').textContent === 'Fire response time');
   assert.ok(card, 'no metric card rendered from meta.metrics');
   assert.match(card.textContent, /Median per hex\s*8:20/, 'median must render in m:ss, marked per hex');
   assert.match(card.textContent, /Range per hex/);
@@ -88,7 +88,7 @@ test('the stations row counts outside stations, and an incomplete list carries t
   await h.flush();
   await h.win.loadCityData();
   await h.flush();
-  const card = h.$$('#stats .stat-card').find((c) => c.querySelector('h3').textContent === 'Fire response');
+  const card = h.$$('#stats .stat-card').find((c) => c.querySelector('h3').textContent === 'Fire response time');
   assert.ok(card, 'no metric card rendered');
   assert.match(card.textContent, /Stations serving the city\s*3 \(3 outside the city\)/);
   assert.equal(card.querySelector('.points-caveat')?.textContent, caveat);
@@ -96,7 +96,7 @@ test('the stations row counts outside stations, and an incomplete list carries t
 
 test('an unreachable hex has no value on the map but counts against the within-threshold share', async () => {
   const { win, $$ } = await loadWithMetrics();
-  const card = $$('#stats .stat-card').find((c) => c.querySelector('h3').textContent === 'Fire response');
+  const card = $$('#stats .stat-card').find((c) => c.querySelector('h3').textContent === 'Fire response time');
   // The fixture's fire run reached two hexes (300 s within 5:20, 700 s not)
   // and recorded a third, on the network, as unreachable.
   assert.equal(metaJSON.metrics.fire_response_s.unreachable_count, 1);
@@ -177,7 +177,7 @@ test('a city without the requested metric falls back to coverage, leaves it off 
   const opts = h.$$('#hex-metric option').map((o) => o.value);
   assert.ok(!opts.includes('fire_response_s'), 'an absent stored metric must not be offered');
   assert.equal(h.$('#map-color-by').hidden, opts.length <= 1);
-  assert.equal(h.$('#legend-title').textContent, '% Paved', 'the fallback metric titles the legend');
+  assert.equal(h.$('#legend-title').textContent, 'Paved share', 'the fallback metric titles the legend');
   assert.equal(params(h.win).get('metric'), null, 'the address bar must stop claiming the metric');
 });
 
@@ -247,7 +247,7 @@ test('golden: % Paved paint bands, legend labels and definition', async () => {
     assert.equal(f.properties.metric_v, f.properties.share, 'every pavement hex paints its own share');
   }
   assert.deepEqual($$('#legend .legend-labels span').map((s) => s.textContent), ['≤ 5%', '5%–10%', '10%–20%', '20%–30%', '30%–50%', '> 50%']);
-  assert.equal($('#legend-title').textContent, '% Paved');
+  assert.equal($('#legend-title').textContent, 'Paved share');
   assert.match($('#legend-def').textContent, /^Share of the hex's land/, 'the legend defines the coloring');
   assert.equal($('#legend-def').hidden, false);
 });

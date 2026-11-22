@@ -214,8 +214,10 @@ func init() {
 	}
 	hexmetric.Register(hexmetric.Spec{
 		Key:    metric.FireResponseS,
-		Label:  "Fire response",
+		Label:  Registry["fire"].Label + " time",
 		Source: Registry["fire"].SourceText(),
+		Group:  hexmetric.GroupServices,
+		Order:  1,
 		Format: hexmetric.FormatMinutes,
 		Scale: hexmetric.Scale{
 			Kind:      hexmetric.KindSequential,

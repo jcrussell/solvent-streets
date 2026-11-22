@@ -39,6 +39,10 @@ type MetricJSON struct {
 	Format string          `json:"format"`
 	Source string          `json:"source"`
 	Scale  hexmetric.Scale `json:"scale"`
+	// Group and Order place the metric in the dashboard's lists
+	// (hexmetric.Spec).
+	Group string `json:"group"`
+	Order int    `json:"order"`
 	// ThresholdS is the total seconds (turnout + travel threshold) within
 	// which a hex counts as covered; omitted for metrics without one.
 	ThresholdS float64 `json:"threshold_s,omitempty"`
@@ -66,6 +70,10 @@ type MetricSummaryJSON struct {
 	Label  string `json:"label"`
 	Unit   string `json:"unit"`
 	Format string `json:"format"`
+	// Group and Order place the card among the stats panel's metric cards
+	// (hexmetric.Spec).
+	Group string `json:"group"`
+	Order int    `json:"order"`
 	// HexCount is the drawn hexes with a value. Not emitted: the page shows
 	// the median and range, not the count.
 	HexCount int `json:"-"`
@@ -231,7 +239,7 @@ func buildMetricJSON(ctx context.Context, entry CityEntry, spec hexmetric.Spec, 
 	if err != nil {
 		return MetricJSON{}, err
 	}
-	m := MetricJSON{Label: spec.Label, Unit: spec.Unit, Format: spec.Format, Source: spec.Source, Scale: spec.Scale, ThresholdS: threshold, Values: make(map[string]float64, len(rows))}
+	m := MetricJSON{Label: spec.Label, Unit: spec.Unit, Format: spec.Format, Source: spec.Source, Scale: spec.Scale, Group: spec.Group, Order: spec.Order, ThresholdS: threshold, Values: make(map[string]float64, len(rows))}
 	refIDs := map[string]bool{}
 	for _, r := range rows {
 		m.Values[r.HexID] = roundMetric(r.Value)
@@ -468,7 +476,7 @@ func summarizeMetric(spec hexmetric.Spec, rows []db.HexMetric, unreachable int, 
 	}
 	sort.Float64s(vals)
 	sum := MetricSummaryJSON{
-		Label: spec.Label, Unit: spec.Unit, Format: spec.Format,
+		Label: spec.Label, Unit: spec.Unit, Format: spec.Format, Group: spec.Group, Order: spec.Order,
 		HexCount: len(vals), Min: roundMetric(vals[0]), Median: roundMetric(stats.Median(vals)), Max: roundMetric(vals[len(vals)-1]),
 		PointCount: len(refs),
 	}

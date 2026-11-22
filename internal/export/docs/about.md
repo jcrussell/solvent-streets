@@ -41,18 +41,18 @@ no longer catch up. A well-funded city may never reach it.
 The map's **Color by** menu shades each hexagon by one measure, and its
 legend says what that measure is.
 
-- **% Paved** (the default): how much of the hexagon is road, parking lot or
-  sidewalk.
+- **Paved share** (the default): how much of the hexagon is road, parking
+  lot or sidewalk.
 - **Maintained area**: that pavement's area, as the forecast prices it.
-- **Est. spaces**: estimated parking spaces.
+- **Parking spaces**: estimated parking spaces.
 - **Year-1 need**: what the first year of repairs would cost, backlog
   included.
 - **Population**, **Housing units** and **Population density**: from the
   2020 Census.
 - **Maintained area per resident** and **Year-1 need per resident**: those
   two divided by the people who live in the hexagon.
-- **Fire response**: the estimated time for a fire engine to arrive from the
-  nearest station.
+- **Fire response time**: the estimated time for a fire engine to arrive
+  from the nearest station.
 
 The pavement colorings follow the layers switched on under the gear menu.
 [How each is computed](../../../docs/methodology.md#color-by).

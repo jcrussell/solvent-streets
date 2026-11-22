@@ -104,5 +104,5 @@ test('awards use neutral wording and the backlog ranks per acre', async () => {
   assert.ok(html.includes('Smallest Funding Gap: Beta'), 'funding-gap award should be "Smallest Funding Gap"');
   assert.ok(!html.includes('Best Funded'), '"Best Funded" praised a funding gap');
   assert.match(html, /Deferred Backlog per acre/, 'the backlog leaderboard should rank per acre');
-  assert.match(html, /Maintenance Cost per acre/, 'per-area labels use the singular unit');
+  assert.match(html, /Year-1 Need per acre/, 'per-area labels use the singular unit');
 });

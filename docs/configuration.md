@@ -392,7 +392,7 @@ includes it, where an unset one counts as the default 30.
 ## Services (`[[services]]`, `[[cities.facilities]]`)
 
 `pvmt services` computes how long a public service takes to reach each hex
-over the road network. The dashboard shows it as **Color by → Fire response**.
+over the road network. The dashboard shows it as **Color by → Fire response time**.
 `fire` is the one registered service. `pvmt all compute` runs the service step
 after the pavement passes: a city with no stations mapped is skipped quietly,
 and any other failure is a warning. `pvmt all ingest` fetches the stations

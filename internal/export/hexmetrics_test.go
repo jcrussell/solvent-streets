@@ -88,7 +88,7 @@ func TestBuildHexMetrics(t *testing.T) {
 	if !ok {
 		t.Fatalf("metrics = %v, want %s", hm.Metrics, metric.FireResponseS)
 	}
-	if m.Label != "Fire response" || m.Format != "minutes" || len(m.Scale.Bands) != 4 || m.Scale.Bands[0] != 320 || m.ThresholdS != 320 {
+	if m.Label != "Fire response time" || m.Format != "minutes" || len(m.Scale.Bands) != 4 || m.Scale.Bands[0] != 320 || m.ThresholdS != 320 {
 		t.Errorf("metric description = %+v (bands must start at the default turnout+threshold 320)", m)
 	}
 	// A run that recorded no turnout follows the config's [[services]]

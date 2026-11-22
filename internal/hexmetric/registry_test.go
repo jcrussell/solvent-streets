@@ -18,7 +18,7 @@ func init() {
 }
 
 func validSpec(key string) Spec {
-	return Spec{Key: key, Label: "Test", Source: "test", Format: FormatMinutes,
+	return Spec{Key: key, Label: "Test", Source: "test", Format: FormatMinutes, Group: GroupServices,
 		Scale: Scale{Kind: KindSequential, Transform: TransformLinear, Bands: []float64{60, 120, 300}}}
 }
 
@@ -32,6 +32,7 @@ func TestSpecValidate(t *testing.T) {
 		"city-wide derived":   func(s *Spec) { s.Key = "zz_city_count"; s.Derive = &Derivation{Op: OpSum, Prop: PropArea} },
 		"unit off catalog":    func(s *Spec) { s.Unit = "m2" },
 		"no label":            func(s *Spec) { s.Label = "" },
+		"unknown group":       func(s *Spec) { s.Group = "misc" },
 		"unknown format":      func(s *Spec) { s.Format = "hex" },
 		"unknown kind":        func(s *Spec) { s.Scale.Kind = "rainbow" },
 		"unknown transform":   func(s *Spec) { s.Scale.Transform = "sqrt" },

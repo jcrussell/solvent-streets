@@ -317,14 +317,14 @@ test('the region shows the city panel\'s cards: summary, each resource, each met
   // over land, not the paved-area-weighted mean of the hexes' shares.
   assert.equal(statValue(h, 'Land area (acres)'), '1.7');
   assert.equal(statValue(h, 'Paved area (acres)'), '1.1');
-  assert.equal(statValue(h, '% paved (of land)'), '66.3%');
+  assert.equal(statValue(h, 'Paved share (of land)'), '66.3%');
   assert.equal(statValue(h, 'Year-1 need'), '$21.0K');
   const titles = h.$$('#stats .stat-card h3').map((e) => e.firstChild.textContent);
   assert.deepEqual(titles.slice(0, 3), ['Selected Region', 'parking', 'roads']);
-  assert.equal(cardValue(h, 'parking', 'Est. spaces'), '120');
+  assert.equal(cardValue(h, 'parking', 'Parking spaces'), '120');
   assert.equal(cardValue(h, 'roads', 'Year-1 need'), '$15.0K');
   // The median of 205 s and 300 s, as the city's fire card shows it.
-  assert.equal(cardValue(h, 'Fire response', 'Median per hex'), '4:13');
+  assert.equal(cardValue(h, 'Fire response time', 'Median per hex'), '4:13');
   assert.equal(cardValue(h, 'Population', 'Median per hex'), '66');
 });
 

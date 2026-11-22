@@ -229,20 +229,22 @@
             max-width: calc(100% - 20px);
         }
         /* One height for every toolbar control (--map-ctrl-h), border
-           included, so Color by and Select Region line up. */
+           included, so Color by and Select Region line up with each other
+           and with the collapsed city panel opposite: the same height,
+           surface, corners and shadow. */
         .map-ctrl {
-            --map-ctrl-h: 32px;
+            --map-ctrl-h: 42px;
             box-sizing: border-box; height: var(--map-ctrl-h);
-            background: var(--map-ctrl-bg); color: var(--text);
-            border: 1px solid var(--map-ctrl-border); border-radius: 4px;
-            font: inherit; font-size: 13px; line-height: 1.2;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+            background: var(--panel); color: var(--text);
+            border: 1px solid var(--map-ctrl-border); border-radius: 8px;
+            font: inherit; font-size: 14px; line-height: 1.2;
+            box-shadow: var(--shadow);
         }
-        .color-by { display: flex; align-items: center; gap: 6px; padding: 0 3px 0 10px; }
+        .color-by { display: flex; align-items: center; gap: 8px; padding: 0 6px 0 14px; }
         .color-by[hidden] { display: none; }
         .color-by label { font-weight: 600; }
-        .color-by select { box-sizing: border-box; height: calc(var(--map-ctrl-h) - 8px); background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 0 6px; font-size: 13px; line-height: 1.2; cursor: pointer; }
-        #region-select-btn { display: inline-flex; align-items: center; padding: 0 10px; cursor: pointer; }
+        .color-by select { box-sizing: border-box; height: calc(var(--map-ctrl-h) - 12px); background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 0 8px; font-size: 14px; line-height: 1.2; cursor: pointer; }
+        #region-select-btn { display: inline-flex; align-items: center; padding: 0 14px; cursor: pointer; }
         #region-select-btn[aria-pressed="true"] {
             background: var(--accent, #2563eb); color: #fff; border-color: var(--accent, #2563eb);
         }
@@ -1002,7 +1004,7 @@
             <div class="map-ctrl color-by" id="map-color-by">
                 <label for="hex-metric">Color by</label>
                 <select id="hex-metric" autocomplete="off">
-                    <option value="maintained_share">% Paved</option>
+                    <option value="maintained_share">Paved share</option>
                 </select>
             </div>
             <button id="region-select-btn" class="map-ctrl" type="button" aria-pressed="false" disabled
@@ -1031,7 +1033,7 @@
             <!-- The key for the metric the toolbar's Color by selects:
                  renderLegend titles it and redraws the bar + labels from the
                  metric's scale. -->
-            <div class="legend-title" id="legend-title">% Paved</div>
+            <div class="legend-title" id="legend-title">Paved share</div>
             <p class="legend-def" id="legend-def" hidden></p>
             <div class="legend-bar"></div>
             <div class="legend-labels"></div>

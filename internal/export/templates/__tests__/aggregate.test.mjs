@@ -150,7 +150,7 @@ test('area labels name the maintained area and the per-area denominator', async 
 
   win.renderCompare([city('Alpha'), city('Beta'), city('Gamma')]);
   const cat = Array.from(doc.querySelectorAll('.lb-category'))
-    .find((c) => c.querySelector('h4').textContent.startsWith('Year 1 Maintenance Cost per'));
+    .find((c) => c.querySelector('h4').textContent.startsWith('Year-1 Need per'));
   assert.ok(cat, 'per-area category rendered');
   assert.match(cat.querySelector('.lb-row .lb-name').textContent, /\(÷ [\d,]+ acres\)/);
   assert.ok(Array.from(doc.querySelectorAll('.lb-category h4')).some((h) => h.textContent.startsWith('Maintained Area (all owners)')));

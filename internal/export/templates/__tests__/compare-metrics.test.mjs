@@ -68,7 +68,7 @@ test('Year-1 need per area divides by the year-1 area', async () => {
 
   win.renderCompare([c, city()]);
   const cat = Array.from(win.document.querySelectorAll('.lb-category'))
-    .find((el) => el.querySelector('h4').textContent.startsWith('Year 1 Maintenance Cost per'));
+    .find((el) => el.querySelector('h4').textContent.startsWith('Year-1 Need per'));
   assert.ok(cat, 'per-area category rendered');
   assert.match(cat.querySelector('.lb-row .lb-name').textContent,
     new RegExp('\\(÷ ' + win.fmtNum(win.toAreaLarge(y1.area)).replace(/[.,]/g, '\\$&') + ' '));

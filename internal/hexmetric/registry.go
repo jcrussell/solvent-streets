@@ -32,6 +32,17 @@ const (
 	TransformLog    = "log"
 )
 
+// Groups the Color by menu, the city cards and the region card show the
+// metrics under, in this order.
+const (
+	GroupPavement = "pavement"
+	GroupPeople   = "people"
+	GroupServices = "services"
+)
+
+// groupRank orders the groups; a group not listed here is invalid.
+var groupRank = map[string]int{GroupPavement: 0, GroupPeople: 1, GroupServices: 2}
+
 // Value formats the dashboard knows how to render.
 const (
 	FormatInt     = "int"     // whole number with thousands separators
@@ -120,6 +131,10 @@ type Spec struct {
 	Source string `json:"source"` // one line on where the numbers come from
 	Format string `json:"format"` // one of the Format* constants
 	Scale  Scale  `json:"scale"`
+	// Group is one of the Group* constants and Order the metric's place
+	// within it; the dashboard lists metrics by group, then Order.
+	Group string `json:"group"`
+	Order int    `json:"order"`
 	// Additive marks a count whose per-hex values sum to a meaningful city
 	// total (population, housing units): the exporter then gives its summary
 	// a total, which the stats card leads with; for a time, rate or density a
@@ -151,6 +166,9 @@ func (s Spec) Validate() error {
 	}
 	if s.Label == "" {
 		return fmt.Errorf("hexmetric: %s has no label", s.Key)
+	}
+	if _, ok := groupRank[s.Group]; !ok {
+		return fmt.Errorf("hexmetric: %s has unknown group %q", s.Key, s.Group)
 	}
 	switch s.Format {
 	case FormatInt, FormatFloat1, FormatMinutes, FormatUSD, FormatPercent, FormatArea, FormatDensity:
@@ -230,8 +248,8 @@ func Lookup(key string) (Spec, bool) {
 	return s, ok
 }
 
-// All returns every registered Spec sorted by key, so output built from it
-// is deterministic.
+// All returns every registered Spec in display order: by group, then
+// Order, then key, so output built from it is deterministic.
 func All() []Spec {
 	mu.RLock()
 	defer mu.RUnlock()
@@ -239,17 +257,28 @@ func All() []Spec {
 	for _, s := range registry {
 		out = append(out, s)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
+	sort.Slice(out, func(i, j int) bool { return less(out[i], out[j]) })
 	return out
 }
 
+// less orders a before b for display: by group, then Order, then key.
+func less(a, b Spec) bool {
+	if ga, gb := groupRank[a.Group], groupRank[b.Group]; ga != gb {
+		return ga < gb
+	}
+	if a.Order != b.Order {
+		return a.Order < b.Order
+	}
+	return a.Key < b.Key
+}
+
 // StoredSpecs returns the registered Specs whose values a compute pass stores
-// per hex (hex_metrics), sorted by key. These are what the exporter writes to
+// per hex (hex_metrics), in display order. These are what the exporter writes to
 // hex-metrics.json.
 func StoredSpecs() []Spec { return filterSpecs(false) }
 
 // DerivedSpecs returns the registered Specs the dashboard computes itself,
-// sorted by key. The exporter ships them in the page config so they exist for
+// in display order. The exporter ships them in the page config so they exist for
 // every city, with or without hex-metrics.json.
 func DerivedSpecs() []Spec { return filterSpecs(true) }
 

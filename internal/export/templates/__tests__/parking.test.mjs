@@ -17,7 +17,7 @@ test('the fixture parking stat carries parking_spaces', () => {
   }
 });
 
-test('the stats panel shows Est. spaces on the parking card only', async () => {
+test('the stats panel shows Parking spaces on the parking card only', async () => {
   const { win, $$, flush } = load({ data: fullData });
   await flush();
   await win.loadCityData();
@@ -25,10 +25,10 @@ test('the stats panel shows Est. spaces on the parking card only', async () => {
   const cards = $$('#stats .stat-card').filter((c) => !c.classList.contains('summary-card'));
   const parking = cards.find((c) => c.querySelector('h3').textContent === 'parking');
   assert.ok(parking, 'no parking card rendered');
-  assert.match(parking.textContent, /Est\. spaces/);
+  assert.match(parking.textContent, /Parking spaces/);
   assert.ok(parking.textContent.includes(fixtureSpaces.toLocaleString()));
   for (const c of cards) {
-    if (c !== parking) assert.doesNotMatch(c.textContent, /Est\. spaces/, 'only parking carries a spaces row');
+    if (c !== parking) assert.doesNotMatch(c.textContent, /Parking spaces/, 'only parking carries a spaces row');
   }
 });
 
@@ -48,7 +48,7 @@ test('the Compare leaderboard lists Parking Spaces without a second parking awar
   win.renderCompare([city('alpha-ca', 'Alpha, CA'), city('beta-ca', 'Beta, CA')]);
   await flush();
   const titles = Array.from(doc.querySelectorAll('.lb-title h4')).map((h) => h.textContent);
-  assert.ok(titles.some((t) => t.startsWith('Parking Spaces (est.)')), 'missing the Parking Spaces category: ' + titles.join(' | '));
+  assert.ok(titles.some((t) => t.startsWith('Parking Spaces')), 'missing the Parking Spaces category: ' + titles.join(' | '));
   const awards = Array.from(doc.querySelectorAll('.lb-award')).map((a) => a.textContent);
   assert.equal(awards.filter((a) => /Most Parking/.test(a)).length, 1, 'exactly one parking award (the area one)');
   assert.ok(!awards.some((a) => /Parking Spaces/.test(a)), 'the spaces category must not add an award');

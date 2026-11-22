@@ -168,8 +168,8 @@ func TestRunStatus_CitySummary(t *testing.T) {
 	if !strings.Contains(output, "Paved Area*:") {
 		t.Errorf("expected Paved Area (fallback, asterisked) on stdout, got: %s", output)
 	}
-	if !strings.Contains(output, "% Paved*:") {
-		t.Errorf("expected %% Paved (fallback, asterisked) on stdout, got: %s", output)
+	if !strings.Contains(output, "Paved Share*:") {
+		t.Errorf("expected Paved Share (fallback, asterisked) on stdout, got: %s", output)
 	}
 }
 

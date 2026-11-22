@@ -1098,7 +1098,7 @@
 
         // updateHexGrid re-blends after a scope swap or a resource toggle.
         // Either can change which derived metrics have inputs (untoggling
-        // parking leaves nothing for "Est. spaces"), so the selector is
+        // parking leaves nothing for "Parking spaces"), so the selector is
         // rebuilt and an orphaned selection falls back to the default.
         function updateHexGrid() {
             const src = map.getSource('hexgrid');
@@ -1158,7 +1158,7 @@
                     '<div class="stat-row"><span class="stat-label">City Area (' + areaLargeUnit() + ')</span><span class="stat-value">' + fmtNum1(toAreaLarge(meta.city_area)) + '</span></div>' +
                     '<div class="stat-row"><span class="stat-label">City Area (' + areaVeryLargeUnit() + ')</span><span class="stat-value">' + toAreaVeryLarge(meta.city_area).toFixed(2) + '</span></div>' +
                     '<div class="stat-row"><span class="stat-label" title="' + PAVED_FOOTPRINT_TIP + '">Paved Footprint (' + areaLargeUnit() + ')</span><span class="stat-value">' + fmtNum1(toAreaLarge(meta.total_paved || 0)) + '</span></div>' +
-                    '<div class="stat-row"><span class="stat-label">% Paved</span><span class="stat-value">' + ((meta.paved_share || 0) * 100).toFixed(1) + '%</span></div>' +
+                    '<div class="stat-row"><span class="stat-label">Paved Share</span><span class="stat-value">' + ((meta.paved_share || 0) * 100).toFixed(1) + '%</span></div>' +
                     (missing.length > 0 ? '<div class="stat-row stat-note">Excludes ' + esc(missing.join(', ')) + ' (no data)</div>' : '') +
                     (partial.length > 0 ? '<div class="stat-row stat-note">Partial: ' + esc(partial.join(', ')) + ' (a source failed)</div>' : '') +
                     '</div>';
@@ -1185,13 +1185,13 @@
                     '<div class="stat-row"><span class="stat-label">Area (' + areaLargeUnit() + ')</span><span class="stat-value">' + fmtNum1(areaLargeVal) + '</span></div>' +
                     '<div class="stat-row"><span class="stat-label">Area (' + areaVeryLargeUnit() + ')</span><span class="stat-value">' + toAreaVeryLarge(s.area).toFixed(2) + '</span></div>' +
                     // Parking only: a unitless count, so no units conversion.
-                    (s.parking_spaces > 0 ? '<div class="stat-row"><span class="stat-label">Est. spaces</span><span class="stat-value">' + s.parking_spaces.toLocaleString('en-US') + '</span></div>' : '') +
+                    (s.parking_spaces > 0 ? '<div class="stat-row"><span class="stat-label">Parking spaces</span><span class="stat-value">' + s.parking_spaces.toLocaleString('en-US') + '</span></div>' : '') +
                     (partial.includes(s.resource_type) ? '<div class="stat-row stat-note">Partial: no ' + esc(sourceNames(failures[s.resource_type])) + ' data (its last ingest failed)</div>' : '') +
                     '</div>';
             });
             // One card per per-hex metric (meta.metrics, summarised over the
             // painted hexes so it describes what the map shows).
-            Object.keys(meta.metrics || {}).sort().forEach(key => {
+            byMetricOrder(Object.keys(meta.metrics || {}), k => meta.metrics[k]).forEach(key => {
                 const s = meta.metrics[key];
                 statsHTML +=
                     '<div class="stat-card metric-card"><h3>' + esc(s.label) + '</h3>' +
@@ -1586,10 +1586,10 @@
                         return;
                     }
                     tooltip.innerHTML =
-                        '<strong>Coverage:</strong> ' + (p.share != null ? Math.round(p.share * 100) : 0) + '%<br>' +
-                        '<strong>Area:</strong> ' + fmtArea(p.area || 0) + '<br>' +
+                        '<strong>Paved share:</strong> ' + (p.share != null ? Math.round(p.share * 100) : 0) + '%<br>' +
+                        '<strong>Maintained area:</strong> ' + fmtArea(p.area || 0) + '<br>' +
                         '<strong>Year-1 need:</strong> ' + fmtMoney(p.year1_need || 0) +
-                        (p.spaces > 0 ? '<br><strong>Est. Parking Spaces:</strong> ' + Math.round(p.spaces).toLocaleString('en-US') : '') +
+                        (p.spaces > 0 ? '<br><strong>Parking spaces:</strong> ' + Math.round(p.spaces).toLocaleString('en-US') : '') +
                         metricTooltipLine(p);
                     tooltip.style.display = 'block';
                     tooltip.style.left = (e.point.x + 12) + 'px';
@@ -2027,14 +2027,31 @@
                 (p.metric_ref ? ' · ' + esc(String(p.metric_ref)) : '');
         }
 
-        // availableMetricKeys lists the selectable metrics: the default first,
-        // then the other derived metrics in registry order, then the city's
-        // stored metrics by key.
+        // METRIC_GROUPS are the registry's groups (hexmetric.Group*), in the
+        // order the menu, the city cards and the region card list them, with
+        // the menu's heading for each.
+        const METRIC_GROUPS = { pavement: 'Pavement', people: 'People', services: 'Services' };
+        const METRIC_GROUP_RANK = Object.keys(METRIC_GROUPS);
+        /** @param {{group?: string, order?: number} | null | undefined} m */
+        function metricRank(m) {
+            const g = METRIC_GROUP_RANK.indexOf((m && m.group) || '');
+            return [g < 0 ? METRIC_GROUP_RANK.length : g, (m && m.order) || 0];
+        }
+        // byMetricOrder sorts metric keys by group, then order, then key.
+        /** @param {string[]} keys @param {(key: string) => any} get */
+        function byMetricOrder(keys, get) {
+            return keys.slice().sort((a, b) => {
+                const [ga, oa] = metricRank(get(a)), [gb, ob] = metricRank(get(b));
+                return ga - gb || oa - ob || (a < b ? -1 : a > b ? 1 : 0);
+            });
+        }
+
+        // availableMetricKeys lists the selectable metrics, derived and
+        // stored, in display order.
         function availableMetricKeys() {
-            const keys = [DEFAULT_METRIC];
-            for (const k of Object.keys(derivedMetrics)) if (k !== DEFAULT_METRIC) keys.push(k);
-            for (const k of Object.keys(hexMetrics).sort()) if (!Object.hasOwn(derivedMetrics, k)) keys.push(k);
-            return keys.filter(metricAvailable);
+            const keys = Object.keys(derivedMetrics);
+            for (const k of Object.keys(hexMetrics)) if (!Object.hasOwn(derivedMetrics, k)) keys.push(k);
+            return byMetricOrder(keys, lookupMetric).filter(metricAvailable);
         }
 
         // populateMetricSelect lists every available metric in the toolbar's
@@ -2046,12 +2063,22 @@
             if (!sel) return;
             const keys = availableMetricKeys();
             sel.innerHTML = '';
+            // One heading per group the city has a metric in.
+            /** @type {Record<string, HTMLOptGroupElement>} */
+            const groups = {};
             keys.forEach(key => {
                 const o = document.createElement('option');
                 o.value = key;
                 const m = lookupMetric(key);
                 o.textContent = (m && m.label) || key;
-                sel.appendChild(o);
+                const g = (m && m.group) || '';
+                if (!Object.hasOwn(METRIC_GROUPS, g)) { sel.appendChild(o); return; }
+                if (!groups[g]) {
+                    groups[g] = document.createElement('optgroup');
+                    groups[g].label = METRIC_GROUPS[g];
+                    sel.appendChild(groups[g]);
+                }
+                groups[g].appendChild(o);
             });
             sel.value = hexMetric;
             const ctrl = /** @type {HTMLElement | null} */ (sel.closest('.color-by'));
@@ -2297,7 +2324,7 @@
             function regionMetricCards(bbox, paved) {
                 const metas = (lastCityMeta && lastCityMeta.metrics) || {};
                 let html = '';
-                for (const key of Object.keys(hexMetrics).sort()) {
+                for (const key of byMetricOrder(Object.keys(hexMetrics), k => hexMetrics[k])) {
                     const m = hexMetrics[key];
                     const s = metas[key] || {};
                     const vals = [];
@@ -2379,7 +2406,7 @@
                     return '<div class="stat-card"><h3>' + esc(t) + '</h3>' +
                         statRow('Area (' + areaLargeUnit() + ')', fmtNum1(toAreaLarge(b.area))) +
                         statRow('Area (' + areaVeryLargeUnit() + ')', toAreaVeryLarge(b.area).toFixed(2)) +
-                        (b.spaces > 0 ? statRow('Est. spaces', Math.round(b.spaces).toLocaleString('en-US')) : '') +
+                        (b.spaces > 0 ? statRow('Parking spaces', Math.round(b.spaces).toLocaleString('en-US')) : '') +
                         (hasCost ? statRow('Year-1 need', fmtMoney(b.cost)) : '') +
                         '</div>';
                 }).join('');
@@ -2393,7 +2420,7 @@
                     statRow('Hexes selected', fmtNum(selected.length)) +
                     statRow('Land area (' + areaLargeUnit() + ')', fmtNum1(toAreaLarge(land))) +
                     statRow('Paved area (' + areaLargeUnit() + ')', fmtNum1(toAreaLarge(sumArea))) +
-                    statRow('% paved (of land)', pct.toFixed(1) + '%') +
+                    statRow('Paved share (of land)', pct.toFixed(1) + '%') +
                     (hasCost ? statRow('Year-1 need', fmtMoney(sumCost)) : '') +
                     '<button type="button" class="region-clear" id="clear-region">Clear selection</button>' +
                     '</div>' +
@@ -5248,7 +5275,7 @@
             m.pctPaved = city.meta && city.meta.paved_share ? city.meta.paved_share * 100 : 0;
             // Union-based total paved (sq m). meta.total_paved is the cross-resource
             // union the Go side maintains precisely so it does NOT double-count
-            // road/sidewalk/parking buffer overlap; the Map and Compare % Paved use
+            // road/sidewalk/parking buffer overlap; the Map and Compare Paved Share use
             // it. Fall back to the per-resource stats sum only when absent.
             m.totalPavedSqM = (city.meta && city.meta.total_paved) ? city.meta.total_paved : m.totalSqM;
 
@@ -5545,13 +5572,13 @@
 
             function infraBreakdown(m) {
                 return (m.cityAreaLarge > 0 ? '<div class="sb-row"><span>City Area</span><span>' + fmtNum(m.cityAreaLarge) + ' ' + areaLargeUnit() + '</span></div>' : '') +
-                    (m.pctPaved > 0 ? '<div class="sb-row"><span title="% Paved divides paved area by the Nominatim boundary polygon. Boundary scope varies across cities, so cross-city comparison is approximate.">% Paved <span class="sb-note">ⓘ</span></span><span>' + m.pctPaved.toFixed(1) + '%</span></div>' : '') +
+                    (m.pctPaved > 0 ? '<div class="sb-row"><span title="Paved Share divides the paved footprint by the Nominatim boundary polygon. Boundary scope varies across cities, so cross-city comparison is approximate.">Paved Share <span class="sb-note">ⓘ</span></span><span>' + m.pctPaved.toFixed(1) + '%</span></div>' : '') +
                     '<div class="sb-row"><span title="' + MAINTAINED_AREA_TIP + '">Maintained Area</span><span>' + fmtNum(m.totalAreaLarge) + ' ' + areaLargeUnit() + '</span></div>' +
                     '<div class="sb-row"><span>Roads</span><span>' + fmtNum(m.roadsAreaLarge) + ' ' + areaLargeUnit() + '</span></div>' +
                     '<div class="sb-row"><span>Parking</span><span>' + fmtNum(m.parkingAreaLarge) + ' ' + areaLargeUnit() + '</span></div>' +
                     '<div class="sb-row"><span>Sidewalks</span><span>' + m.sidewalksAreaLarge.toFixed(1) + ' ' + areaLargeUnit() + '</span></div>' +
                     '<div class="sb-row"><span>Sidewalk/Road</span><span>' + m.sidewalkToRoadPct.toFixed(1) + '%</span></div>' +
-                    (m.parkingSpaces > 0 ? '<div class="sb-row"><span>Parking Spaces (est.)</span><span>' + m.parkingSpaces.toLocaleString('en-US') + '</span></div>' : '') +
+                    (m.parkingSpaces > 0 ? '<div class="sb-row"><span>Parking Spaces</span><span>' + m.parkingSpaces.toLocaleString('en-US') + '</span></div>' : '') +
                     '<div class="sb-row"><span>City-Owned</span><span>' + m.cityPct.toFixed(0) + '%</span></div>' +
                     '<div class="sb-row"><span>Blended Decay</span><span>' + (m.blendedDecay * 100).toFixed(2) + '%/yr</span></div>';
             }
@@ -5588,15 +5615,15 @@
             // Leaderboards — data-driven categories
             var categories = [
                 { key: 'cityAreaLarge', label: 'City Area', award: 'Largest City', higher: true, fmt: function(v) { return fmtNum(v) + ' ' + areaLargeUnit(); }, color: '#059669', note: 'City Area is the Nominatim admin polygon. Polygon scope varies (e.g. Boston includes harbor water; Nashville is consolidated Davidson County), so cross-city comparison is approximate.' },
-                { key: 'pctPaved', needs: ['roads', 'parking', 'sidewalks'],  label: '% Paved', award: 'Most Paved', higher: true, fmt: function(v) { return v.toFixed(1) + '%'; }, color: '#dc2626', note: '% Paved divides paved area by the Nominatim boundary polygon for each city. Polygon scope varies across cities (Boston includes harbor water; Nashville is consolidated Davidson County), so cross-city comparison is approximate.' },
+                { key: 'pctPaved', needs: ['roads', 'parking', 'sidewalks'],  label: 'Paved Share', award: 'Most Paved', higher: true, fmt: function(v) { return v.toFixed(1) + '%'; }, color: '#dc2626', note: 'Paved Share divides the paved footprint by the Nominatim boundary polygon for each city. Polygon scope varies across cities (Boston includes harbor water; Nashville is consolidated Davidson County), so cross-city comparison is approximate.' },
                 { key: 'totalAreaLarge', needs: ['roads', 'parking', 'sidewalks'],  label: 'Maintained Area (all owners)', award: 'Biggest Network', higher: true, fmt: function(v) { return fmtNum(v) + ' ' + areaLargeUnit(); }, color: '#6366f1', note: MAINTAINED_AREA_TIP },
                 { key: 'sidewalkToRoadPct', needs: ['roads', 'sidewalks'],  label: 'Walkability (Sidewalk-to-Road Ratio)', award: 'Most Walkable', higher: true, fmt: function(v) { return v.toFixed(1) + '%'; }, color: '#10b981' },
                 { key: 'parkingAreaLarge', needs: ['parking'],  label: 'Parking Infrastructure', award: 'Most Parking', higher: true, fmt: function(v) { return fmtNum(v) + ' ' + areaLargeUnit(); }, color: '#3b82f6' },
                 // No award of its own: "Most Parking" above already crowns parking, and two parking medals would be noise.
-                { key: 'parkingSpaces', needs: ['parking'],  label: 'Parking Spaces (est.)', higher: true, filter: function(m) { return m.parkingSpaces > 0; }, fmt: function(v) { return v.toLocaleString('en-US'); }, color: '#60a5fa', note: 'Estimated vehicle capacity of mapped lots and garages: the OSM capacity tag where present, otherwise lot footprint ÷ 35 m² per space (× levels for structured parking). On-street parking is not counted. Cities computed before the estimate existed are omitted.' },
+                { key: 'parkingSpaces', needs: ['parking'],  label: 'Parking Spaces', higher: true, filter: function(m) { return m.parkingSpaces > 0; }, fmt: function(v) { return v.toLocaleString('en-US'); }, color: '#60a5fa', note: 'Estimated vehicle capacity of mapped lots and garages: the OSM capacity tag where present, otherwise lot footprint ÷ 35 m² per space (× levels for structured parking). On-street parking is not counted. Cities computed before the estimate existed are omitted.' },
                 { key: 'cityPct', needs: ['roads', 'parking', 'sidewalks'],  label: 'City Ownership Share', award: 'Most City-Owned', higher: true, fmt: function(v) { return v.toFixed(0) + '%'; }, color: '#8b5cf6' },
                 { key: 'blendedDecay', needs: ['roads', 'parking', 'sidewalks'],  label: 'Blended Decay Rate (lower is better)', award: 'Slowest Decay', higher: false, fmt: function(v) { return (v * 100).toFixed(2) + '%/yr'; }, color: '#ef4444' },
-                { key: 'year1PerAreaUnit', needs: ['roads', 'parking', 'sidewalks'],  rowNote: function(m) { return perAreaNote(m, m.year1AreaLarge); }, note: PER_AREA_TIP, label: 'Year 1 Maintenance Cost per ' + areaLargeUnitSingular(), award: 'Lowest Cost per ' + areaLargeUnitSingular(), higher: false, fmt: function(v) { return fmtMoney(v); }, color: '#ec4899' },
+                { key: 'year1PerAreaUnit', needs: ['roads', 'parking', 'sidewalks'],  rowNote: function(m) { return perAreaNote(m, m.year1AreaLarge); }, note: PER_AREA_TIP, label: 'Year-1 Need per ' + areaLargeUnitSingular(), award: 'Lowest Need per ' + areaLargeUnitSingular(), higher: false, fmt: function(v) { return fmtMoney(v); }, color: '#ec4899' },
                 // The backlog at the horizon per unit of network (same scope as
                 // the need): per area, so size alone does not win (raw dollars
                 // made the smallest city "Least Deferred"). A city whose
@@ -5848,7 +5875,7 @@
                 totalSpaces += m.parkingSpaces || 0;
                 totalNetwork += m.totalAreaLarge; totalCityArea += m.cityAreaLarge;
                 // Union-based paved area (large units) for an apples-to-apples
-                // Paved Share that matches the Map/Compare % Paved, instead of the
+                // Paved Share that matches the Map/Compare Paved Share, instead of the
                 // overlap-double-counting per-resource sum (totalNetwork).
                 totalPaved += toAreaLarge(m.totalPavedSqM || 0);
             });

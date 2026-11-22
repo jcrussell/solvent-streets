@@ -416,7 +416,7 @@ func printTable(ios *iostreams.IOStreams, rows []statusRow, sys units.System, wi
 	if len(rows) > 0 && rows[0].Layer != "" {
 		kind = "Layer"
 	}
-	header := []string{"City", kind, "Features", "Last Ingest", "Last Compute", units.AreaLabel(sys), units.AreaLargeLabel(sys), "Est. Spaces"}
+	header := []string{"City", kind, "Features", "Last Ingest", "Last Compute", units.AreaLabel(sys), units.AreaLargeLabel(sys), "Parking Spaces"}
 	if withState {
 		header = append(header, "State")
 	}
@@ -632,9 +632,9 @@ func printCitySummary(ctx context.Context, ios *iostreams.IOStreams, store db.St
 	fmt.Fprintf(ios.Out, "%s%s (%s)\n", pavedLabel, units.FormatAreaLarge(totalPaved, sys), units.FormatAreaVeryLarge(totalPaved, sys))
 	if totalPaved > 0 {
 		if accurate {
-			fmt.Fprintf(ios.Out, "  %% Paved:      %.1f%%\n", totalPaved/cityArea*100)
+			fmt.Fprintf(ios.Out, "  Paved Share:  %.1f%%\n", totalPaved/cityArea*100)
 		} else {
-			fmt.Fprintf(ios.Out, "  %% Paved*:     %.1f%%\n", totalPaved/cityArea*100)
+			fmt.Fprintf(ios.Out, "  Paved Share*: %.1f%%\n", totalPaved/cityArea*100)
 		}
 	}
 	switch {
