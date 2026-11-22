@@ -86,7 +86,7 @@ test('the About tab links the full methodology on GitHub, in a new tab', async (
     .find((a) => a.textContent.startsWith('Full methodology'));
   assert.ok(link, 'the About tab has no Full methodology link');
   assert.match(link.getAttribute('href'),
-    /^https:\/\/github\.com\/jcrussell\/solvent-streets\/blob\/[^/]+\/internal\/export\/docs\/methodology\.md$/);
+    /^https:\/\/github\.com\/jcrussell\/solvent-streets\/blob\/[^/]+\/docs\/methodology\.md$/);
   assert.equal(link.getAttribute('target'), '_blank');
   assert.equal(link.getAttribute('rel'), 'noopener');
 });
