@@ -53,9 +53,9 @@ type compareMeta struct {
 }
 
 type compareStat struct {
-	ResourceType    string  `json:"resource_type"`
-	Area            float64 `json:"area"`
-	EstimatedSpaces int     `json:"estimated_spaces,omitempty"`
+	ResourceType  string  `json:"resource_type"`
+	Area          float64 `json:"area"`
+	ParkingSpaces int     `json:"parking_spaces,omitempty"`
 }
 
 // compareSeed keeps the cohorts and areas the tabs read, the horizon, and the

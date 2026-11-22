@@ -436,7 +436,7 @@ func measureKeys(a, b measures) []measureKey {
 		switch {
 		case k == pavedKey:
 			return 0
-		case k.metric == metric.PavedArea || k.metric == metric.FeatureCount || k.metric == metric.EstimatedSpaces:
+		case k.metric == metric.PavedArea || k.metric == metric.FeatureCount || k.metric == metric.ParkingSpaces:
 			return 1
 		case k.subject == "":
 			return 2

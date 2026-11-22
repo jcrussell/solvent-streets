@@ -353,9 +353,9 @@ func TestBuildMultiCityMeta_FarApartCitiesUsePerCityUTMZones(t *testing.T) {
 	}
 }
 
-// TestBuildMeta_CarriesEstimatedSpaces: the parking stat in meta.json carries
+// TestBuildMeta_CarriesParkingSpaces: the parking stat in meta.json carries
 // the compute pass's estimated space count; other resources omit the key.
-func TestBuildMeta_CarriesEstimatedSpaces(t *testing.T) {
+func TestBuildMeta_CarriesParkingSpaces(t *testing.T) {
 	entry := hexEntry(t, nil, map[resource.Type]results.Totals{
 		rtRoads:      {Area: 1000, Features: 10},
 		rtParkingAll: {Area: 300, Features: 3, Spaces: 42},
@@ -375,12 +375,12 @@ func TestBuildMeta_CarriesEstimatedSpaces(t *testing.T) {
 	for _, st := range stats {
 		switch st["resource_type"] {
 		case "parking":
-			if st["estimated_spaces"] != float64(42) {
-				t.Errorf("parking estimated_spaces = %v; want 42", st["estimated_spaces"])
+			if st["parking_spaces"] != float64(42) {
+				t.Errorf("parking parking_spaces = %v; want 42", st["parking_spaces"])
 			}
 		default:
-			if _, ok := st["estimated_spaces"]; ok {
-				t.Errorf("%v must omit estimated_spaces", st["resource_type"])
+			if _, ok := st["parking_spaces"]; ok {
+				t.Errorf("%v must omit parking_spaces", st["resource_type"])
 			}
 		}
 	}

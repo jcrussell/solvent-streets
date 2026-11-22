@@ -8,12 +8,12 @@ import assert from 'node:assert/strict';
 import { load } from './harness.mjs';
 import { metaJSON, fullData } from './fixtures.mjs';
 
-const fixtureSpaces = metaJSON.stats.find((s) => s.resource_type === 'parking').estimated_spaces;
+const fixtureSpaces = metaJSON.stats.find((s) => s.resource_type === 'parking').parking_spaces;
 
-test('the fixture parking stat carries estimated_spaces', () => {
-  assert.ok(fixtureSpaces > 0, 'the Go fixture must supply estimated_spaces for parking');
+test('the fixture parking stat carries parking_spaces', () => {
+  assert.ok(fixtureSpaces > 0, 'the Go fixture must supply parking_spaces for parking');
   for (const s of metaJSON.stats) {
-    if (s.resource_type !== 'parking') assert.equal(s.estimated_spaces, undefined, s.resource_type + ' must omit estimated_spaces');
+    if (s.resource_type !== 'parking') assert.equal(s.parking_spaces, undefined, s.resource_type + ' must omit parking_spaces');
   }
 });
 
@@ -35,7 +35,7 @@ test('the stats panel shows Est. spaces on the parking card only', async () => {
 test('extractMetrics reads parkingSpaces and defaults to 0 when absent', async () => {
   const { win, flush } = load({ data: fullData });
   await flush();
-  const withSpaces = win.extractMetrics({ name: 'A', slug: 'a', meta: { stats: [{ resource_type: 'parking', area: 10, estimated_spaces: 321 }] }, scenarios: null, seed: null, forecast: [] });
+  const withSpaces = win.extractMetrics({ name: 'A', slug: 'a', meta: { stats: [{ resource_type: 'parking', area: 10, parking_spaces: 321 }] }, scenarios: null, seed: null, forecast: [] });
   assert.equal(withSpaces.parkingSpaces, 321);
   const without = win.extractMetrics({ name: 'B', slug: 'b', meta: { stats: [{ resource_type: 'parking', area: 10 }] }, scenarios: null, seed: null, forecast: [] });
   assert.equal(without.parkingSpaces, 0, 'a meta without the estimate must read as 0 so the leaderboard filter drops it');

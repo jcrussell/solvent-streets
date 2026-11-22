@@ -73,7 +73,7 @@ func TotalRows(t resource.Type, tot Totals) []db.CityMetric {
 		{Metric: metric.FeatureCount, Subject: s, Value: float64(tot.Features)},
 	}
 	if t.Bare() == resource.TypeParking {
-		rows = append(rows, db.CityMetric{Metric: metric.EstimatedSpaces, Subject: s, Value: float64(tot.Spaces)})
+		rows = append(rows, db.CityMetric{Metric: metric.ParkingSpaces, Subject: s, Value: float64(tot.Spaces)})
 	}
 	return rows
 }
@@ -139,7 +139,7 @@ func addTotal(totals map[resource.Type]Totals, t resource.Type, m db.CityMetric)
 		tot.Area = m.Value
 	case metric.FeatureCount:
 		tot.Features = int(m.Value)
-	case metric.EstimatedSpaces:
+	case metric.ParkingSpaces:
 		tot.Spaces = int(m.Value)
 	}
 	totals[t] = tot

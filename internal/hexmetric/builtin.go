@@ -17,7 +17,7 @@ import "github.com/jcrussell/solvent-streets/internal/metric"
 func init() {
 	Register(Spec{
 		// The default "Color by" metric. It stays out of the URL.
-		Key:    metric.PavedShare,
+		Key:    metric.MaintainedShare,
 		Label:  "% Paved",
 		Source: "Share of the hex's land the toggled resources cover, each resource's share added together and capped at 100%.",
 		Format: FormatPercent,
@@ -39,7 +39,7 @@ func init() {
 		Derive: &Derivation{Op: OpSum, Prop: PropArea},
 	})
 	Register(Spec{
-		Key:    metric.EstimatedSpaces,
+		Key:    metric.ParkingSpaces,
 		Label:  "Est. spaces",
 		Source: "Estimated parking spaces, from each lot's capacity tag or its area, shared among hexes by how much of the lot each holds.",
 		Format: FormatInt,

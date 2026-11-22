@@ -1081,7 +1081,7 @@ var releasedMigrations = struct {
 }{
 	generation: 1,
 	files: map[string]string{
-		"001_init.sql": "71e18ec2056cf224c2acc131317b66001cbac400454148b9df88149c722adf68",
+		"001_init.sql": "5094ecbc4740ae79a6d3dd967cdf354288befc0554c5a2ba4ca89df06d56c1aa",
 	},
 }
 

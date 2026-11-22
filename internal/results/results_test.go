@@ -73,7 +73,7 @@ func TestRoundTrip(t *testing.T) {
 }
 
 // TestTotalRows_SpacesOnlyForParking: every total is written even when 0 (a
-// missing row means never computed), and estimated_spaces only for parking.
+// missing row means never computed), and parking_spaces only for parking.
 func TestTotalRows_SpacesOnlyForParking(t *testing.T) {
 	metrics := func(rows []db.CityMetric) []string {
 		var out []string
@@ -85,7 +85,7 @@ func TestTotalRows_SpacesOnlyForParking(t *testing.T) {
 	if got := metrics(TotalRows(roads, Totals{})); !slices.Equal(got, []string{"paved_area", "feature_count"}) {
 		t.Errorf("roads rows = %v", got)
 	}
-	if got := metrics(TotalRows(parkingCity, Totals{})); !slices.Equal(got, []string{"paved_area", "feature_count", "estimated_spaces"}) {
+	if got := metrics(TotalRows(parkingCity, Totals{})); !slices.Equal(got, []string{"paved_area", "feature_count", "parking_spaces"}) {
 		t.Errorf("parking:city rows = %v", got)
 	}
 }

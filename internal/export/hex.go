@@ -242,7 +242,7 @@ func roadDecayRates(ctx context.Context, entry CityEntry) (map[string]float64, e
 }
 
 // hexSpaces returns t's per-hex parking spaces keyed by hex ID, read from
-// hex_metrics (metric.EstimatedSpaces). The parking compute writes its
+// hex_metrics (metric.ParkingSpaces). The parking compute writes its
 // coverage and its spaces under ONE run, and the snapshot holds one parking
 // run, so the two always describe the same compute. The map is empty, never
 // nil, when t carries no spaces.
@@ -251,7 +251,7 @@ func hexSpaces(ctx context.Context, entry CityEntry, t resource.Type, stats []re
 	if t.Bare() != resource.TypeParking || len(stats) == 0 {
 		return out, nil
 	}
-	rows, err := entry.Store.ListHexMetrics(ctx, metric.EstimatedSpaces, resource.Subject(t))
+	rows, err := entry.Store.ListHexMetrics(ctx, metric.ParkingSpaces, resource.Subject(t))
 	if err != nil {
 		return nil, fmt.Errorf("listing hex parking spaces for %s: %w", t, err)
 	}

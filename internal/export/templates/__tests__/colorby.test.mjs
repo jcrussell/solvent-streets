@@ -54,8 +54,8 @@ const byId = (fc) => Object.fromEntries(plain(fc).features.map((f) => [f.propert
 test('the derived pavement colorings come from the registry and are all offered when their inputs exist', async () => {
   const { $$, get } = await loadGrid();
   const opts = $$('#hex-metric option').map((o) => o.value);
-  assert.deepEqual(opts, ['paved_share', 'estimated_spaces', 'maintained_area', 'year1_need']);
-  assert.equal(get('hexMetric'), 'paved_share');
+  assert.deepEqual(opts, ['maintained_share', 'maintained_area', 'parking_spaces', 'year1_need']);
+  assert.equal(get('hexMetric'), 'maintained_share');
 });
 
 test('a derived sum paints its registry bands from the blended toggled resources', async () => {
@@ -73,13 +73,13 @@ test('a derived sum paints its registry bands from the blended toggled resources
   // roads: 1000/1500 × 15000 + parking: 3000/3000 × 6000
   assert.equal(cost['hex:0:0'].metric_v, 16000);
 
-  win.selectHexMetric('paved_share');
+  win.selectHexMetric('maintained_share');
   assert.equal(byId(win.buildBlendedHexFC())['hex:0:0'].metric_v, 1, 'coverage is capped at a share of 1');
 });
 
 test('legend labels follow the metric format', async () => {
   const { win, $$ } = await loadGrid();
-  win.selectHexMetric('estimated_spaces');
+  win.selectHexMetric('parking_spaces');
   const labels = $$('#legend .legend-labels span').map((s) => s.textContent);
   assert.equal(labels[0], '≤ 10');
   assert.equal(labels[labels.length - 1], '> 250');
@@ -113,12 +113,12 @@ test('density follows the unit system: per m² stored, per sq km or sq mi shown'
 
 test('untoggling the only resource with spaces falls back from Parking spaces', async () => {
   const { win, $, $$, get } = await loadGrid();
-  win.selectHexMetric('estimated_spaces');
+  win.selectHexMetric('parking_spaces');
   const cb = $('#toggles input[data-type="parking"]');
   cb.checked = false;
   cb.dispatchEvent(new win.Event('change'));
-  assert.equal(get('hexMetric'), 'paved_share');
-  assert.ok(!$$('#hex-metric option').map((o) => o.value).includes('estimated_spaces'));
+  assert.equal(get('hexMetric'), 'maintained_share');
+  assert.ok(!$$('#hex-metric option').map((o) => o.value).includes('parking_spaces'));
 });
 
 test('a stored metric paints pavement-free hexes too', async () => {
@@ -180,11 +180,11 @@ test('the per-resident card is a city-wide sum over sum and follows the toggles'
 // metric; the per-resident card must follow the toggle on that path too.
 test('the per-resident card follows a toggle that drops the Color-by metric', async () => {
   const h = await loadGrid({ 'hex-metrics.json': { v: 2, metrics: { population } } });
-  h.win.selectHexMetric('estimated_spaces');
+  h.win.selectHexMetric('parking_spaces');
   const cb = h.$('#toggles input[data-type="parking"]');
   cb.checked = false;
   cb.dispatchEvent(new h.win.Event('change'));
-  assert.equal(h.get('hexMetric'), 'paved_share');
+  assert.equal(h.get('hexMetric'), 'maintained_share');
   const rows = Object.fromEntries(h.$$('#stats .ratio-card .stat-row').map((r) =>
     [r.querySelector('.stat-label').textContent, r.querySelector('.stat-value').textContent]));
   assert.deepEqual(rows, { 'Maintained area per resident': '122 sq ft', 'Year-1 need per resident': '$114' });

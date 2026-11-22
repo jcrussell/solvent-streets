@@ -59,7 +59,7 @@ test('the Color-by selector lists the available derived metrics plus each stored
   // Derived pavement colorings first (default first, then registry order;
   // spaces and est. cost are absent: the fixture has no parking or cost
   // summary), then stored metrics.
-  assert.deepEqual(opts, ['paved_share', 'maintained_area', 'fire_response_s']);
+  assert.deepEqual(opts, ['maintained_share', 'maintained_area', 'fire_response_s']);
   assert.equal($('#map-color-by').hidden, false);
   const card = $$('#stats .stat-card').find((c) => c.querySelector('h3').textContent === 'Fire response');
   assert.ok(card, 'no metric card rendered from meta.metrics');
@@ -141,7 +141,7 @@ test('selecting a metric paints discrete bands guarded for missing values, redra
   assert.ok(get('map').__sources.has('metric-points'), 'the points layer source must exist for a metric with points');
   assert.ok(get('map').__layers.has('metric-points'));
 
-  win.selectHexMetric('paved_share');
+  win.selectHexMetric('maintained_share');
   assert.equal(plain(win.hexFillColor())[2][0], 'step');
   assert.equal(get('map').__sources.has('metric-points'), false, 'switching back to % Paved drops the points layer');
   assert.equal($$('#legend .legend-labels span')[0].textContent, '≤ 5%');
@@ -170,7 +170,7 @@ test('a city without the requested metric falls back to coverage, leaves it off 
   await h.flush();
   await h.win.loadCityData();
   await h.flush();
-  assert.equal(h.get('hexMetric'), 'paved_share');
+  assert.equal(h.get('hexMetric'), 'maintained_share');
   // The derived pavement colorings exist for every city, so the selector
   // shows whenever more than one is available, and never offers the absent
   // stored metric.
@@ -210,7 +210,7 @@ test('an unknown hex-metrics.json version is refused with the error banner', asy
 
 test('a prototype key in ?metric= does not resolve to a metric', async () => {
   const h = await loadWithMetrics('https://example.test/index.html?metric=constructor');
-  assert.equal(h.get('hexMetric'), 'paved_share');
+  assert.equal(h.get('hexMetric'), 'maintained_share');
   assert.equal(plain(h.win.hexFillColor())[2][0], 'step');
 });
 
@@ -223,7 +223,7 @@ test('Back across a city change restores the metric for the returned-to city', a
   data['hex-metrics.json'] = { v: 2, metrics: {} };
   h.win.selectCity('beta-ca');
   await h.flush();
-  assert.equal(h.get('hexMetric'), 'paved_share', 'the city without the metric falls back');
+  assert.equal(h.get('hexMetric'), 'maintained_share', 'the city without the metric falls back');
   data['hex-metrics.json'] = saved;
   h.win.history.back();
   await h.flush();

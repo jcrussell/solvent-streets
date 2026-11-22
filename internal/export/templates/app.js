@@ -386,7 +386,7 @@
         // key. Declared here (like the tab guards) so a ?metric= deep link
         // survives the init IIFE and the per-city load can honour it once the
         // city's files are in.
-        const DEFAULT_METRIC = 'paved_share';
+        const DEFAULT_METRIC = 'maintained_share';
         /** @type {Record<string, PvmtHexMetric>} */
         const derivedMetrics = {};
         for (const spec of (PVMT_CONFIG.hex_metrics || [])) derivedMetrics[spec.key] = spec;
@@ -1185,7 +1185,7 @@
                     '<div class="stat-row"><span class="stat-label">Area (' + areaLargeUnit() + ')</span><span class="stat-value">' + fmtNum1(areaLargeVal) + '</span></div>' +
                     '<div class="stat-row"><span class="stat-label">Area (' + areaVeryLargeUnit() + ')</span><span class="stat-value">' + toAreaVeryLarge(s.area).toFixed(2) + '</span></div>' +
                     // Parking only: a unitless count, so no units conversion.
-                    (s.estimated_spaces > 0 ? '<div class="stat-row"><span class="stat-label">Est. spaces</span><span class="stat-value">' + s.estimated_spaces.toLocaleString('en-US') + '</span></div>' : '') +
+                    (s.parking_spaces > 0 ? '<div class="stat-row"><span class="stat-label">Est. spaces</span><span class="stat-value">' + s.parking_spaces.toLocaleString('en-US') + '</span></div>' : '') +
                     (partial.includes(s.resource_type) ? '<div class="stat-row stat-note">Partial: no ' + esc(sourceNames(failures[s.resource_type])) + ' data (its last ingest failed)</div>' : '') +
                     '</div>';
             });
@@ -5241,7 +5241,7 @@
             // Estimated parking spaces (lots + garages); 0 when the city was
             // computed before the estimate existed, which the leaderboard
             // category filters out rather than ranking at zero.
-            m.parkingSpaces = statByType.parking ? (statByType.parking.estimated_spaces || 0) : 0;
+            m.parkingSpaces = statByType.parking ? (statByType.parking.parking_spaces || 0) : 0;
 
             // City area and pct paved from meta
             m.cityAreaLarge = toAreaLarge(city.meta && city.meta.city_area ? city.meta.city_area : 0);

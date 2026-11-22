@@ -833,8 +833,8 @@ func TestBuildHexGeoJSON_ParkingSpaces(t *testing.T) {
 	store := entry.Store.(*dbtest.MockStore)
 	for _, subject := range []string{"parking", "parking:city"} {
 		store.HexMetrics = append(store.HexMetrics,
-			db.HexMetric{HexID: "0,0", Metric: metric.EstimatedSpaces, Subject: subject, Value: 12.4, RunID: run},
-			db.HexMetric{HexID: "0,1", Metric: metric.EstimatedSpaces, Subject: subject, Value: 0.3, RunID: run})
+			db.HexMetric{HexID: "0,0", Metric: metric.ParkingSpaces, Subject: subject, Value: 12.4, RunID: run},
+			db.HexMetric{HexID: "0,1", Metric: metric.ParkingSpaces, Subject: subject, Value: 0.3, RunID: run})
 	}
 	aggs, err := aggregateHexStats(t.Context(), entry)
 	if err != nil {
@@ -861,7 +861,7 @@ func TestBuildHexGeoJSON_ParkingSpaces(t *testing.T) {
 // derived Color-by of the same name and ignoring the resource and scope
 // toggles. Registering a key as a derived spec is fine.
 func TestPavementKeysNotStoredSpecs(t *testing.T) {
-	for _, key := range []string{metric.PavedArea, metric.PavedShare, metric.FeatureCount, metric.EstimatedSpaces} {
+	for _, key := range []string{metric.PavedArea, metric.PavedShare, metric.FeatureCount, metric.ParkingSpaces} {
 		if spec, ok := hexmetric.Lookup(key); ok && !spec.Derived() {
 			t.Errorf("%s is a stored hexmetric spec; pavement keys must stay derived or unregistered", key)
 		}

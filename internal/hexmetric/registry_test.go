@@ -132,7 +132,7 @@ func TestSpecValidate_Derived(t *testing.T) {
 // TestBuiltins pins the pavement colorings as registered derived metrics,
 // % Paved capped at a share of 1.
 func TestBuiltins(t *testing.T) {
-	for _, key := range []string{metric.PavedShare, metric.MaintainedArea, metric.EstimatedSpaces, metric.Year1Need} {
+	for _, key := range []string{metric.MaintainedShare, metric.MaintainedArea, metric.ParkingSpaces, metric.Year1Need} {
 		s, ok := Lookup(key)
 		if !ok {
 			t.Fatalf("built-in %s not registered", key)
@@ -141,7 +141,7 @@ func TestBuiltins(t *testing.T) {
 			t.Errorf("%s must be a derived sum, got %+v", key, s.Derive)
 		}
 	}
-	paved, _ := Lookup(metric.PavedShare)
+	paved, _ := Lookup(metric.MaintainedShare)
 	if paved.Derive.Max != 1 {
 		t.Errorf("%% Paved must be capped at a share of 1: %+v", paved)
 	}

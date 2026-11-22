@@ -57,9 +57,9 @@ type statusRow struct {
 	LastIngestAt  string  `json:"last_ingest_at,omitempty"`
 	LastComputeAt string  `json:"last_compute_at,omitempty"`
 	Area          float64 `json:"area,omitempty"`
-	// EstimatedSpaces is the parking resource's estimated vehicle capacity
+	// ParkingSpaces is the parking resource's estimated vehicle capacity
 	// from its last compute; 0 and omitted for other resources.
-	EstimatedSpaces int `json:"estimated_spaces,omitempty"`
+	ParkingSpaces int `json:"parking_spaces,omitempty"`
 	// State is the resource's part of the latest compute: "current",
 	// "stale" (StaleInputs names the inputs ingested again since) or
 	// "not_computed" (coherence.PartStates). Omitted without a config.
@@ -100,8 +100,8 @@ func (r statusRow) field(f string) (any, bool) {
 		// Area is a compute result: a computed 0 is a value, but a
 		// never-computed row has none.
 		return r.Area, r.LastComputeAt != ""
-	case "estimated_spaces":
-		return r.EstimatedSpaces, r.EstimatedSpaces != 0
+	case "parking_spaces":
+		return r.ParkingSpaces, r.ParkingSpaces != 0
 	case "state":
 		return r.State, r.State != ""
 	case "stale_inputs":
@@ -157,7 +157,7 @@ func Example(group string, rt resource.Source) string {
 // fieldLayer is the --json field naming a row's stored input.
 const fieldLayer = "layer"
 
-var statusFields = []string{"city", "resource_type", "feature_count", "last_ingest_at", "last_compute_at", "area", "estimated_spaces", "state", "stale_inputs"}
+var statusFields = []string{"city", "resource_type", "feature_count", "last_ingest_at", "last_compute_at", "area", "parking_spaces", "state", "stale_inputs"}
 
 // fieldsFor is the --json fields of a status over rt (nil: every
 // resource). Only pavement has a resource_type, an area and estimated
@@ -167,7 +167,7 @@ func fieldsFor(rt resource.Source) []string {
 		return statusFields
 	}
 	out := slices.DeleteFunc(slices.Clone(statusFields), func(f string) bool {
-		return f == "area" || f == "estimated_spaces"
+		return f == "area" || f == "parking_spaces"
 	})
 	out[slices.Index(out, "resource_type")] = fieldLayer
 	return out
@@ -382,7 +382,7 @@ func buildRows(ctx context.Context, ios *iostreams.IOStreams, store db.Store, so
 			row.LastIngestAt = info.LastIngestAt.UTC().Format(time.RFC3339)
 		}
 		if tot, ok := totals[rtVal]; ok {
-			row.Area, row.EstimatedSpaces = tot.Area, tot.Spaces
+			row.Area, row.ParkingSpaces = tot.Area, tot.Spaces
 			row.LastComputeAt = tot.ComputedAt.UTC().Format(time.RFC3339)
 		}
 		if st, ok := view.state(partOf(rtVal)); ok {
@@ -423,8 +423,8 @@ func printTable(ios *iostreams.IOStreams, rows []statusRow, sys units.System, wi
 	tp.AddHeader(header...)
 	for _, r := range rows {
 		spacesStr := "-"
-		if r.EstimatedSpaces > 0 {
-			spacesStr = strconv.Itoa(r.EstimatedSpaces)
+		if r.ParkingSpaces > 0 {
+			spacesStr = strconv.Itoa(r.ParkingSpaces)
 		}
 		cells := []string{
 			r.City,

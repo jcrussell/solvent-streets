@@ -63,7 +63,7 @@ func BuildMultiCityMeta(ctx context.Context, entries []CityEntry, title string) 
 	return meta, nil
 }
 
-// aggregatePerResourceStats sums Area and EstimatedSpaces per resource
+// aggregatePerResourceStats sums Area and ParkingSpaces per resource
 // type across all entries, returning the per-resource cards in resource.All
 // order. Resources with no rows in any entry are omitted.
 //

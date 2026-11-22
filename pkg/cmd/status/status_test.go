@@ -298,15 +298,15 @@ func TestRunStatus_CitySummary_SingleResourceIgnoresCombined(t *testing.T) {
 // full statusFields list round-trips for a fully populated row.
 func TestStatusRow_ExportData_AllFieldsPopulated(t *testing.T) {
 	r := statusRow{
-		City:            "oakland-ca",
-		ResourceType:    "parking",
-		FeatureCount:    42,
-		LastIngestAt:    "2026-04-18T00:00:00Z",
-		LastComputeAt:   "2026-04-18T01:00:00Z",
-		Area:            123.4,
-		EstimatedSpaces: 7,
-		State:           "stale",
-		StaleInputs:     []string{"parking"},
+		City:          "oakland-ca",
+		ResourceType:  "parking",
+		FeatureCount:  42,
+		LastIngestAt:  "2026-04-18T00:00:00Z",
+		LastComputeAt: "2026-04-18T01:00:00Z",
+		Area:          123.4,
+		ParkingSpaces: 7,
+		State:         "stale",
+		StaleInputs:   []string{"parking"},
 	}
 	out := r.ExportData(statusFields)
 	if len(out) != len(statusFields) {
@@ -317,7 +317,7 @@ func TestStatusRow_ExportData_AllFieldsPopulated(t *testing.T) {
 			t.Errorf("missing field %q", f)
 		}
 	}
-	if out["resource_type"] != "parking" || out["feature_count"] != 42 || out["area"] != 123.4 || out["estimated_spaces"] != 7 {
+	if out["resource_type"] != "parking" || out["feature_count"] != 42 || out["area"] != 123.4 || out["parking_spaces"] != 7 {
 		t.Errorf("unexpected values: %+v", out)
 	}
 }
@@ -376,7 +376,7 @@ func TestRunStatus_NonTTY_TabSeparated(t *testing.T) {
 // sentinel.
 func TestStatusRow_ExportData_OmitsNotApplicable(t *testing.T) {
 	out := statusRow{ResourceType: "roads"}.ExportData(statusFields)
-	for _, f := range []string{"last_ingest_at", "last_compute_at", "area", "estimated_spaces"} {
+	for _, f := range []string{"last_ingest_at", "last_compute_at", "area", "parking_spaces"} {
 		if v, ok := out[f]; ok {
 			t.Errorf("%s = %v; want it omitted", f, v)
 		}

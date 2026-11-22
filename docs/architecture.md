@@ -104,7 +104,7 @@ database, `hex-metrics.json`, `meta.json`'s `metrics`, the page config's
 `hex_metrics`, `?metric=` and `pvmt snapshots diff`.
 
 Pavement coverage is just more metric keys (`paved_area`, `paved_share`, and
-`estimated_spaces` for parking) over a resource subject (`roads`,
+`parking_spaces` for parking) over a resource subject (`roads`,
 `roads:city`, ...); `internal/results` maps the pavement compute onto those
 rows. `internal/hexmetric` is presentation only: a Spec names a catalog key
 and adds the label, format, colour scale and, for a derived metric, how the
@@ -140,10 +140,10 @@ use, so hex ids line up. No producer reads another producer's stored results.
 
 The dashboard paints every coloring from the `internal/hexmetric` registry. Stored metrics ship in
 `hex-metrics.json`. *Derived* metrics are registered beside
-them under the key of the measure they compute: % Paved (`paved_share`),
-maintained area (`maintained_area`, the stored `paved_area` summed over
-the toggled resources), estimated spaces (`estimated_spaces`) and
-year-1 need (`year1_need`) in
+them under the key of the measure they compute: % Paved
+(`maintained_share`) and maintained area (`maintained_area`), the stored
+`paved_share` and `paved_area` summed over the toggled resources; parking
+spaces (`parking_spaces`); and year-1 need (`year1_need`) in
 `internal/hexmetric/builtin.go`, and the per-resident ratios in
 `internal/population`. Each declares how to combine the per-resource values in
 `hexgrid.geojson`, and the browser resolves it. A spec's `Source` is its
@@ -649,7 +649,7 @@ files, `window.PVMT_CONFIG`, and the game and WASM payloads.
 - Timestamps end in `_at` and are RFC3339 UTC at second precision. Calendar
   dates end in `_date`.
 - A plural noun is a collection. An integer count of entities ends in
-  `_count`. A quantity in a unit keeps its noun (`estimated_spaces`).
+  `_count`. A quantity in a unit keeps its noun (`parking_spaces`).
 - Values are in canonical units, and the UI converts them for display:
   - areas in m², with no unit suffix;
   - money in dollars, with no unit suffix;

@@ -119,10 +119,10 @@ func jsFixtureEntry(t *testing.T) CityEntry {
 		return []db.SnapshotCity{{ID: jsFixtureSnapshotID, CreatedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}}, nil
 	}
 	// The parking compute result carries an estimated space count so the
-	// fixture meta.json has the real estimated_spaces key the stats panel and
+	// fixture meta.json has the real parking_spaces key the stats panel and
 	// Compare specs read; the shared fixture itself stays untouched.
 	for i, m := range store.CityMetrics {
-		if m.Metric == metric.EstimatedSpaces && m.Subject == string(resource.TypeParking) && m.Class == "" {
+		if m.Metric == metric.ParkingSpaces && m.Subject == string(resource.TypeParking) && m.Class == "" {
 			store.CityMetrics[i].Value = jsFixtureParkingSpaces
 		}
 	}
@@ -202,9 +202,9 @@ func writeJSFixtureTree(t *testing.T, dir string) {
 		t.Fatal("fixture meta.json has no stats[]; the stats-panel specs would test nothing")
 	}
 	if !slices.ContainsFunc(meta.Stats, func(s StatJSON) bool {
-		return s.ResourceType == "parking" && s.EstimatedSpaces == jsFixtureParkingSpaces
+		return s.ResourceType == "parking" && s.ParkingSpaces == jsFixtureParkingSpaces
 	}) {
-		t.Fatalf("fixture meta.json parking stat lacks estimated_spaces=%d; the parking specs would test nothing: %+v", jsFixtureParkingSpaces, meta.Stats)
+		t.Fatalf("fixture meta.json parking stat lacks parking_spaces=%d; the parking specs would test nothing: %+v", jsFixtureParkingSpaces, meta.Stats)
 	}
 	if s, ok := meta.Metrics[metric.FireResponseS]; !ok || s.HexCount != 2 {
 		t.Fatalf("fixture meta.json lacks the %s summary over 2 painted hexes; the metrics specs would test nothing: %+v", metric.FireResponseS, meta.Metrics)

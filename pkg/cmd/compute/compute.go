@@ -60,9 +60,9 @@ type computeRow struct {
 	Scope        string  `json:"scope"` // "all" or "city"
 	FeatureCount int     `json:"feature_count"`
 	Area         float64 `json:"area"`
-	// EstimatedSpaces is the parking resource's estimated vehicle capacity
+	// ParkingSpaces is the parking resource's estimated vehicle capacity
 	// (0 and omitted for every other resource).
-	EstimatedSpaces int `json:"estimated_spaces,omitempty"`
+	ParkingSpaces int `json:"parking_spaces,omitempty"`
 	// RunID is the run this compute wrote. Under `all compute` it is
 	// committed into the city's latest compute once all of the city's steps
 	// are done.
@@ -85,9 +85,9 @@ func (r computeRow) ExportData(fields []string) map[string]any {
 			out[f] = r.FeatureCount
 		case "area":
 			out[f] = r.Area
-		case "estimated_spaces":
-			if r.EstimatedSpaces != 0 {
-				out[f] = r.EstimatedSpaces
+		case "parking_spaces":
+			if r.ParkingSpaces != 0 {
+				out[f] = r.ParkingSpaces
 			}
 		case "run_id":
 			if r.RunID != 0 {
@@ -133,7 +133,7 @@ func Example(group, noun string) string {
   pvmt --city oakland-ca %s compute`, noun, group, group, group)
 }
 
-var computeFields = []string{"city", "resource_type", "scope", "feature_count", "area", "estimated_spaces", "run_id"}
+var computeFields = []string{"city", "resource_type", "scope", "feature_count", "area", "parking_spaces", "run_id"}
 
 func NewCmdCompute(f *cmdutil.Factory, rt resource.Source, runF func(context.Context, *Options) error) *cobra.Command {
 	opts := &Options{
@@ -438,7 +438,7 @@ func (c *computer) mergeSpaces(ctx context.Context, stats []geo.HexStat, buffere
 		byHex[sh.HexID] += sh.Value
 	}
 	for i := range stats {
-		stats[i].EstimatedSpaces = byHex[stats[i].HexID]
+		stats[i].ParkingSpaces = byHex[stats[i].HexID]
 	}
 	return stats
 }
@@ -449,7 +449,7 @@ func (c *computer) mergeSpaces(ctx context.Context, stats []geo.HexStat, buffere
 func sumSpaces(stats []geo.HexStat) int {
 	var s float64
 	for _, st := range stats {
-		s += st.EstimatedSpaces
+		s += st.ParkingSpaces
 	}
 	return int(math.Round(s))
 }
@@ -575,7 +575,7 @@ func (c *computer) saveHexStats(ctx context.Context, hexStats []geo.HexStat) err
 }
 
 // hexRows returns rt's per-hex coverage as metric rows, plus, for parking,
-// each hex's estimated spaces (metric.EstimatedSpaces) under the same
+// each hex's estimated spaces (metric.ParkingSpaces) under the same
 // run, so the snapshot always pairs them. Hexes with no spaces get no spaces
 // row.
 func hexRows(rt resource.Type, stats []geo.HexStat) []db.HexMetric {
@@ -588,8 +588,8 @@ func hexRows(rt resource.Type, stats []geo.HexStat) []db.HexMetric {
 		return rows
 	}
 	for _, s := range stats {
-		if s.EstimatedSpaces > 0 {
-			rows = append(rows, db.HexMetric{HexID: s.HexID, Metric: metric.EstimatedSpaces, Subject: resource.Subject(rt), Value: s.EstimatedSpaces})
+		if s.ParkingSpaces > 0 {
+			rows = append(rows, db.HexMetric{HexID: s.HexID, Metric: metric.ParkingSpaces, Subject: resource.Subject(rt), Value: s.ParkingSpaces})
 		}
 	}
 	return rows
@@ -651,12 +651,12 @@ func (c *computer) recordRow(scope string, featureCount int, area float64, space
 		return
 	}
 	row := computeRow{
-		City:            c.city.Slug(),
-		ResourceType:    string(c.opts.ResourceType.Type()),
-		Scope:           scope,
-		FeatureCount:    featureCount,
-		Area:            area,
-		EstimatedSpaces: spaces,
+		City:          c.city.Slug(),
+		ResourceType:  string(c.opts.ResourceType.Type()),
+		Scope:         scope,
+		FeatureCount:  featureCount,
+		Area:          area,
+		ParkingSpaces: spaces,
 	}
 	row.RunID = c.runID
 	*c.opts.rows = append(*c.opts.rows, row)

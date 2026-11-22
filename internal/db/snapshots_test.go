@@ -860,7 +860,7 @@ func TestCityMetrics_RoundTrip(t *testing.T) {
 	store := openTestStore(t)
 	run, _ := commitRun(t, store, "h", "parking", func(run int64) {
 		if err := store.SaveCityMetrics(ctx, run, []CityMetric{
-			{Metric: "estimated_spaces", Subject: "parking", Value: 31},
+			{Metric: "parking_spaces", Subject: "parking", Value: 31},
 			{Metric: "paved_area", Subject: "parking", Value: 900},
 			{Metric: "paved_area", Subject: "parking", Class: "parking", Value: 900},
 		}); err != nil {
@@ -881,7 +881,7 @@ func TestCityMetrics_RoundTrip(t *testing.T) {
 			t.Errorf("row %+v: want run %d and the run's timestamp", m, run)
 		}
 	}
-	if want := []string{"parking//estimated_spaces", "parking//paved_area", "parking/parking/paved_area"}; !slices.Equal(got, want) {
+	if want := []string{"parking//parking_spaces", "parking//paved_area", "parking/parking/paved_area"}; !slices.Equal(got, want) {
 		t.Errorf("rows = %v, want %v", got, want)
 	}
 }

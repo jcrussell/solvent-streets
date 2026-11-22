@@ -102,7 +102,7 @@ test('back across a snapshot change keeps the entry\'s Color-by', async () => {
   assert.equal(get('hexMetric'), 'population', 'the fixture does not offer the stored metric');
   win.selectSnapshot('v0.5.0');
   await flush();
-  win.selectHexMetric('paved_share');
+  win.selectHexMetric('maintained_share');
   await flush();
   // Two entries back: the snapshot AND the metric differ from the one in view.
   win.history.go(-2);

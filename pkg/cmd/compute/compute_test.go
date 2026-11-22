@@ -765,7 +765,7 @@ func TestRunCompute_ParkingEstimatesSpaces(t *testing.T) {
 		switch m.Metric {
 		case metric.PavedArea:
 			coverageRun = m.RunID
-		case metric.EstimatedSpaces:
+		case metric.ParkingSpaces:
 			spaces[m.Subject] = append(spaces[m.Subject], m)
 		}
 	}
@@ -832,13 +832,13 @@ func TestRunCompute_RoadsCarryNoSpaces(t *testing.T) {
 		t.Fatal("roads compute saved no city totals")
 	}
 	for _, m := range store.CityMetrics {
-		if m.Metric == metric.EstimatedSpaces {
-			t.Errorf("roads compute saved a city estimated_spaces row %+v", m)
+		if m.Metric == metric.ParkingSpaces {
+			t.Errorf("roads compute saved a city parking_spaces row %+v", m)
 		}
 	}
 	for _, m := range store.HexMetrics {
-		if m.Metric == metric.EstimatedSpaces {
-			t.Errorf("roads compute saved a per-hex estimated_spaces row %+v", m)
+		if m.Metric == metric.ParkingSpaces {
+			t.Errorf("roads compute saved a per-hex parking_spaces row %+v", m)
 		}
 	}
 	if strings.Contains(stdout.String(), "Spaces:") {

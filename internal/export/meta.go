@@ -494,10 +494,10 @@ type StatJSON struct {
 	ResourceType string  `json:"resource_type"`
 	Color        string  `json:"color"`
 	Area         float64 `json:"area"`
-	// EstimatedSpaces is the parking resource's estimated vehicle capacity
+	// ParkingSpaces is the parking resource's estimated vehicle capacity
 	// (OSM capacity tags, else footprint area over a per-space constant; see
 	// resource.EstimateParkingSpaces). Omitted for other resources.
-	EstimatedSpaces int `json:"estimated_spaces,omitempty"`
+	ParkingSpaces int `json:"parking_spaces,omitempty"`
 }
 
 // ResourceColors maps resource type names to their display colors.
@@ -839,10 +839,10 @@ func statsFromTotals(totals map[resource.Type]results.Totals) []StatJSON {
 		}
 		name := string(rt.Type())
 		out = append(out, StatJSON{
-			ResourceType:    name,
-			Color:           ResourceColors[name],
-			Area:            result.Area,
-			EstimatedSpaces: result.Spaces,
+			ResourceType:  name,
+			Color:         ResourceColors[name],
+			Area:          result.Area,
+			ParkingSpaces: result.Spaces,
 		})
 	}
 	return out
