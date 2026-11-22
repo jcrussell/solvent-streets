@@ -5946,7 +5946,7 @@
                 aggCard('Year-1 Maintenance Need', hasFc ? fmtMoney(regionYear1) : '—', 'Year 1\'s share of the treatment cycle, before any deferred backlog; the hold-steady budget is on Financials'),
                 aggCard(horizon + 'Deferred Backlog', hasFc ? fmtMoney(regionBacklog) : '—', hasFc ? 'Unfunded need accumulated by year ' + horizonYears : 'No forecast data in this region'),
                 aggCard('Year-1 Need per ' + areaLargeUnitSingular(), perArea === null ? '—' : fmtMoney(perArea, { full: true }), 'Year-1 need ÷ ' + fmtNum(fcYear1Area) + ' ' + unit + ' of maintained area (' + scopeName() + ')'),
-                aggCard('Est. Parking Spaces', totalSpaces > 0 ? fmtNum(totalSpaces) : '—', 'Lots and garages: OSM capacity, else footprint ÷ 35 m²/space')
+                aggCard('Parking Spaces', totalSpaces > 0 ? fmtNum(totalSpaces) : '—', 'Lots and garages: OSM capacity, else footprint ÷ 35 m²/space')
             ].join('');
 
             // Forecast divergence note: per-city [forecast] can override
