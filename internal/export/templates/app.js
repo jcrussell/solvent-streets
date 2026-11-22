@@ -2148,7 +2148,7 @@
             } });
             map.addLayer({
                 id: 'metric-points', type: 'circle', source: 'metric-points',
-                paint: { 'circle-radius': 6, 'circle-color': metricPointColor(), 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 2 },
+                paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 7, 13, 10, 16, 14], 'circle-color': metricPointColor(), 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 2.5 },
             });
         }
 
