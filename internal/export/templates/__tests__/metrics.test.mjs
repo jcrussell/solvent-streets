@@ -59,7 +59,7 @@ test('the Color-by selector lists the available derived metrics plus each stored
   // Derived pavement colorings first (default first, then registry order;
   // spaces and est. cost are absent: the fixture has no parking or cost
   // summary), then stored metrics.
-  assert.deepEqual(opts, ['paved_share', 'paved_area', 'fire_response_s']);
+  assert.deepEqual(opts, ['paved_share', 'maintained_area', 'fire_response_s']);
   assert.equal($('#map-color-by').hidden, false);
   const card = $$('#stats .stat-card').find((c) => c.querySelector('h3').textContent === 'Fire response');
   assert.ok(card, 'no metric card rendered from meta.metrics');

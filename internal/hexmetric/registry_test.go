@@ -132,7 +132,7 @@ func TestSpecValidate_Derived(t *testing.T) {
 // TestBuiltins pins the pavement colorings as registered derived metrics,
 // % Paved capped at a share of 1.
 func TestBuiltins(t *testing.T) {
-	for _, key := range []string{metric.PavedShare, metric.PavedArea, metric.EstimatedSpaces, metric.Year1Need} {
+	for _, key := range []string{metric.PavedShare, metric.MaintainedArea, metric.EstimatedSpaces, metric.Year1Need} {
 		s, ok := Lookup(key)
 		if !ok {
 			t.Fatalf("built-in %s not registered", key)

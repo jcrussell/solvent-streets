@@ -28,7 +28,7 @@ func init() {
 		Derive: &Derivation{Op: OpSum, Prop: PropShare, Max: 1},
 	})
 	Register(Spec{
-		Key:    metric.PavedArea,
+		Key:    metric.MaintainedArea,
 		Label:  "Maintained area",
 		Source: "Area of the toggled resources inside the hex, each resource counted as the forecast prices it, so a sidewalk beside a road counts in both.",
 		Format: FormatArea,

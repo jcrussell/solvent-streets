@@ -27,8 +27,12 @@ const (
 	HousingUnits      = "housing_units"
 	PopulationDensity = "population_density"
 
-	// Year1Need, MaintainedAreaPerResident and Year1NeedPerResident are
-	// derived by the dashboard over the toggled resources.
+	// MaintainedArea, Year1Need, MaintainedAreaPerResident and
+	// Year1NeedPerResident are derived by the dashboard over the toggled
+	// resources. MaintainedArea sums each resource's stored PavedArea, so
+	// overlaps count once per resource; the stored PavedArea of the combined
+	// subject is the footprint, where they count once.
+	MaintainedArea            = "maintained_area"
 	Year1Need                 = "year1_need"
 	MaintainedAreaPerResident = "maintained_area_per_resident"
 	Year1NeedPerResident      = "year1_need_per_resident"
@@ -56,6 +60,8 @@ func init() {
 			"2020 Census housing units apportioned to the hex by block area overlap"},
 		{PopulationDensity, UnitPerSquareMeter, Hex,
 			"Residents per square meter of the hex's clipped area"},
+		{MaintainedArea, UnitSquareMeters, Derived,
+			"The toggled resources' paved area inside the hex, summed per resource as the forecast prices them"},
 		{Year1Need, UnitDollars, Derived,
 			"Each toggled resource's year-1 need split by the hex's part of its area"},
 		{MaintainedAreaPerResident, UnitSquareMetersPerResident, Derived,

@@ -141,7 +141,8 @@ use, so hex ids line up. No producer reads another producer's stored results.
 The dashboard paints every coloring from the `internal/hexmetric` registry. Stored metrics ship in
 `hex-metrics.json`. *Derived* metrics are registered beside
 them under the key of the measure they compute: % Paved (`paved_share`),
-maintained area (`paved_area`), estimated spaces (`estimated_spaces`) and
+maintained area (`maintained_area`, the stored `paved_area` summed over
+the toggled resources), estimated spaces (`estimated_spaces`) and
 year-1 need (`year1_need`) in
 `internal/hexmetric/builtin.go`, and the per-resident ratios in
 `internal/population`. Each declares how to combine the per-resource values in

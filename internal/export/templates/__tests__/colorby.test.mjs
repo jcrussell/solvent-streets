@@ -54,13 +54,13 @@ const byId = (fc) => Object.fromEntries(plain(fc).features.map((f) => [f.propert
 test('the derived pavement colorings come from the registry and are all offered when their inputs exist', async () => {
   const { $$, get } = await loadGrid();
   const opts = $$('#hex-metric option').map((o) => o.value);
-  assert.deepEqual(opts, ['paved_share', 'estimated_spaces', 'paved_area', 'year1_need']);
+  assert.deepEqual(opts, ['paved_share', 'estimated_spaces', 'maintained_area', 'year1_need']);
   assert.equal(get('hexMetric'), 'paved_share');
 });
 
 test('a derived sum paints its registry bands from the blended toggled resources', async () => {
   const { win } = await loadGrid();
-  win.selectHexMetric('paved_area');
+  win.selectHexMetric('maintained_area');
   const paint = plain(win.hexFillColor());
   assert.equal(paint[2][0], 'step');
   const fc = byId(win.buildBlendedHexFC());
@@ -90,7 +90,7 @@ test('legend labels follow the metric format', async () => {
 // Compact edges, with the unit named once on the last label.
 test('area legend edges are compact and name the unit once', async () => {
   const { win, $$ } = await loadGrid();
-  win.selectHexMetric('paved_area');
+  win.selectHexMetric('maintained_area');
   const labels = $$('#legend .legend-labels span').map((s) => s.textContent);
   const unit = win.areaUnit();
   const sqft = unit !== 'm²' && unit !== 'sq m';
