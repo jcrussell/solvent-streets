@@ -49,8 +49,6 @@ legend says what that measure is.
   included.
 - **Population**, **Housing units** and **Population density**: from the
   2020 Census.
-- **Maintained area per resident** and **Year-1 need per resident**: those
-  two divided by the people who live in the hexagon.
 - **Fire response time**: the estimated time for a fire engine to arrive
   from the nearest station.
 

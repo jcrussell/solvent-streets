@@ -129,18 +129,6 @@ test('a stored metric paints pavement-free hexes too', async () => {
   assert.equal(fc['hex:0:2'].share, 0);
 });
 
-// The population ratios are the REAL registry specs (internal/population),
-// rendered into PVMT_CONFIG.hex_metrics by the harness: min_den is 10.
-test('a ratio divides a blended numerator by a stored denominator above min_den', async () => {
-  const h = await loadGrid({ 'hex-metrics.json': { v: 2, metrics: { population } } });
-  h.win.selectHexMetric('maintained_area_per_resident');
-  assert.equal(h.get('hexMetric'), 'maintained_area_per_resident');
-  const fc = byId(h.win.buildBlendedHexFC());
-  assert.equal(fc['hex:0:0'].metric_v, 80, '4000 m² / 50 residents');
-  assert.equal(fc['hex:0:1'].metric_v, undefined, 'below min_den the ratio is left empty');
-  assert.equal(fc['hex:0:2'].metric_v, 0, 'a populated hex with no pavement has 0 m² per resident');
-});
-
 test('metric cards lead with a total for additive counts and never list hexes reached', async () => {
   const meta = { ...metaJSON, metrics: {
     population: { label: 'Population', unit: '', format: 'int', min: 2, median: 50, max: 80, total: 132 },
@@ -157,10 +145,15 @@ test('metric cards lead with a total for additive counts and never list hexes re
   assert.doesNotMatch(h.$('#stats').textContent, /Hexes reached/);
 });
 
-test('a ratio is not offered without its stored denominator', async () => {
+test('there is no per-resident card without population', async () => {
   const h = await loadGrid();
-  assert.equal(h.win.metricAvailable('maintained_area_per_resident'), false);
-  assert.equal(h.$('#stats .ratio-card'), null, 'no per-resident card without population');
+  assert.equal(h.$('#stats .ratio-card'), null);
+});
+
+test('per-resident figures are cards only, never a Color by choice', async () => {
+  const h = await loadGrid({ 'hex-metrics.json': { v: 2, metrics: { population } } });
+  const opts = h.$$('#hex-metric option').map((o) => o.value);
+  assert.ok(!opts.some((k) => k.includes('per_resident')), 'offered: ' + opts.join(', '));
 });
 
 test('the per-resident card is a city-wide sum over sum and follows the toggles', async () => {

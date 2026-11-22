@@ -27,17 +27,14 @@ const (
 	HousingUnits      = "housing_units"
 	PopulationDensity = "population_density"
 
-	// MaintainedArea, MaintainedShare, Year1Need, MaintainedAreaPerResident
-	// and Year1NeedPerResident are derived by the dashboard over the toggled
-	// resources. MaintainedArea and MaintainedShare sum each resource's
+	// MaintainedArea, MaintainedShare and Year1Need are derived by the
+	// dashboard over the toggled resources. MaintainedArea and MaintainedShare sum each resource's
 	// stored PavedArea and PavedShare, so overlaps count once per resource;
 	// the stored values of the combined subject are the footprint, where
 	// they count once.
-	MaintainedArea            = "maintained_area"
-	MaintainedShare           = "maintained_share"
-	Year1Need                 = "year1_need"
-	MaintainedAreaPerResident = "maintained_area_per_resident"
-	Year1NeedPerResident      = "year1_need_per_resident"
+	MaintainedArea  = "maintained_area"
+	MaintainedShare = "maintained_share"
+	Year1Need       = "year1_need"
 )
 
 func init() {
@@ -68,10 +65,6 @@ func init() {
 			"The toggled resources' share of the hex's clipped area, summed per resource and capped at 1"},
 		{Year1Need, UnitDollars, Derived,
 			"Each toggled resource's year-1 need split by the hex's part of its area"},
-		{MaintainedAreaPerResident, UnitSquareMetersPerResident, Derived,
-			"Maintained area of the toggled resources per resident of the hex"},
-		{Year1NeedPerResident, UnitDollarsPerResident, Derived,
-			"Year-1 need of the toggled resources per resident of the hex"},
 	} {
 		Register(d)
 	}

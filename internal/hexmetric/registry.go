@@ -60,9 +60,6 @@ const (
 const (
 	// OpSum sums Prop over the toggled resources, capped at Max when Max > 0.
 	OpSum = "sum"
-	// OpRatio divides the OpSum numerator by the stored metric Den, leaving
-	// the hex empty when Den is below MinDen.
-	OpRatio = "ratio"
 )
 
 // Per-resource hex properties a Derivation may combine: the covered share and
@@ -79,11 +76,9 @@ const (
 // Derivation describes how the dashboard computes a derived metric. See the
 // Op* constants.
 type Derivation struct {
-	Op     string  `json:"op"`
-	Prop   string  `json:"prop"`
-	Max    float64 `json:"max,omitempty"`
-	Den    string  `json:"den,omitempty"`
-	MinDen float64 `json:"min_den,omitempty"`
+	Op   string  `json:"op"`
+	Prop string  `json:"prop"`
+	Max  float64 `json:"max,omitempty"`
 }
 
 func (d Derivation) validate(key string) error {
@@ -92,18 +87,11 @@ func (d Derivation) validate(key string) error {
 	default:
 		return fmt.Errorf("hexmetric: %s derives from unknown property %q", key, d.Prop)
 	}
-	if d.Max < 0 || d.MinDen < 0 {
-		return fmt.Errorf("hexmetric: %s has a negative max or min_den", key)
+	if d.Max < 0 {
+		return fmt.Errorf("hexmetric: %s has a negative max", key)
 	}
 	switch d.Op {
 	case OpSum:
-		if d.Den != "" {
-			return fmt.Errorf("hexmetric: %s is a sum but names a denominator", key)
-		}
-	case OpRatio:
-		if err := metric.CheckHex(d.Den); err != nil {
-			return fmt.Errorf("hexmetric: %s ratio denominator: %w", key, err)
-		}
 	default:
 		return fmt.Errorf("hexmetric: %s has unknown derivation op %q", key, d.Op)
 	}

@@ -76,19 +76,12 @@ func TestApportion_ConservesTotalsAndDensity(t *testing.T) {
 	}
 }
 
-// TestSpecs: the stored and derived population metrics are registered, and
-// the ratios divide by the stored population above MinResidents.
+// TestSpecs: the stored population metrics are registered.
 func TestSpecs(t *testing.T) {
 	for _, k := range []string{metric.Population, metric.HousingUnits, metric.PopulationDensity} {
 		s, ok := hexmetric.Lookup(k)
 		if !ok || s.Derived() {
 			t.Errorf("%s must be a registered stored metric", k)
-		}
-	}
-	for _, k := range []string{metric.MaintainedAreaPerResident, metric.Year1NeedPerResident} {
-		s, ok := hexmetric.Lookup(k)
-		if !ok || !s.Derived() || s.Derive.Op != hexmetric.OpRatio || s.Derive.Den != metric.Population || s.Derive.MinDen != MinResidents {
-			t.Errorf("%s must be a ratio over %s, got %+v", k, metric.Population, s.Derive)
 		}
 	}
 }

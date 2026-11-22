@@ -41,7 +41,7 @@ const population = {
 
 // Fire response from two stations, so the popup has a Services row.
 const fire = {
-  label: 'Fire response', unit: 's', format: 'minutes', source: 'test', threshold_s: 240,
+  label: 'Fire response', unit: 's', format: 'minutes', source: 'test', group: 'services', order: 1, threshold_s: 240,
   scale: { kind: 'sequential', transform: 'linear', bands: [240, 480] },
   values: { 'hex:0:0': 205, 'hex:0:1': 300 },
   refs: { 'hex:0:0': 0, 'hex:0:1': 1 },
@@ -109,7 +109,7 @@ test('a hex click opens a popup with its details and keeps the city summary in t
   assert.ok(p, 'the click opened no popup');
   assert.equal(p.querySelector('.hex-detail').dataset.hex, 'hex:0:0');
   assert.deepEqual(hexRows(h), ['parking', 'roads']);
-  assert.match(p.textContent, /Est\. parking spaces\s*120/);
+  assert.match(p.textContent, /Parking spaces\s*120/);
   assert.deepEqual(h.win.__popups[0].lngLat, { lng: 0.25, lat: 0.75 }, 'the popup is not at the clicked point');
   assert.equal(p.getAttribute('role'), 'dialog');
   assert.equal(p.getAttribute('aria-labelledby'), 'hex-popup-title');
@@ -266,12 +266,9 @@ test('the hex popup groups pavement, people and services under friendly labels',
   // together cover all of it.
   assert.equal(p.querySelector('.hex-sub').textContent, '1.1 acres · 100% paved');
   assert.deepEqual(hexRows(h), ['parking', 'roads']);
-  assert.deepEqual(groupRows(h, 'Pavement'), [['Est. parking spaces', '120']]);
+  assert.deepEqual(groupRows(h, 'Pavement'), [['Parking spaces', '120']]);
   assert.match(p.querySelector('.total-row').textContent, /\$16\.0K/, 'the cost summary\'s year-1 cost is missing');
-  // 4,000 m² and $16.0K over 50 residents.
-  assert.deepEqual(groupRows(h, 'People'), [
-    ['Maintained area per resident', '861 sq ft'], ['Year-1 need per resident', '$320'], ['Population', '50'],
-  ]);
+  assert.deepEqual(groupRows(h, 'People'), [['Population', '50']], 'per-resident ratios are city and region figures, not per hex');
   assert.deepEqual(groupRows(h, 'Services'), [['Fire response', '3:25 min · Station 4']]);
 });
 

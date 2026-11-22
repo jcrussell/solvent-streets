@@ -1291,20 +1291,26 @@
             return total;
         }
 
-        // ratioTotalsCard is the "Per resident" stats card: each available
-        // ratio metric as a city-wide Σ numerator / Σ denominator — not the
-        // median of per-hex ratios, which over-weights sparse hexes.
+        // PER_RESIDENT are the per-resident figures the city and region cards
+        // show: a derived pavement total over the toggled resources divided
+        // by the residents in the same hexes. Whole-area totals, never a
+        // per-hex ratio, which a hex of a few residents turns into noise.
+        const PER_RESIDENT = [
+            { label: 'Maintained area per resident', prop: 'area', format: 'area' },
+            { label: 'Year-1 need per resident', prop: 'year1_need', format: 'usd' },
+        ];
+        // ratioTotalsCard is the "Per resident (city)" stats card: each
+        // PER_RESIDENT figure as the city's total over its population.
         function ratioTotalsCard() {
+            const pop = hexMetrics.population;
+            let d = 0;
+            for (const v of Object.values((pop && pop.values) || {})) d += v;
+            if (d <= 0) return '';
             let rows = '';
-            for (const key of availableMetricKeys()) {
-                const m = lookupMetric(key);
-                if (!m || !m.derive || m.derive.op !== 'ratio') continue;
-                const den = hexMetrics[m.derive.den || ''];
-                let d = 0;
-                for (const v of Object.values((den && den.values) || {})) d += v;
-                if (d <= 0) continue;
-                rows += '<div class="stat-row"><span class="stat-label">' + esc(m.label) + '</span><span class="stat-value">' +
-                    fmtMetric(blendedTotal(m.derive.prop) / d, m.format) + '</span></div>';
+            for (const r of PER_RESIDENT) {
+                if (!derivedInputPresent(r.prop)) continue;
+                rows += '<div class="stat-row"><span class="stat-label">' + esc(r.label) + '</span><span class="stat-value">' +
+                    fmtMetric(blendedTotal(r.prop) / d, r.format) + '</span></div>';
             }
             return rows ? '<div class="stat-card metric-card ratio-card"><h3>Per resident (city)</h3>' + rows + '</div>' : '';
         }
@@ -1743,27 +1749,24 @@
             return Math.abs(twice / 2) * mPerDeg * mPerDeg * Math.cos(ring[0][1] * Math.PI / 180);
         }
 
-        // metricGroup files a per-hex metric under the popup's People or
-        // Services heading: a metric measured from points of service (fire
-        // stations) is a service, every other stored metric and each
-        // per-resident ratio describes the people living there.
+        // metricGroup files a stored per-hex metric under the popup's People
+        // or Services heading, by its registry group.
         /** @param {PvmtHexMetric} m */
         function metricGroup(m) {
-            return (m.points && m.points.length > 0) || m.threshold_s ? 'Services' : 'People';
+            return m.group === 'services' ? 'Services' : 'People';
         }
 
-        // hexMetricRows lists the stored and ratio metrics this city has a
-        // value for in one hex, each in its registry format, grouped as
-        // metricGroup files them. The pavement sums are the Pavement table.
-        /** @param {string} hexId @param {{area: number, share: number, spaces: number, cost: number}} total */
-        function hexMetricRows(hexId, total) {
+        // hexMetricRows lists the stored metrics this city has a value for in
+        // one hex, each in its registry format, grouped as metricGroup files
+        // them. The pavement sums are the Pavement table.
+        /** @param {string} hexId */
+        function hexMetricRows(hexId) {
             /** @type {Record<string, string>} */
             const groups = { People: '', Services: '' };
-            const blended = { area: total.area, share: total.share, spaces: total.spaces, year1_need: total.cost };
             for (const key of availableMetricKeys()) {
                 const m = lookupMetric(key);
-                if (!m || (m.derive && m.derive.op === 'sum')) continue;
-                const v = metricValue(m, hexId, blended);
+                if (!m || m.derive) continue;
+                const v = metricValue(m, hexId, {});
                 if (v == null || !Number.isFinite(v)) continue;
                 const refIdx = m.refs ? m.refs[hexId] : undefined;
                 const pt = refIdx != null && m.points ? m.points[refIdx] : null;
@@ -1796,9 +1799,9 @@
                     (types.length > 1 ? '<tr class="total-row"><td>Total</td><td>' + fmtArea(total.area) + '</td><td>' + paved + '%</td>' +
                         (total.hasCost ? '<td>' + fmtMoney(total.cost) + '</td>' : '') + '</tr>' : '') +
                     '</table>' +
-                    (total.spaces > 0 ? statRow('Est. parking spaces', Math.round(total.spaces).toLocaleString('en-US')) : '');
+                    (total.spaces > 0 ? statRow('Parking spaces', Math.round(total.spaces).toLocaleString('en-US')) : '');
             }
-            const groups = hexMetricRows(hexId, total);
+            const groups = hexMetricRows(hexId);
             const section = (title, body) => body ? '<div class="hex-group"><h4>' + title + '</h4>' + body + '</div>' : '';
             const sub = [landText, types.length > 0 ? paved + '% paved' : 'no mapped pavement'].filter(Boolean).join(' · ');
             return {
@@ -1877,14 +1880,12 @@
             return types.length > 0;
         }
         // metricAvailable: a stored metric is available when this city has
-        // it; a derived sum when its input is present; a ratio when its
-        // numerator input and its stored denominator both are.
+        // it; a derived sum when its input is present.
         function metricAvailable(key) {
             const m = lookupMetric(key);
             if (!m) return false;
             if (!m.derive) return true;
-            if (!derivedInputPresent(m.derive.prop)) return false;
-            return m.derive.op !== 'ratio' || Object.hasOwn(hexMetrics, m.derive.den || '');
+            return derivedInputPresent(m.derive.prop);
         }
         // activeMetric returns the selected metric's description, or null
         // when it is unavailable (the city lacks it or its inputs).
@@ -1900,16 +1901,11 @@
             return activeMetric() || lookupMetric(DEFAULT_METRIC);
         }
         // metricExtraHexes lists the hexes a metric covers beyond those with
-        // toggled pavement rows: a stored metric's own hexes, or a ratio's
-        // denominator hexes. A derived sum covers only pavement hexes.
+        // toggled pavement rows: a stored metric's own hexes. A derived sum
+        // covers only pavement hexes.
         /** @param {PvmtHexMetric} m */
         function metricExtraHexes(m) {
-            if (!m.derive) return Object.keys(m.values || {});
-            if (m.derive.op === 'ratio') {
-                const den = hexMetrics[m.derive.den || ''];
-                return den ? Object.keys(den.values || {}) : [];
-            }
-            return [];
+            return m.derive ? [] : Object.keys(m.values || {});
         }
         // metricValue resolves the metric's value for one hex from the blended
         // record (derived) or the stored values; null means "no value".
@@ -1920,14 +1916,7 @@
                 return v == null ? null : v;
             }
             const num = data[DERIVE_PROPS[m.derive.prop]] || 0;
-            if (m.derive.op === 'sum') {
-                return m.derive.max ? Math.min(num, m.derive.max) : num;
-            }
-            const den = hexMetrics[m.derive.den || ''];
-            const d = den && den.values ? den.values[hid] : undefined;
-            // Below min_den (or a non-positive denominator) the ratio is noise.
-            if (d == null || d <= 0 || d < (m.derive.min_den || 0)) return null;
-            return num / d;
+            return m.derive.max ? Math.min(num, m.derive.max) : num;
         }
         function hexFillColor() {
             const metric = shownMetric();
@@ -2345,17 +2334,19 @@
                         '</div>';
                 }
                 let ratios = '';
-                for (const key of availableMetricKeys()) {
-                    const m = lookupMetric(key);
-                    if (!m || !m.derive || m.derive.op !== 'ratio') continue;
-                    const den = hexMetrics[m.derive.den || ''];
-                    let num = 0, d = 0;
-                    for (const [hid, v] of Object.entries((den && den.values) || {})) {
-                        if (!centroidIn({ geometry: hexGeomById[hid] }, bbox)) continue;
-                        d += v;
-                        if (paved[hid]) num += paved[hid][DERIVE_PROPS[m.derive.prop]] || 0;
-                    }
-                    if (d > 0) ratios += statRow(esc(m.label), fmtMetric(num / d, m.format));
+                const pop = hexMetrics.population;
+                let d = 0;
+                const inRegion = [];
+                for (const [hid, v] of Object.entries((pop && pop.values) || {})) {
+                    if (!centroidIn({ geometry: hexGeomById[hid] }, bbox)) continue;
+                    d += v;
+                    inRegion.push(hid);
+                }
+                for (const r of d > 0 ? PER_RESIDENT : []) {
+                    if (!derivedInputPresent(r.prop)) continue;
+                    let num = 0;
+                    for (const hid of inRegion) if (paved[hid]) num += paved[hid][DERIVE_PROPS[r.prop]] || 0;
+                    ratios += statRow(esc(r.label), fmtMetric(num / d, r.format));
                 }
                 if (ratios) html += '<div class="stat-card metric-card ratio-card"><h3>Per resident (region)</h3>' + ratios + '</div>';
                 return html;

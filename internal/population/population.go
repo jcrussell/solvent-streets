@@ -13,7 +13,6 @@ package population
 
 import (
 	"context"
-	"fmt"
 	"sync/atomic"
 
 	"github.com/jcrussell/solvent-streets/internal/db"
@@ -23,16 +22,8 @@ import (
 	"github.com/jcrussell/solvent-streets/internal/resource"
 )
 
-// MinResidents is the population below which a hex's per-resident ratios
-// are left empty: dividing by a handful of people turns a quiet road into an
-// alarming outlier.
-const MinResidents = 10
-
-// census says where the counts come from; perResident ends each ratio's
-// definition.
+// census says where the counts come from.
 const census = "2020 Census, spread from each census block onto the hexes it overlaps by area."
-
-var perResident = fmt.Sprintf(" divided by the hex's population; blank where fewer than %d people live.", MinResidents)
 
 func init() {
 	// Band edges are absolute (the Spec is static per key). Counts depend on
@@ -55,20 +46,6 @@ func init() {
 		Key: metric.PopulationDensity, Group: hexmetric.GroupPeople, Order: 3, Label: "Population density", Source: "Residents per unit of the hex's land inside the city, from the " + census,
 		Format: hexmetric.FormatDensity,
 		Scale:  hexmetric.Scale{Kind: hexmetric.KindSequential, Transform: hexmetric.TransformLog, Bands: []float64{0.0005, 0.002, 0.005, 0.01, 0.02}},
-	})
-	hexmetric.Register(hexmetric.Spec{
-		// FormatArea: stored in m² per resident, shown in the viewer's unit.
-		Key: metric.MaintainedAreaPerResident, Group: hexmetric.GroupPeople, Order: 4, Label: "Maintained area per resident", Source: "Maintained area of the toggled resources" + perResident,
-		Format: hexmetric.FormatArea,
-		Scale:  hexmetric.Scale{Kind: hexmetric.KindSequential, Transform: hexmetric.TransformLog, Bands: []float64{20, 40, 60, 100, 200}},
-		Derive: &hexmetric.Derivation{Op: hexmetric.OpRatio, Prop: hexmetric.PropArea, Den: metric.Population, MinDen: MinResidents},
-	})
-	hexmetric.Register(hexmetric.Spec{
-		Key: metric.Year1NeedPerResident, Group: hexmetric.GroupPeople, Order: 5, Label: "Year-1 need per resident",
-		Source: "Year-1 need of the toggled resources, backlog included," + perResident,
-		Format: hexmetric.FormatUSD,
-		Scale:  hexmetric.Scale{Kind: hexmetric.KindSequential, Transform: hexmetric.TransformLog, Bands: []float64{25, 50, 100, 200, 400}},
-		Derive: &hexmetric.Derivation{Op: hexmetric.OpRatio, Prop: hexmetric.PropYear1Need, Den: metric.Population, MinDen: MinResidents},
 	})
 }
 

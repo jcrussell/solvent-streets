@@ -144,8 +144,7 @@ them under the key of the measure they compute: paved share
 (`maintained_share`) and maintained area (`maintained_area`), the stored
 `paved_share` and `paved_area` summed over the toggled resources; parking
 spaces (`parking_spaces`); and year-1 need (`year1_need`) in
-`internal/hexmetric/builtin.go`, and the per-resident ratios in
-`internal/population`. Each declares how to combine the per-resource values in
+`internal/hexmetric/builtin.go`. Each declares how to combine the per-resource values in
 `hexgrid.geojson`, and the browser resolves it. A spec's `Source` is its
 one-line definition for readers: the legend shows it under the title. A new
 coloring is therefore a registry entry, plus a producer if it needs stored

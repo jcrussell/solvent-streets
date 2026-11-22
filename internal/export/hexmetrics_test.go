@@ -290,7 +290,7 @@ func TestDataFileNames_OptionalAreDistinct(t *testing.T) {
 // specs — fire, population and the derived population ratios — so none can
 // silently fall out of hex-metrics.json or the page config.
 func TestRegistry_ProducersLinked(t *testing.T) {
-	for _, key := range []string{"fire_response_s", "population", "housing_units", "population_density", "maintained_area_per_resident", "year1_need_per_resident"} {
+	for _, key := range []string{"fire_response_s", "population", "housing_units", "population_density"} {
 		if _, ok := hexmetric.Lookup(key); !ok {
 			t.Errorf("metric %s is not registered as seen from the exporter", key)
 		}

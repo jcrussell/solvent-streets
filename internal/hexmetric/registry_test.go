@@ -11,7 +11,7 @@ import (
 // Scratch catalog keys the tests present: durations, so validSpec's unit
 // matches the catalog's.
 func init() {
-	for _, k := range []string{"test_metric_s", "ok_key_s", "zz_test_a_s", "zz_test_b_s", "one_band_s", "share_s", "ratio_s", "x_s"} {
+	for _, k := range []string{"test_metric_s", "ok_key_s", "zz_test_a_s", "zz_test_b_s", "one_band_s", "share_s", "x_s"} {
 		metric.Register(metric.Def{Key: k, Unit: metric.UnitSeconds, Level: metric.Hex, Description: "test"})
 	}
 	metric.Register(metric.Def{Key: "zz_city_count", Unit: metric.UnitCount, Level: metric.City, Description: "test"})
@@ -39,10 +39,6 @@ func TestSpecValidate(t *testing.T) {
 		"non-ascending bands": func(s *Spec) { s.Scale.Bands = []float64{60, 60} },
 		"unknown op":          func(s *Spec) { s.Derive = &Derivation{Op: "max", Prop: PropArea} },
 		"unknown prop":        func(s *Spec) { s.Derive = &Derivation{Op: OpSum, Prop: "width"} },
-		"sum with den":        func(s *Spec) { s.Derive = &Derivation{Op: OpSum, Prop: PropArea, Den: "population"} },
-		"den not per hex":     func(s *Spec) { s.Derive = &Derivation{Op: OpRatio, Prop: PropArea, Den: "zz_city_count"} },
-		"ratio without den":   func(s *Spec) { s.Derive = &Derivation{Op: OpRatio, Prop: PropArea} },
-		"negative min_den":    func(s *Spec) { s.Derive = &Derivation{Op: OpRatio, Prop: PropArea, Den: "population", MinDen: -1} },
 	}
 	for name, mutate := range bad {
 		s := validSpec("ok_key_s")
@@ -120,12 +116,7 @@ func TestSpecValidate_Derived(t *testing.T) {
 	if err := share.Validate(); err != nil {
 		t.Errorf("valid capped sum rejected: %v", err)
 	}
-	ratio := validSpec("ratio_s")
-	ratio.Derive = &Derivation{Op: OpRatio, Prop: PropArea, Den: "population", MinDen: 10}
-	if err := ratio.Validate(); err != nil {
-		t.Errorf("valid ratio rejected: %v", err)
-	}
-	if !ratio.Derived() || validSpec("x_s").Derived() {
+	if !share.Derived() || validSpec("x_s").Derived() {
 		t.Error("Derived() must report exactly the specs with a Derivation")
 	}
 }

@@ -331,7 +331,7 @@ The site reports two areas, and each keeps one name on every tab:
     Maintaining**, streets only by default (see the Financials tab above).
     Its **End Area** is that maintained area in the final year, after
     growth.
-  - **The Map's** per-hex **Maintained area** coloring and the
+  - **The Map's** per-hex **Maintained area** coloring and the city's
     per-resident figures sum the layers toggled on (see
     [Color by](#color-by)).
 
@@ -428,9 +428,8 @@ the city. The map legend shows the chosen coloring's one-line definition.
   much of each lot they hold.
 - **Year-1 need**: the toggled resources' first-year repair need, backlog
   included, shared among hexes by area.
-- **Population**, **Housing units**, **Population density** and the two
-  **per resident** ratios: see [Population and per-resident
-  figures](#population-and-per-resident-figures).
+- **Population**, **Housing units** and **Population density**: see
+  [Population and per-resident figures](#population-and-per-resident-figures).
 - **Fire response time**: see [Service coverage](#service-coverage-fire-response).
 
 The first four are computed in the browser from the hex grid over the
@@ -452,13 +451,15 @@ moves people only within a block and never changes the city total. Density
 divides a hex's population by its own area after clipping to the city
 boundary, so edge hexes are not understated.
 
-**Maintained area per resident** and **Year-1 need per resident** divide a
-hex's maintained area, or its year-1 need, by its population. Both follow the
-resources toggled on. Hexes with fewer than 10 residents are left blank, so
-a nearly empty hex doesn't produce a huge per-resident figure. The year-1
-need is the do-nothing first-year need, including any repair backlog. It is
-not a recurring upkeep cost. The figures are 2020 counts set against
-today's roads, so fast-growing areas read high.
+**Maintained area per resident** and **Year-1 need per resident**, on the
+city panel and the region card, divide the whole city's (or region's)
+maintained area, or its year-1 need, by the residents of the same hexes.
+Both follow the resources toggled on. They are not offered per hex: a hex
+holds a few dozen residents, so shopping, industrial and park hexes would
+read blank or enormous. The year-1 need is the do-nothing first-year need,
+including any repair backlog. It is not a recurring upkeep cost. The
+figures are 2020 counts set against today's roads, so fast-growing areas
+read high.
 
 ### Service coverage (fire response)
 
