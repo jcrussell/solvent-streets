@@ -68,8 +68,8 @@ type Input struct {
 // metrics. The embedded result keeps the JSON shape of a plain run.
 type Output struct {
 	forecast.ScenarioResult
-	BreakEvenBudget *float64 `json:"break_even_budget,omitempty"`
-	InsolvencyYear  *int     `json:"insolvency_year,omitempty"`
+	BreakEvenBudget  *float64 `json:"break_even_budget,omitempty"`
+	TippingPointYear *int     `json:"tipping_point_year,omitempty"`
 	// Scenarios is the reference set when Input.Scenarios is set.
 	Scenarios []forecast.ScenarioResult `json:"scenarios,omitempty"`
 }
@@ -190,8 +190,8 @@ func Run(raw []byte) ([]byte, error) {
 	if in.Solvency {
 		be := forecast.BreakEvenBudget(cohorts, years, params, forecast.StrategyWorstFirst)
 		out.BreakEvenBudget = &be
-		if yr, ok := forecast.InsolvencyYear(result, params.CycleYears); ok {
-			out.InsolvencyYear = &yr
+		if yr, ok := forecast.TippingPointYear(result, params.CycleYears); ok {
+			out.TippingPointYear = &yr
 		}
 	}
 	if in.Scenarios {

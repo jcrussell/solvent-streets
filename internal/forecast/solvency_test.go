@@ -14,12 +14,12 @@ func solvencyCohorts(area, initialPCI, decay float64) []Cohort {
 	}}
 }
 
-func TestInsolvencyYear_DoNothingCrossesYearOne(t *testing.T) {
+func TestTippingPointYear_DoNothingCrossesYearOne(t *testing.T) {
 	cohorts := solvencyCohorts(100_000, 70, 0.08)
 	p := NewParams(0.01, nil, 1, 1) // N=1: un-gated baseline (full network priced yearly)
 	res := Simulate(Scenario{Strategy: StrategyDoNothing}, cohorts, 20, p)
 
-	year, ok := InsolvencyYear(res, 1)
+	year, ok := TippingPointYear(res, 1)
 	if !ok {
 		t.Fatal("do-nothing scenario should be insolvent within the horizon")
 	}
@@ -28,18 +28,18 @@ func TestInsolvencyYear_DoNothingCrossesYearOne(t *testing.T) {
 	}
 }
 
-func TestInsolvencyYear_FullFundingNeverInsolvent(t *testing.T) {
+func TestTippingPointYear_FullFundingNeverInsolvent(t *testing.T) {
 	cohorts := solvencyCohorts(100_000, 70, 0.08)
 	p := NewParams(0.01, nil, 1, 1) // N=1: un-gated baseline (full network priced yearly)
 	res := Simulate(Scenario{FullFunding: true, Strategy: StrategyWorstFirst}, cohorts, 20, p)
 
-	if year, ok := InsolvencyYear(res, 1); ok {
+	if year, ok := TippingPointYear(res, 1); ok {
 		t.Fatalf("a fully funded network should stay solvent through the horizon, got insolvency year %d", year)
 	}
 }
 
-func TestInsolvencyYear_NoYears(t *testing.T) {
-	if _, ok := InsolvencyYear(ScenarioResult{}, 1); ok {
+func TestTippingPointYear_NoYears(t *testing.T) {
+	if _, ok := TippingPointYear(ScenarioResult{}, 1); ok {
 		t.Fatal("empty result should report not-ok")
 	}
 }

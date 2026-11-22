@@ -16,7 +16,7 @@ function solvencySim(input) {
   const out = defaultSimulate(input);
   if (input.solvency) {
     out.break_even_budget = 30_000_000 * (input.cost_multiplier || 1);
-    out.insolvency_year = 7;
+    out.tipping_point_year = 7;
   }
   return out;
 }

@@ -207,7 +207,7 @@ func TestHexGridJSON_PlayContract(t *testing.T) {
 
 // TestPlayConfig_FromExportStartsAGame: the gameInit config game.js builds
 // from an export starts a game, and its pregame projection at the roads
-// budget names the year forecast.json's insolvency_year does — bare and at a
+// budget names the year forecast.json's tipping_point_year does — bare and at a
 // loaded cost multiplier, at budgets that run out and one that does not.
 func TestPlayConfig_FromExportStartsAGame(t *testing.T) {
 	entry := boardEntry(t)
@@ -238,8 +238,8 @@ func TestPlayConfig_FromExportStartsAGame(t *testing.T) {
 			}
 
 			var forecasts []struct {
-				ResourceType   string `json:"resource_type"`
-				InsolvencyYear *int   `json:"insolvency_year"`
+				ResourceType     string `json:"resource_type"`
+				TippingPointYear *int   `json:"tipping_point_year"`
 			}
 			if err := json.Unmarshal(files.forecast, &forecasts); err != nil {
 				t.Fatal(err)
@@ -247,7 +247,7 @@ func TestPlayConfig_FromExportStartsAGame(t *testing.T) {
 			var want *int
 			for _, f := range forecasts {
 				if f.ResourceType == string(resource.TypeRoads) {
-					want = f.InsolvencyYear
+					want = f.TippingPointYear
 				}
 			}
 			year, ok := game.ProjectInsolvency(cfg)

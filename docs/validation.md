@@ -237,9 +237,9 @@ the 10–14-year municipal range (see the
 [methodology](methodology.md#treatment-cycle)). The
 cycle has to be in the model. Pricing the whole network every year (N = 1)
 multiplies every break-even by 12, which would put Berkeley at about $68 per m²
-a year against its real $5.6. The insolvency threshold would shrink to a
+a year against its real $5.6. The tipping point threshold would shrink to a
 single year's need, which a city funding only a small share of it crosses
-within a year or two, so the metric could not tell cities apart. With the cycle, `insolvency_year` separates the underfunded cities from
+within a year or two, so the metric could not tell cities apart. With the cycle, `tipping_point_year` separates the underfunded cities from
 the funded ones.
 
 ## 6. How the cost and cycle are anchored

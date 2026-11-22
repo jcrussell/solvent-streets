@@ -285,7 +285,7 @@ func TestForecastJSON_Contract(t *testing.T) {
 		{"[].resource_type", []string{"string"}},
 		{"[].scenarios", []string{"array"}},
 		// Omitted when the budget never runs out / when there is no budget.
-		{"[].insolvency_year", []string{"number", "absent"}},
+		{"[].tipping_point_year", []string{"number", "absent"}},
 		{"[].funding_gap", []string{"number", "absent"}},
 		{"[].break_even_budget", []string{"number"}},
 		{"[].current_budget", []string{"number"}},
@@ -296,14 +296,14 @@ func TestForecastJSON_Contract(t *testing.T) {
 	checkBindings(t, doc, bindings)
 
 	var entries []struct {
-		ResourceType    string   `json:"resource_type"`
-		Baseline        series   `json:"baseline"`
-		CityBaseline    *series  `json:"city_baseline"`
-		Scenarios       []series `json:"scenarios"`
-		InsolvencyYear  *int     `json:"insolvency_year"`
-		FundingGap      *float64 `json:"funding_gap"`
-		BreakEvenBudget *float64 `json:"break_even_budget"`
-		CurrentBudget   *float64 `json:"current_budget"`
+		ResourceType     string   `json:"resource_type"`
+		Baseline         series   `json:"baseline"`
+		CityBaseline     *series  `json:"city_baseline"`
+		Scenarios        []series `json:"scenarios"`
+		TippingPointYear *int     `json:"tipping_point_year"`
+		FundingGap       *float64 `json:"funding_gap"`
+		BreakEvenBudget  *float64 `json:"break_even_budget"`
+		CurrentBudget    *float64 `json:"current_budget"`
 	}
 	if err := json.Unmarshal(doc, &entries); err != nil {
 		t.Fatalf("unmarshal: %v", err)
@@ -328,7 +328,7 @@ func TestForecastJSON_Contract(t *testing.T) {
 
 		if e.ResourceType != "roads" {
 			// Solvency is a roads-budget concept; other resources carry none.
-			if e.BreakEvenBudget != nil || e.CurrentBudget != nil || e.FundingGap != nil || e.InsolvencyYear != nil {
+			if e.BreakEvenBudget != nil || e.CurrentBudget != nil || e.FundingGap != nil || e.TippingPointYear != nil {
 				t.Errorf("%s: carries roads-only solvency metrics", e.ResourceType)
 			}
 			continue
@@ -350,8 +350,8 @@ func TestForecastJSON_Contract(t *testing.T) {
 		// break-even must fail here, not quietly skip the insolvency check.
 		if *e.FundingGap >= 0 {
 			t.Errorf("roads funding_gap = %v; exporttest.ForecastConfig's budget must exceed break-even", *e.FundingGap)
-		} else if e.InsolvencyYear != nil {
-			t.Errorf("roads insolvency_year = %d with a budget above break-even", *e.InsolvencyYear)
+		} else if e.TippingPointYear != nil {
+			t.Errorf("roads tipping_point_year = %d with a budget above break-even", *e.TippingPointYear)
 		}
 	}
 	if want := []string{"roads", "parking", "sidewalks"}; !slices.Equal(types, want) {

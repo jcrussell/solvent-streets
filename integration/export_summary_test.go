@@ -57,14 +57,14 @@ func TestExportForecast_SummaryGolden(t *testing.T) {
 	}
 
 	var fe []struct {
-		ResourceType    string          `json:"resource_type"`
-		Baseline        summarySeries   `json:"baseline"`
-		CityBaseline    *summarySeries  `json:"city_baseline"`
-		Scenarios       []summarySeries `json:"scenarios"`
-		InsolvencyYear  *int            `json:"insolvency_year"`
-		FundingGap      *float64        `json:"funding_gap"`
-		BreakEvenBudget *float64        `json:"break_even_budget"`
-		CurrentBudget   *float64        `json:"current_budget"`
+		ResourceType     string          `json:"resource_type"`
+		Baseline         summarySeries   `json:"baseline"`
+		CityBaseline     *summarySeries  `json:"city_baseline"`
+		Scenarios        []summarySeries `json:"scenarios"`
+		TippingPointYear *int            `json:"tipping_point_year"`
+		FundingGap       *float64        `json:"funding_gap"`
+		BreakEvenBudget  *float64        `json:"break_even_budget"`
+		CurrentBudget    *float64        `json:"current_budget"`
 	}
 	roundTrip(t, forecasts, &fe)
 	for _, e := range fe {
@@ -76,13 +76,13 @@ func TestExportForecast_SummaryGolden(t *testing.T) {
 			writeLine(t, &buf, s.summary("forecast.json", "city", e.ResourceType))
 		}
 		writeLine(t, &buf, map[string]any{
-			"file":              "forecast.json",
-			"resource":          e.ResourceType,
-			"solvency":          true,
-			"insolvency_year":   e.InsolvencyYear,
-			"funding_gap":       sig6Ptr(e.FundingGap),
-			"break_even_budget": sig6Ptr(e.BreakEvenBudget),
-			"current_budget":    sig6Ptr(e.CurrentBudget),
+			"file":               "forecast.json",
+			"resource":           e.ResourceType,
+			"solvency":           true,
+			"tipping_point_year": e.TippingPointYear,
+			"funding_gap":        sig6Ptr(e.FundingGap),
+			"break_even_budget":  sig6Ptr(e.BreakEvenBudget),
+			"current_budget":     sig6Ptr(e.CurrentBudget),
 		})
 	}
 

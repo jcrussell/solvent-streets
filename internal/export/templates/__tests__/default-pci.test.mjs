@@ -77,7 +77,7 @@ test('the Financials headline says when a city funds its streets\' upkeep in ful
   const solvent = forecastJSON.map((f) => {
     if (f.resource_type !== 'roads') return f;
     const rest = { ...f, current_budget: f.break_even_budget * 2 };
-    delete rest.insolvency_year;
+    delete rest.tipping_point_year;
     return rest;
   });
   const h = await ready(solvent, 'https://example.test/index.html?tab=financials-tab');
@@ -98,7 +98,7 @@ test('the Financials headline says when a city funds its streets\' upkeep in ful
   // The same city short of need leads with the share it funds, and names
   // the year its backlog passes a full cycle.
   const short = solvent.map((f) => (f.resource_type === 'roads'
-    ? { ...f, current_budget: f.break_even_budget / 2, insolvency_year: 9 } : f));
+    ? { ...f, current_budget: f.break_even_budget / 2, tipping_point_year: 9 } : f));
   const s = await ready(short, 'https://example.test/index.html?tab=financials-tab');
   s.win.eval('liveSolvency = null');
   s.win.renderSolvencyHeadline();

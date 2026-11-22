@@ -137,11 +137,11 @@ func TestBreakEvenBudget_MonotoneInBudget(t *testing.T) {
 	}
 }
 
-// TestInsolvencyYear_DiscriminatesUnderfunding proves the redefined threshold no
+// TestTippingPointYear_DiscriminatesUnderfunding proves the redefined threshold no
 // longer saturates at year 2 (Finding D) and orders cities by how underfunded
 // they are. Both cities are deeply underfunded so both cross within the horizon;
 // the more-underfunded one must cross strictly earlier.
-func TestInsolvencyYear_DiscriminatesUnderfunding(t *testing.T) {
+func TestTippingPointYear_DiscriminatesUnderfunding(t *testing.T) {
 	cohorts := cycleCohorts(60, 0.10)
 	years := 30
 	cycle := 12.0
@@ -154,7 +154,7 @@ func TestInsolvencyYear_DiscriminatesUnderfunding(t *testing.T) {
 
 	run := func(frac float64) (int, bool) {
 		r := Simulate(Scenario{AnnualBudget: be * frac, Strategy: StrategyWorstFirst}, cohorts, years, p)
-		return InsolvencyYear(r, cycle)
+		return TippingPointYear(r, cycle)
 	}
 
 	badYear, badOK := run(0.10)   // barely funded
@@ -167,7 +167,7 @@ func TestInsolvencyYear_DiscriminatesUnderfunding(t *testing.T) {
 	}
 
 	// A well-funded city should stay solvent through the horizon (ok=false), so
-	// funding_gap — not insolvency_year — discriminates on the funded side.
+	// funding_gap — not tipping_point_year — discriminates on the funded side.
 	if yr, ok := run(1.0); ok {
 		t.Fatalf("a city funded at break-even should be solvent through horizon, got insolvency year %d", yr)
 	}

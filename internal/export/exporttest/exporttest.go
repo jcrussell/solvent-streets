@@ -104,7 +104,7 @@ func ForecastConfig() config.ForecastConfig {
 		// DefaultTreatmentCycleYears doesn't silently move the fixture. Gates
 		// annual_need/break_even by 1/12; PCI columns are unchanged.
 		TreatmentCycleYears: 12,
-		// Nonzero so the roads solvency metrics (insolvency_year,
+		// Nonzero so the roads solvency metrics (tipping_point_year,
 		// break_even_budget, current_budget, funding_gap) in forecast.json
 		// serialize to real values — the solvency contract covers nothing
 		// otherwise. BuildScenariosData ignores CurrentBudget, so scenarios.json

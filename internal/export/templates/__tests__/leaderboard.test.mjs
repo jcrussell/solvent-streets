@@ -92,7 +92,7 @@ test('one eligible city gets no medal and no award', async () => {
     const rest = { ...f };
     delete rest.current_budget;
     delete rest.funding_gap;
-    delete rest.insolvency_year;
+    delete rest.tipping_point_year;
     return rest;
   });
   const noBudget = { ...city('Beta', 0), forecast: unbudgeted };

@@ -153,7 +153,7 @@ func TestBoardYear1NeedMatchesForecast(t *testing.T) {
 				t.Errorf("board year-1 need %.0f is %+.2f%% from the forecast's %.0f; want within %.0f%%",
 					board, 100*rel, want, 100*boardYear1NeedTolerance)
 			}
-			if got, wantAt := g.insolvencyAt, forecast.InsolvencyThreshold(want, cfg.TreatmentCycleYears); math.Abs(got/wantAt-1) > boardYear1NeedTolerance {
+			if got, wantAt := g.insolvencyAt, forecast.TippingPointThreshold(want, cfg.TreatmentCycleYears); math.Abs(got/wantAt-1) > boardYear1NeedTolerance {
 				t.Errorf("backlog loss threshold %.0f, forecast insolvency threshold %.0f", got, wantAt)
 			}
 		})

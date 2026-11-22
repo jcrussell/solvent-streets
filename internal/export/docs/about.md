@@ -37,8 +37,8 @@ The **Solvency Score** puts that share on a scale of 0 to 100. A score of
 would need twice today's budget. A city that cites no budget cannot be
 scored and shows N/A.
 
-A city that falls far enough behind reaches a second marker: the year its
-postponed repairs add up to a **full repair cycle of work**, a whole
+A city that falls far enough behind reaches its **tipping point**: the
+year its postponed repairs add up to a full repair cycle of work, a whole
 network's worth, more than it could catch up on. The headline names that
 year only when it comes within the 30-year forecast.
 [How both are computed](../../../docs/methodology.md#solvency-metrics-streetsroads-only).

@@ -167,7 +167,7 @@ type Game struct {
 	// growth_rate), which scales the board's need as the forecast's grows.
 	areaGrowth *forecast.LinearGrowthEstimator
 
-	// Insolvency, on the forecast's definition (forecast.InsolvencyThreshold)
+	// Insolvency, on the forecast's definition (forecast.TippingPointThreshold)
 	// applied to the player's own network. Each sim-year the hold-steady need
 	// of the board (every hex's tiered cost at the PCI it decays to by the
 	// year's end, over the treatment cycle) accrues in yearNeed and the
@@ -344,7 +344,7 @@ func New(cfg Config) (*Game, error) {
 		year1Need += g.holdSteadyNeed(h.roadArea, h.pci*math.Exp(-h.k))
 	}
 	year1Need *= g.areaFactor(0)
-	g.insolvencyAt = forecast.InsolvencyThreshold(year1Need, g.cycleYears)
+	g.insolvencyAt = forecast.TippingPointThreshold(year1Need, g.cycleYears)
 
 	g.tierRanks = make([]int, len(tiers))
 	for i := range tiers {
@@ -523,7 +523,7 @@ func ProjectInsolvency(cfg Config) (year int, ok bool) {
 
 // insolvencyFromForecast is the forecast core behind ProjectInsolvency: it
 // spreads the cohorts, runs forecast.Simulate worst-first at in.Budget over
-// the horizon, and returns InsolvencyYear's verdict. An empty cohort set is
+// the horizon, and returns TippingPointYear's verdict. An empty cohort set is
 // treated as solvent (0, false) — there is nothing to forecast.
 //
 // It is reached straight from an untrusted Config (the WASM
@@ -549,7 +549,7 @@ func insolvencyFromForecast(in forecast.Inputs) (int, bool) {
 		Strategy:     forecast.StrategyWorstFirst,
 	}
 	result := forecast.Simulate(scenario, cohorts, int(in.Years), params)
-	return forecast.InsolvencyYear(result, cycleYears)
+	return forecast.TippingPointYear(result, cycleYears)
 }
 
 // The states a game is in, reported as StateJSON's status.

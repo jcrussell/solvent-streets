@@ -367,7 +367,7 @@ Every setting except `horizon_years` goes in `[forecast]` or a city's
 | `cost_tiers` | 3 tiers | PCI 0–101 | treatment cost per m² by PCI band ([Cost model](methodology.md#cost-model)) |
 | `cost_multiplier` | 1.0 | 0–5 | a factor on every tier's cost, not a percentage: 1.0 prices the tiers as written and 1.5 raises every cost by half ([Bare construction cost vs. loaded program cost](methodology.md#bare-construction-cost-vs-loaded-program-cost)) |
 | `treatment_cycle_years` | 12 | 1–40 | the share of the network treated per year, 1/N ([Treatment cycle](methodology.md#treatment-cycle)) |
-| `current_budget` | unset | ≥ 0 | the annual pavement budget in dollars; it enables `insolvency_year` and `funding_gap` ([Solvency metrics](methodology.md#solvency-metrics-streetsroads-only)) |
+| `current_budget` | unset | ≥ 0 | the annual pavement budget in dollars; it enables `tipping_point_year` and `funding_gap` ([Solvency metrics](methodology.md#solvency-metrics-streetsroads-only)) |
 
 A tier is one `[[forecast.cost_tiers]]` table with `min_pci`, `max_pci`,
 `cost_per_sqm` and a `label`: `min_pci` must be below `max_pci`, `cost_per_sqm`

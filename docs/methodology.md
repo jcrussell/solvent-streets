@@ -64,8 +64,9 @@ takes its share of the board's road area, on hexes picked by a fixed hash of
 the hex id, so the slices scatter across the map and the same city always
 starts the same board. Each year's need on the board is priced at the
 condition each hex decays to by the year's end, as the forecast prices it, so
-the board's need and its insolvency threshold match the Financials tab's for
-the same roads.
+the board's need, and the backlog at which the game is lost (the
+Financials tab's tipping point), match the Financials tab's for the same
+roads.
 
 ### Cost model
 
@@ -258,13 +259,13 @@ only: a city's paving budget is a street budget, so a claim about what it
 covers is a claim about streets. They are derived from a
 **worst-first** run at the city's configured annual budget.
 
-- **Full-cycle backlog year** (`insolvency_year` in the data) — the first
+- **Tipping point** (`tipping_point_year` in the data) — the first
   forecast year in which the cumulative
   deferred backlog reaches **one full treatment cycle of deferred work**
   (`N ×` the annual scheduled need — a whole network's worth of treatment).
   Because the deferred backlog is a monotonically non-decreasing
   accumulator (see below), once a city is an entire cycle behind it does
-  not recover within the model, so this is the "unrecoverable" threshold.
+  not recover within the model: past this point it cannot catch up.
   A do-nothing network defers a full slice every year and crosses around
   year `N`; a city funding a fraction `f` of each slice crosses around
   `N / (1 − f)`, so a city funding 90% of its slice crosses only after about
@@ -365,9 +366,9 @@ The multi-city Compare view presents two distinct per-city scores:
   twice today's budget, 25 ≈ needs four times. Over-funded cities cap at
   100 for display but keep their uncapped coverage as the ranking key, so
   the most-surplus city ranks first (a single gold medal); ties break on
-  the later/absent insolvency year. Only a score of 50 or more takes a
+  the later/absent tipping point. Only a score of 50 or more takes a
   medal: a city lower down keeps its rank but stays off the podium. The
-  Street Funding Gap and Years to Insolvency leaderboards hold their medals
+  Street Funding Gap and Tipping Point leaderboards hold their medals
   and award to the same floor.
   Computed on roads/streets only and **only for cities with a cited
   `current_budget`** — cities without one

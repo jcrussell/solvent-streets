@@ -16,8 +16,8 @@ function city(slug, score, insolvency) {
   const forecast = readFixture('forecast.json').map((f) => {
     if (f.resource_type !== 'roads') return f;
     const rest = { ...f, break_even_budget: 1e7, current_budget: score * 1e5, funding_gap: 1e7 / (score * 1e5) - 1 };
-    delete rest.insolvency_year;
-    if (insolvency) rest.insolvency_year = insolvency;
+    delete rest.tipping_point_year;
+    if (insolvency) rest.tipping_point_year = insolvency;
     return rest;
   });
   return { slug, name: slug.toUpperCase(), meta: metaJSON, scenarios: scenariosJSON, seed: seedJSON, forecast };
@@ -104,7 +104,7 @@ function gapBoard(h, c) {
 }
 /** @param {any} h @param {any} c a city passed to renderWith, with an insolvency year */
 function cycleBoard(h, c) {
-  return boardWith(h.doc, c.slug, h.win.inYearsText(h.win.extractMetrics(c).insolvencyYear));
+  return boardWith(h.doc, c.slug, h.win.inYearsText(h.win.extractMetrics(c).tippingPointYear));
 }
 const lbMedals = (block) => Array.from(block.querySelectorAll('.lb-row .lb-medal')).map((e) => e.textContent);
 const rowSlugs = (block) => Array.from(block.querySelectorAll('.lb-row'), (r) => r.getAttribute('data-slug'));

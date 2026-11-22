@@ -93,12 +93,12 @@ type compareYear struct {
 // compareForecast is the roads entry of forecast.json, solvency fields only
 // (ForecastExport's, under the same keys).
 type compareForecast struct {
-	ResourceType    string   `json:"resource_type"`
-	BreakEvenBudget float64  `json:"break_even_budget,omitempty"`
-	CurrentBudget   float64  `json:"current_budget,omitempty"`
-	InsolvencyYear  *int     `json:"insolvency_year,omitempty"`
-	FundingGap      *float64 `json:"funding_gap,omitempty"`
-	RoadsArea       float64  `json:"roads_area,omitempty"`
+	ResourceType     string   `json:"resource_type"`
+	BreakEvenBudget  float64  `json:"break_even_budget,omitempty"`
+	CurrentBudget    float64  `json:"current_budget,omitempty"`
+	TippingPointYear *int     `json:"tipping_point_year,omitempty"`
+	FundingGap       *float64 `json:"funding_gap,omitempty"`
+	RoadsArea        float64  `json:"roads_area,omitempty"`
 	// InitialPCISource is ForecastExport's field.
 	InitialPCISource string `json:"initial_pci_source,omitempty"`
 }

@@ -443,9 +443,9 @@ func TestRun_Solvency(t *testing.T) {
 		t.Fatal(err)
 	}
 	var got struct {
-		BreakEven      *float64 `json:"break_even_budget"`
-		InsolvencyYear *int     `json:"insolvency_year"`
-		Years          []any    `json:"years"`
+		BreakEven        *float64 `json:"break_even_budget"`
+		TippingPointYear *int     `json:"tipping_point_year"`
+		Years            []any    `json:"years"`
 	}
 	if err := json.Unmarshal(out, &got); err != nil {
 		t.Fatal(err)
@@ -455,7 +455,7 @@ func TestRun_Solvency(t *testing.T) {
 	if got.BreakEven == nil || *got.BreakEven != want {
 		t.Errorf("break_even_budget = %v, want %v", got.BreakEven, want)
 	}
-	if got.InsolvencyYear == nil {
+	if got.TippingPointYear == nil {
 		t.Error("a $100k budget on a PCI-60 network must report an insolvency year")
 	}
 	if len(got.Years) != 20 {

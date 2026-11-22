@@ -192,7 +192,7 @@ func TestCityScope_AResourceTheCityMaintainsNoneOfIsEmptyEverywhere(t *testing.T
 		if fe.Baseline.Years[0].Area == 0 {
 			t.Error("roads all-jurisdiction baseline is empty")
 		}
-		if fe.BreakEvenBudget != 0 || fe.RoadsArea != 0 || fe.InsolvencyYear != nil || fe.FundingGap != nil {
+		if fe.BreakEvenBudget != 0 || fe.RoadsArea != 0 || fe.TippingPointYear != nil || fe.FundingGap != nil {
 			t.Errorf("roads solvency stated with no city-maintained roads: %+v", fe)
 		}
 	}

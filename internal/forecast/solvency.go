@@ -11,7 +11,7 @@ const breakEvenEpsilonFraction = 1e-3
 // narrows below this fraction of the (provably sufficient) upper bound.
 const breakEvenRelTol = 1e-4
 
-// InsolvencyYear reports the first forecast year in which the cumulative
+// TippingPointYear reports the first forecast year in which the cumulative
 // DeferredBacklog reaches one full treatment cycle of deferred work — i.e. the
 // city has deferred an entire network's worth of treatment. With the
 // treatment-cycle gating in Simulate, AnnualNeed is one cycle-slice (~1/N of the
@@ -36,11 +36,11 @@ const breakEvenRelTol = 1e-4
 // f, and the forecast horizon: a long cycle on a short horizon can push every
 // city to ok=false. Callers should run this on a current-budget, worst-first
 // scenario and pass the same cycleYears used to build the run's Params.
-func InsolvencyYear(result ScenarioResult, cycleYears float64) (year int, ok bool) {
+func TippingPointYear(result ScenarioResult, cycleYears float64) (year int, ok bool) {
 	if len(result.Years) == 0 {
 		return 0, false
 	}
-	threshold := InsolvencyThreshold(result.Years[0].AnnualNeed, cycleYears)
+	threshold := TippingPointThreshold(result.Years[0].AnnualNeed, cycleYears)
 	if threshold <= 0 {
 		return 0, false
 	}
@@ -52,11 +52,11 @@ func InsolvencyYear(result ScenarioResult, cycleYears float64) (year int, ok boo
 	return 0, false
 }
 
-// InsolvencyThreshold is the cumulative deferred backlog at which a network is
+// TippingPointThreshold is the cumulative deferred backlog at which a network is
 // insolvent: one full treatment cycle of year-1 need. It is the one definition
-// shared by InsolvencyYear (the Financials headline and the Play projection)
+// shared by TippingPointYear (the Financials headline and the Play projection)
 // and the live game's loss condition (internal/game).
-func InsolvencyThreshold(year1Need, cycleYears float64) float64 {
+func TippingPointThreshold(year1Need, cycleYears float64) float64 {
 	return year1Need * ResolveCycleYears(cycleYears)
 }
 

@@ -16,7 +16,7 @@ function refSim(input) {
   const out = defaultSimulate(input);
   if (input.solvency) {
     out.break_even_budget = (input.cohorts ?? []).reduce((s, c) => s + c.area, 0);
-    out.insolvency_year = 7;
+    out.tipping_point_year = 7;
   }
   if (input.scenarios) {
     out.scenarios = ['baseline', 'fund-25pct', 'fund-50pct', 'fund-100pct'].map((name, i) => ({

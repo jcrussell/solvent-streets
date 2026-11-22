@@ -133,12 +133,12 @@ type ForecastExport struct {
 	// Solvency metrics — populated for the roads resource only (a city's
 	// paving budget is a street budget, so the headline is about streets).
 	// BreakEvenBudget is always computed for roads;
-	// InsolvencyYear and FundingGap require a configured current_budget and
+	// TippingPointYear and FundingGap require a configured current_budget and
 	// are omitted otherwise. See buildResourceForecast and the methodology doc.
-	InsolvencyYear  *int     `json:"insolvency_year,omitempty"`   // omitted = solvent through the horizon, or no budget configured
-	BreakEvenBudget float64  `json:"break_even_budget,omitempty"` // smallest constant annual budget that holds the network steady
-	CurrentBudget   float64  `json:"current_budget,omitempty"`    // the configured budget the metrics are measured against; omitted when unset
-	FundingGap      *float64 `json:"funding_gap,omitempty"`       // (break_even_budget - current_budget)/current_budget; omitted when no budget is configured
+	TippingPointYear *int     `json:"tipping_point_year,omitempty"` // omitted = solvent through the horizon, or no budget configured
+	BreakEvenBudget  float64  `json:"break_even_budget,omitempty"`  // smallest constant annual budget that holds the network steady
+	CurrentBudget    float64  `json:"current_budget,omitempty"`     // the configured budget the metrics are measured against; omitted when unset
+	FundingGap       *float64 `json:"funding_gap,omitempty"`        // (break_even_budget - current_budget)/current_budget; omitted when no budget is configured
 	// RoadsArea is the year-1 area of the baseline the solvency figures are
 	// measured on (city-maintained roads when the city has them), so a page can
 	// show the network the hold-steady budget maintains rather than an
@@ -279,8 +279,8 @@ func buildResourceForecast(rt resource.Source, fc *config.ForecastConfig, costTi
 				forecast.Scenario{Name: "current-budget", Label: "Current Budget", AnnualBudget: fc.CurrentBudget, Strategy: forecast.StrategyWorstFirst},
 				primaryCohorts, years, rtParams,
 			)
-			if yr, ok := forecast.InsolvencyYear(currentRun, rtParams.CycleYears); ok {
-				fe.InsolvencyYear = &yr
+			if yr, ok := forecast.TippingPointYear(currentRun, rtParams.CycleYears); ok {
+				fe.TippingPointYear = &yr
 			}
 			gap := forecast.FundingGap(fe.BreakEvenBudget, fc.CurrentBudget)
 			fe.FundingGap = &gap
@@ -552,7 +552,7 @@ func roundScenarioResults(rs []forecast.ScenarioResult) []forecast.ScenarioResul
 
 // RoundForecastsForEmission returns a rounded copy of the forecast exports for
 // serialization. The input is left untouched, so callers that also derive from
-// it (BuildHexCostSummary) keep full precision. InsolvencyYear is an int and
+// it (BuildHexCostSummary) keep full precision. TippingPointYear is an int and
 // BreakEvenBudget / CurrentBudget / FundingGap are computed inside the builder
 // from unrounded years, so rounding them here only affects what is written.
 func RoundForecastsForEmission(fes []ForecastExport) []ForecastExport {
