@@ -609,13 +609,7 @@ func groupCitiesInDimension(cities []CityInfo, dim string) []CityGroup {
 	// equality and validateTags only rejects blanks and malformed prefixes. A
 	// stable sort alone would not fix this; the comparator itself has to be
 	// total. Compare on the label (the value) so "state:CA" sorts by "CA".
-	sort.Slice(tags, func(i, j int) bool {
-		a, b := strings.ToLower(config.TagLabel(tags[i])), strings.ToLower(config.TagLabel(tags[j]))
-		if a != b {
-			return a < b
-		}
-		return tags[i] < tags[j]
-	})
+	sort.Slice(tags, func(i, j int) bool { return tagLess(dim, tags[i], tags[j]) })
 
 	groups := make([]CityGroup, 0, len(byTag))
 	appendSortedGroup := func(tag string) {
@@ -633,6 +627,23 @@ func groupCitiesInDimension(cities []CityInfo, dim string) []CityGroup {
 		appendSortedGroup("")
 	}
 	return groups
+}
+
+// tagLess orders two tags of dimension dim for the selectors: the size
+// dimension's population bands by size (config.SizeTagRank), then every tag
+// by its label, case-insensitively, then by the raw tag, so the order is
+// total.
+func tagLess(dim, x, y string) bool {
+	if dim == config.SizeTagDimension {
+		if rx, ry := config.SizeTagRank(config.TagLabel(x)), config.SizeTagRank(config.TagLabel(y)); rx != ry {
+			return rx < ry
+		}
+	}
+	a, b := strings.ToLower(config.TagLabel(x)), strings.ToLower(config.TagLabel(y))
+	if a != b {
+		return a < b
+	}
+	return x < y
 }
 
 // BuildMeta builds metadata JSON for a city entry. snapshotID is the pinned

@@ -5,12 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 
 	"github.com/jcrussell/solvent-streets/internal/config"
 	"github.com/jcrussell/solvent-streets/internal/db"
 	"github.com/jcrussell/solvent-streets/internal/geo"
 	"github.com/jcrussell/solvent-streets/internal/hint"
+	"github.com/jcrussell/solvent-streets/internal/metric"
 	"github.com/jcrussell/solvent-streets/internal/resource"
 	"github.com/jcrussell/solvent-streets/internal/textutil"
 	warnpkg "github.com/jcrussell/solvent-streets/internal/warn"
@@ -461,16 +463,46 @@ func (entry CityEntry) Info(ctx context.Context) (CityInfo, error) {
 	if err != nil {
 		return CityInfo{}, err
 	}
+	tags, err := entry.tags(ctx)
+	if err != nil {
+		return CityInfo{}, err
+	}
 	return CityInfo{
 		Slug:   entry.Slug,
 		Name:   entry.City.Name,
 		BBox:   geoJSONBBox(bbox),
 		Center: [2]float64{lon, lat},
-		// EffectiveTags adds the derived state:XX tag; this is the one place
-		// the derivation is applied, so cities.json, PVMT_CONFIG.cities, the
-		// selector groups and /api/cities all see the same tags.
-		Tags: entry.City.EffectiveTags(),
+		// This is the one place the derived tags are applied, so
+		// cities.json, PVMT_CONFIG.cities, the selector groups and
+		// /api/cities all see the same tags.
+		Tags: tags,
 	}, nil
+}
+
+// tags is the city's tags as the site shows them: EffectiveTags (the
+// config's, plus the derived state:XX) and, unless the config names one, the
+// size:... band of the city's census population (config.SizeTag), summed
+// over its hexes. A city with no census population has no size tag.
+func (entry CityEntry) tags(ctx context.Context) ([]string, error) {
+	tags := entry.City.EffectiveTags()
+	for _, t := range tags {
+		if dim, _ := config.ParseTag(t); dim == config.SizeTagDimension {
+			return tags, nil
+		}
+	}
+	rows, err := entry.Store.ListHexMetrics(ctx, metric.Population, "")
+	if err != nil {
+		return nil, fmt.Errorf("listing population: %w", err)
+	}
+	var population float64
+	for _, r := range rows {
+		population += r.Value
+	}
+	size, ok := config.SizeTag(population)
+	if !ok {
+		return tags, nil
+	}
+	return append(slices.Clone(tags), size), nil
 }
 
 // LatestComputeEntry returns entry pinned to latest, a latest compute read a

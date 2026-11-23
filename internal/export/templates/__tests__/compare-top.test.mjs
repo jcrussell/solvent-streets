@@ -96,3 +96,46 @@ test('a small site shows every tile and no selector', async () => {
   assert.equal(tiles(h, 'infra-cards').length, 6);
   assert.equal(top(h), null, 'a ?top= the page ignores stayed in the URL');
 });
+
+// The charts plot the same top N, up to 25 cities: the infrastructure
+// charts by the Infrastructure Index, the money charts by the Solvency
+// Score, each in its ranking's order, and each says which cities it shows.
+// The cost trajectory drops its legend past 10 lines, where it would cover
+// the plot.
+test('the charts plot the top N of their ranking and follow the selector', async () => {
+  const h = await render(30);
+  const chart = (id) => h.chartsOn('#' + id).at(-1);
+  const solvNames = cities(10).map((c) => c.name);
+  const scopes = () => h.$$('#compare-charts [data-rank]').map((el) => el.textContent);
+  assert.deepEqual(chart('compare-need-chart').data.labels, solvNames, 'the need chart is not the Solvency top 10');
+  assert.deepEqual(chart('compare-cost-chart').data.datasets.map((d) => d.label), solvNames);
+  assert.equal(chart('compare-area-chart').data.labels.length, 10);
+  assert.equal(chart('compare-mix-chart').data.labels.length, 10);
+  assert.equal(scopes().length, 4);
+  for (const t of scopes()) assert.match(t, /\b10\b/);
+
+  choose(h, '3');
+  assert.deepEqual(chart('compare-need-chart').data.labels, solvNames.slice(0, 3));
+  assert.equal(chart('compare-area-chart').data.labels.length, 3);
+  choose(h, 'all');
+  assert.equal(chart('compare-need-chart').data.labels.length, 25, 'the charts did not stop at 25 cities');
+  assert.equal(chart('compare-area-chart').data.labels.length, 25);
+  for (const t of scopes()) assert.match(t, /^Top 25 by /);
+});
+
+test('the cost trajectory names its lines in a legend only while they fit', async () => {
+  const h = await render(30);
+  const cost = () => h.chartsOn('#compare-cost-chart').at(-1);
+  assert.notEqual(cost().options.plugins.legend.display, false, 'no legend at the default 10');
+  assert.equal(cost().options.interaction.mode, 'index');
+  choose(h, '25');
+  assert.equal(cost().data.datasets.length, 25);
+  assert.equal(cost().options.plugins.legend.display, false, 'a 25-line legend covers the plot');
+  assert.equal(cost().options.interaction.mode, 'nearest', 'the tooltip lists every line');
+
+  // One line past the cutoff already drops it.
+  const h11 = await render(11, 'https://example.test/index.html?tab=compare&top=all');
+  const cost11 = h11.chartsOn('#compare-cost-chart').at(-1);
+  assert.equal(cost11.data.datasets.length, 11);
+  assert.equal(cost11.options.plugins.legend.display, false, 'an 11-line legend is drawn');
+});

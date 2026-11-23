@@ -340,6 +340,12 @@
         // selector.
         const COMPARE_TOP_OPTIONS = [3, 10, 25, 0];
         const COMPARE_TOP_DEFAULT = 10;
+        // The charts follow N up to COMPARE_CHART_MAX cities: past that a bar
+        // per city is too thin to read. The cost trajectory names its lines
+        // in a legend up to COMPARE_LEGEND_MAX; past that the legend would
+        // cover the plot, so its tooltip names the line under the pointer.
+        const COMPARE_CHART_MAX = 25;
+        const COMPARE_LEGEND_MAX = 10;
         var compareTopN = COMPARE_TOP_DEFAULT;
         // Whether this site offers the selector: null until Compare first
         // renders its tiles.
@@ -5500,14 +5506,14 @@
         }
 
         // compareTiles holds each tile section's cards and each leaderboard's
-        // rows, ranked first, as renderCompare built them; renderCompareTiles
-        // draws the top compareTopN of each, so a change of N redraws no chart.
-        /** @type {{solvency: string[], infra: string[]}} */
+        // rows, ranked first, as renderCompare built them, and the ranked
+        // cities and drawing of the charts; renderCompareTiles draws the top
+        // compareTopN of each.
         // Each leaderboard category keeps its ranked rows and its n/a rows
         // apart, so the top N cuts the ranking and an n/a row shows only
         // under a board drawn in full.
-        /** @type {{solvency: string[], infra: string[], boards: {head: string, ranked: string[], na: string[]}[]}} */
-        var compareTiles = { solvency: [], infra: [], boards: [] };
+        /** @type {{solvency: string[], infra: string[], boards: {head: string, ranked: string[], na: string[]}[], chartCities: {infra: any[], solvency: any[]}, drawCharts: ((n: number) => void) | null}} */
+        var compareTiles = { solvency: [], infra: [], boards: [], chartCities: { infra: [], solvency: [] }, drawCharts: null };
         function renderCompareTiles() {
             const solvEl = document.getElementById('solvency-cards');
             const infraEl = document.getElementById('infra-cards');
@@ -5544,6 +5550,14 @@
                     '</div>';
             }).join('');
             markCurrentCity();
+            const chartN = Math.min(n, COMPARE_CHART_MAX);
+            if (compareTiles.drawCharts) compareTiles.drawCharts(chartN);
+            // Each chart says which cities it plots.
+            const shown = /** @param {number} count @param {string} by */ (count, by) =>
+                count >= total ? 'All ' + total + ' cities' : 'Top ' + count + ' by ' + by;
+            queryAll('#compare-charts [data-rank]').forEach(el => {
+                el.textContent = shown(chartN, el.getAttribute('data-rank') === 'infra' ? 'Infrastructure Index' : 'Solvency Score');
+            });
         }
         {
             const sel = selectById('compare-top');
@@ -5786,140 +5800,150 @@
                 };
             }).filter(Boolean);
             compareTiles.boards = boards;
-            renderCompareTiles();
+            // The charts plot the top N of a ranking each: the infrastructure
+            // charts the Infrastructure Index's, the money charts the
+            // Solvency Score's (cities without a cited budget last), as the
+            // tiles above list them.
+            compareTiles.chartCities = {
+                infra: infraRanked.concat(allMetrics.filter(function(m) { return m.unranked.length > 0; })),
+                solvency: solvScored.concat(solvUnscored),
+            };
+            compareTiles.drawCharts = function(/** @type {number} */ n) {
+                var infraCities = compareTiles.chartCities.infra.slice(0, n);
+                var solvCities = compareTiles.chartCities.solvency.slice(0, n);
+                compareCharts.forEach(function(c) { c.destroy(); });
+                compareCharts = [];
+                var cityColors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'];
 
-            // Charts
-            compareCharts.forEach(function(c) { c.destroy(); });
-            compareCharts = [];
-            var cityColors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'];
-
-            // 1. Stacked area breakdown
-            compareCharts.push(new Chart(canvasById('compare-area-chart').getContext('2d'), {
-                type: 'bar',
-                data: {
-                    labels: allMetrics.map(function(m) { return m.name; }),
-                    datasets: [
-                        { label: 'Roads', data: allMetrics.map(function(m) { return m.roadsAreaLarge; }), backgroundColor: layerColors.roads },
-                        { label: 'Parking', data: allMetrics.map(function(m) { return m.parkingAreaLarge; }), backgroundColor: layerColors.parking },
-                        { label: 'Sidewalks', data: allMetrics.map(function(m) { return m.sidewalksAreaLarge; }), backgroundColor: layerColors.sidewalks }
-                    ]
-                },
-                options: {
-                    responsive: true,
-                    scales: { x: { stacked: true }, y: { stacked: true, title: { display: true, text: areaLargeUnit().charAt(0).toUpperCase() + areaLargeUnit().slice(1) } } },
-                    plugins: { verticalCrosshair: false, legend: { position: 'top' } }
-                }
-            }));
-
-            // 2. Road classification mix (100% stacked)
-            var classNames = {};
-            allMetrics.forEach(function(m) { Object.keys(m.cohorts).forEach(function(k) { classNames[k] = true; }); });
-            var classes = Object.keys(classNames).sort();
-            var classColors = { residential: '#60a5fa', service: '#a78bfa', tertiary: '#34d399', secondary: '#fbbf24', primary: '#f87171', motorway: '#1e3a5f', trunk: '#fb923c' };
-
-            compareCharts.push(new Chart(canvasById('compare-mix-chart').getContext('2d'), {
-                type: 'bar',
-                data: {
-                    labels: allMetrics.map(function(m) { return m.name; }),
-                    datasets: classes.map(function(cls) {
-                        return {
-                            label: cls,
-                            data: allMetrics.map(function(m) {
-                                var total = Object.values(m.cohorts).reduce(function(s, v) { return s + v; }, 0);
-                                return total > 0 ? ((m.cohorts[cls] || 0) / total * 100) : 0;
-                            }),
-                            backgroundColor: classColors[cls] || '#94a3b8'
-                        };
-                    })
-                },
-                options: {
-                    responsive: true,
-                    scales: {
-                        x: { stacked: true },
-                        y: { stacked: true, max: 100, title: { display: true, text: '% of Road Network' },
-                             ticks: { callback: function(v) { return v + '%'; } } }
+                // 1. Stacked area breakdown
+                compareCharts.push(new Chart(canvasById('compare-area-chart').getContext('2d'), {
+                    type: 'bar',
+                    data: {
+                        labels: infraCities.map(function(m) { return m.name; }),
+                        datasets: [
+                            { label: 'Roads', data: infraCities.map(function(m) { return m.roadsAreaLarge; }), backgroundColor: layerColors.roads },
+                            { label: 'Parking', data: infraCities.map(function(m) { return m.parkingAreaLarge; }), backgroundColor: layerColors.parking },
+                            { label: 'Sidewalks', data: infraCities.map(function(m) { return m.sidewalksAreaLarge; }), backgroundColor: layerColors.sidewalks }
+                        ]
                     },
-                    plugins: {
-                        verticalCrosshair: false,
-                        legend: { position: 'top' },
-                        tooltip: { callbacks: { label: function(ctx) { return ctx.dataset.label + ': ' + ctx.raw.toFixed(1) + '%'; } } }
+                    options: {
+                        responsive: true,
+                        scales: { x: { stacked: true }, y: { stacked: true, title: { display: true, text: areaLargeUnit().charAt(0).toUpperCase() + areaLargeUnit().slice(1) } } },
+                        plugins: { verticalCrosshair: false, legend: { position: 'top' } }
                     }
-                }
-            }));
+                }));
 
-            // 3. Cost trajectory to the horizon (line chart). A city whose
-            // forecast stops short ends its line there.
-            var yearLabels = [];
-            for (var i = 1; i <= forecastYears; i++) yearLabels.push('Year ' + i);
+                // 2. Road classification mix (100% stacked)
+                var classNames = {};
+                infraCities.forEach(function(m) { Object.keys(m.cohorts).forEach(function(k) { classNames[k] = true; }); });
+                var classes = Object.keys(classNames).sort();
+                var classColors = { residential: '#60a5fa', service: '#a78bfa', tertiary: '#34d399', secondary: '#fbbf24', primary: '#f87171', motorway: '#1e3a5f', trunk: '#fb923c' };
 
-            compareCharts.push(new Chart(canvasById('compare-cost-chart').getContext('2d'), {
-                type: 'line',
-                data: {
-                    labels: yearLabels,
-                    datasets: allMetrics.map(function(m, idx) {
-                        return {
-                            label: m.name,
-                            data: m.baselineYears.slice(0, forecastYears).map(function(y) { return y.deferred_backlog; }),
-                            borderColor: cityColors[idx % cityColors.length],
-                            backgroundColor: cityColors[idx % cityColors.length] + '22',
-                            fill: false,
-                            tension: 0.3,
-                            borderWidth: 2.5
-                        };
-                    })
-                },
-                options: {
-                    responsive: true,
-                    scales: {
-                        y: {
-                            beginAtZero: true,
-                            title: { display: true, text: 'Deferred Backlog ($)' },
-                            ticks: { callback: function(v) { return fmtMoney(v); } }
-                        }
+                compareCharts.push(new Chart(canvasById('compare-mix-chart').getContext('2d'), {
+                    type: 'bar',
+                    data: {
+                        labels: infraCities.map(function(m) { return m.name; }),
+                        datasets: classes.map(function(cls) {
+                            return {
+                                label: cls,
+                                data: infraCities.map(function(m) {
+                                    var total = Object.values(m.cohorts).reduce(function(s, v) { return s + v; }, 0);
+                                    return total > 0 ? ((m.cohorts[cls] || 0) / total * 100) : 0;
+                                }),
+                                backgroundColor: classColors[cls] || '#94a3b8'
+                            };
+                        })
                     },
-                    plugins: { legend: { position: 'top' } },
-                    interaction: { mode: 'index', intersect: false }
-                }
-            }));
-
-            // 4. Year 1 vs the horizon year's need
-            compareCharts.push(new Chart(canvasById('compare-need-chart').getContext('2d'), {
-                type: 'bar',
-                data: {
-                    labels: allMetrics.map(function(m) { return m.name; }),
-                    datasets: [
-                        {
-                            label: 'Year 1 Need',
-                            data: allMetrics.map(function(m) { return m.year1Need; }),
-                            backgroundColor: allMetrics.map(function(_, i) { return cityColors[i % cityColors.length] + 'cc'; }),
-                            borderColor: allMetrics.map(function(_, i) { return cityColors[i % cityColors.length]; }),
-                            borderWidth: 1
+                    options: {
+                        responsive: true,
+                        scales: {
+                            x: { stacked: true },
+                            y: { stacked: true, max: 100, title: { display: true, text: '% of Road Network' },
+                                 ticks: { callback: function(v) { return v + '%'; } } }
                         },
-                        {
-                            label: 'Year ' + compareHorizon + ' Need',
-                            data: allMetrics.map(function(m) { return m.horizonNeed; }),
-                            backgroundColor: allMetrics.map(function(_, i) { return cityColors[i % cityColors.length] + '55'; }),
-                            borderColor: allMetrics.map(function(_, i) { return cityColors[i % cityColors.length]; }),
-                            borderWidth: 1
+                        plugins: {
+                            verticalCrosshair: false,
+                            legend: { position: 'top' },
+                            tooltip: { callbacks: { label: function(ctx) { return ctx.dataset.label + ': ' + ctx.raw.toFixed(1) + '%'; } } }
                         }
-                    ]
-                },
-                options: {
-                    responsive: true,
-                    scales: {
-                        y: {
-                            beginAtZero: true,
-                            title: { display: true, text: 'Annual Need ($)' },
-                            ticks: { callback: function(v) { return fmtMoney(v); } }
-                        }
-                    },
-                    plugins: {
-                        verticalCrosshair: false,
-                        legend: { position: 'top' },
-                        tooltip: { callbacks: { label: function(ctx) { return ctx.dataset.label + ': ' + fmtMoney(ctx.raw); } } }
                     }
-                }
-            }));
+                }));
+
+                // 3. Cost trajectory to the horizon (line chart). A city whose
+                // forecast stops short ends its line there.
+                var yearLabels = [];
+                for (var i = 1; i <= forecastYears; i++) yearLabels.push('Year ' + i);
+
+                compareCharts.push(new Chart(canvasById('compare-cost-chart').getContext('2d'), {
+                    type: 'line',
+                    data: {
+                        labels: yearLabels,
+                        datasets: solvCities.map(function(m, idx) {
+                            return {
+                                label: m.name,
+                                data: m.baselineYears.slice(0, forecastYears).map(function(y) { return y.deferred_backlog; }),
+                                borderColor: cityColors[idx % cityColors.length],
+                                backgroundColor: cityColors[idx % cityColors.length] + '22',
+                                fill: false,
+                                tension: 0.3,
+                                borderWidth: 2.5
+                            };
+                        })
+                    },
+                    options: {
+                        responsive: true,
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                title: { display: true, text: 'Deferred Backlog ($)' },
+                                ticks: { callback: function(v) { return fmtMoney(v); } }
+                            }
+                        },
+                        plugins: { legend: { display: solvCities.length <= COMPARE_LEGEND_MAX, position: 'top' } },
+                        interaction: solvCities.length <= COMPARE_LEGEND_MAX ? { mode: 'index', intersect: false } : { mode: 'nearest', intersect: false }
+                    }
+                }));
+
+                // 4. Year 1 vs the horizon year's need
+                compareCharts.push(new Chart(canvasById('compare-need-chart').getContext('2d'), {
+                    type: 'bar',
+                    data: {
+                        labels: solvCities.map(function(m) { return m.name; }),
+                        datasets: [
+                            {
+                                label: 'Year 1 Need',
+                                data: solvCities.map(function(m) { return m.year1Need; }),
+                                backgroundColor: solvCities.map(function(_, i) { return cityColors[i % cityColors.length] + 'cc'; }),
+                                borderColor: solvCities.map(function(_, i) { return cityColors[i % cityColors.length]; }),
+                                borderWidth: 1
+                            },
+                            {
+                                label: 'Year ' + compareHorizon + ' Need',
+                                data: solvCities.map(function(m) { return m.horizonNeed; }),
+                                backgroundColor: solvCities.map(function(_, i) { return cityColors[i % cityColors.length] + '55'; }),
+                                borderColor: solvCities.map(function(_, i) { return cityColors[i % cityColors.length]; }),
+                                borderWidth: 1
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                title: { display: true, text: 'Annual Need ($)' },
+                                ticks: { callback: function(v) { return fmtMoney(v); } }
+                            }
+                        },
+                        plugins: {
+                            verticalCrosshair: false,
+                            legend: { position: 'top' },
+                            tooltip: { callbacks: { label: function(ctx) { return ctx.dataset.label + ': ' + fmtMoney(ctx.raw); } } }
+                        }
+                    }
+                }));
+            };
+            renderCompareTiles();
 
             document.getElementById('compare-loading').style.display = 'none';
             document.getElementById('compare-content').style.display = 'block';

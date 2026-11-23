@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"math"
 	"regexp"
 	"strings"
 )
@@ -17,6 +18,50 @@ const DefaultTagDimension = "group"
 // the ", XX" suffix of the city name (see CityConfig.EffectiveTags). An
 // explicit "state:XX" tag in the config takes precedence over the derivation.
 const StateTagDimension = "state"
+
+// SizeTagDimension is the dimension of the per-city population band the
+// exporter derives from the city's census population (SizeTag), so cities of
+// a size can be compared with each other. An explicit "size:..." tag in the
+// config takes precedence over the derivation.
+const SizeTagDimension = "size"
+
+// sizeBands are SizeTag's population bands, smallest first: each holds the
+// cities below its upper bound and at or above the previous one's.
+var sizeBands = []struct {
+	below float64
+	label string
+}{
+	{25_000, "Under 25k"},
+	{100_000, "25k–100k"},
+	{500_000, "100k–500k"},
+	{math.Inf(1), "500k+"},
+}
+
+// SizeTag is the "size:..." tag for a city of population residents: its
+// band in sizeBands. false for a city with no census population.
+func SizeTag(population float64) (string, bool) {
+	if !(population > 0) {
+		return "", false
+	}
+	for _, b := range sizeBands {
+		if population < b.below {
+			return SizeTagDimension + ":" + b.label, true
+		}
+	}
+	return "", false
+}
+
+// SizeTagRank orders the size dimension's values smallest band first, so
+// the filter lists them by size rather than alphabetically. A value that is
+// not a band (an explicit config tag) ranks after every band.
+func SizeTagRank(value string) int {
+	for i, b := range sizeBands {
+		if b.label == value {
+			return i
+		}
+	}
+	return len(sizeBands)
+}
 
 // tagDimRe is the shape a dimension name must have. Lowercase so "state:CA"
 // and "State:CA" cannot silently become two dimensions, and no spaces so a

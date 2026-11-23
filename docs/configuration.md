@@ -151,7 +151,11 @@ every tab, and are recorded in the URL as `?tag=dimension:value`. Compare and
 Aggregate say how many cities a filter leaves and offer to clear it. Every city whose name ends
 in a comma and a US state, DC or territory postal code (`"Livermore, CA"`)
 also gets a `state:XX` tag at export, unless it sets a `state:` tag itself.
-Any other code (`"Toronto, ON"`) derives no tag; set one explicitly if you want it. Malformed tags are rejected at load, for example
+Any other code (`"Toronto, ON"`) derives no tag; set one explicitly if you want it.
+A city with census population also gets a `size:` tag at export for its
+band, so cities of a size can be compared: `size:Under 25k`,
+`size:25k–100k`, `size:100k–500k` or `size:500k+`, listed in that order. A
+`size:` tag in the config takes precedence. Malformed tags are rejected at load, for example
 `":CA"`, `"state:"` or `"State:CA"`.
 
 ## Including other configs (`[[include]]`)

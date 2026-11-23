@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -85,6 +86,45 @@ func TestCityEntry_InfoMapsTags(t *testing.T) {
 	}
 	if len(uinfo.Tags) != 0 {
 		t.Errorf("untagged city Info().Tags = %v; want empty", uinfo.Tags)
+	}
+}
+
+// TestCityEntry_InfoDerivesSize: a city's census population, summed over its
+// hexes, puts it in a size:... band; an explicit size tag in the config wins,
+// and a city with no census data gets none.
+func TestCityEntry_InfoDerivesSize(t *testing.T) {
+	withPopulation := func(name string, pops ...float64) CityEntry {
+		e := exportTestEntry(&config.Config{}, name, "c", exportBoundaryA, nil)
+		for i, p := range pops {
+			e.Store.(*dbtest.MockStore).HexMetrics = append(e.Store.(*dbtest.MockStore).HexMetrics,
+				db.HexMetric{HexID: fmt.Sprint(i), Metric: metric.Population, Value: p})
+		}
+		return e
+	}
+	for _, tc := range []struct {
+		pops []float64
+		want string
+	}{
+		{[]float64{10_000, 14_999}, "size:Under 25k"},
+		{[]float64{20_000, 5_000}, "size:25k–100k"},
+		{[]float64{60_000, 30_000}, "size:25k–100k"},
+		{[]float64{400_000, 100_000}, "size:500k+"},
+	} {
+		info, err := withPopulation("Reno", tc.pops...).Info(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Equal(info.Tags, []string{tc.want}) {
+			t.Errorf("population %v: tags %v, want [%s]", tc.pops, info.Tags, tc.want)
+		}
+	}
+	explicit := withPopulation("Reno", 1_000_000)
+	explicit.City.Tags = []string{"size:Metro"}
+	if info, err := explicit.Info(context.Background()); err != nil || !slices.Equal(info.Tags, []string{"size:Metro"}) {
+		t.Errorf("explicit size tag: tags %v (err %v), want [size:Metro]", info.Tags, err)
+	}
+	if info, err := withPopulation("Reno").Info(context.Background()); err != nil || len(info.Tags) != 0 {
+		t.Errorf("no census data: tags %v (err %v), want none", info.Tags, err)
 	}
 }
 

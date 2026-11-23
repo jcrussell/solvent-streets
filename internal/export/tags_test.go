@@ -2,8 +2,11 @@ package export
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/jcrussell/solvent-streets/internal/config"
 )
 
 // TestCityInfoTagsJSONRoundTrip asserts the tags field omits from JSON when
@@ -294,6 +297,32 @@ func TestGroupCitiesByDimension_Order(t *testing.T) {
 	}
 	if names := cityNames(st[0].Cities); !equalSlice(names, []string{"Alameda", "Oakland"}) {
 		t.Errorf("state:CA cities = %v; want [Alameda Oakland]", names)
+	}
+}
+
+// TestGroupCitiesByDimension_SizeBySize: the size dimension lists its bands
+// smallest first, not alphabetically ("100k–500k" would sort before
+// "25k–100k"), with any other explicit size value after them.
+func TestGroupCitiesByDimension_SizeBySize(t *testing.T) {
+	cities := []CityInfo{
+		{Name: "A", Tags: []string{"size:500k+"}},
+		{Name: "B", Tags: []string{"size:100k–500k"}},
+		{Name: "C", Tags: []string{"size:Metro"}},
+		{Name: "D", Tags: []string{"size:Under 25k"}},
+		{Name: "E", Tags: []string{"size:25k–100k"}},
+	}
+	var size []CityGroup
+	for _, d := range GroupCitiesByDimension(cities) {
+		if d.Name == config.SizeTagDimension {
+			size = d.Groups
+		}
+	}
+	var labels []string
+	for _, g := range size {
+		labels = append(labels, g.Label)
+	}
+	if want := []string{"Under 25k", "25k–100k", "100k–500k", "500k+", "Metro"}; !slices.Equal(labels, want) {
+		t.Errorf("size groups %v, want %v", labels, want)
 	}
 }
 

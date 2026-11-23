@@ -762,7 +762,8 @@
             border-radius: 8px;
             padding: 20px;
         }
-        .compare-chart-card h3 { font-size: 15px; margin-bottom: 12px; color: var(--text); }
+        .compare-chart-card h3 { font-size: 15px; margin-bottom: 4px; color: var(--text); }
+        .compare-chart-card .compare-chart-scope { font-size: 12px; color: var(--text-muted); margin: 0 0 12px; }
         .compare-chart-card canvas { width: 100% !important; }
         .compare-loading { text-align: center; padding: 80px; color: var(--text-muted); font-size: 16px; }
         .agg-note { background: var(--fair-bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px; margin-bottom: 24px; font-size: 13px; color: var(--text); }
@@ -1276,18 +1277,22 @@
                 <div class="compare-charts" id="compare-charts">
                     <div class="compare-chart-card">
                         <h3>Infrastructure Breakdown</h3>
+                        <p class="compare-chart-scope" data-rank="infra"></p>
                         <canvas id="compare-area-chart" role="img" aria-label="Infrastructure Breakdown chart"></canvas>
                     </div>
                     <div class="compare-chart-card">
                         <h3>Road Network Composition</h3>
+                        <p class="compare-chart-scope" data-rank="infra"></p>
                         <canvas id="compare-mix-chart" role="img" aria-label="Road Network Composition chart"></canvas>
                     </div>
                     <div class="compare-chart-card">
                         <h3 id="compare-cost-title">{{.ForecastDefaults.HorizonYears}}-Year Cost Trajectory</h3>
+                        <p class="compare-chart-scope" data-rank="solvency"></p>
                         <canvas id="compare-cost-chart" role="img" aria-label="Cost Trajectory chart"></canvas>
                     </div>
                     <div class="compare-chart-card">
                         <h3 id="compare-need-title">Year 1 vs Year {{.ForecastDefaults.HorizonYears}} Maintenance Need</h3>
+                        <p class="compare-chart-scope" data-rank="solvency"></p>
                         <canvas id="compare-need-chart" role="img" aria-label="Year 1 vs final-year Maintenance Need chart"></canvas>
                     </div>
                 </div>
