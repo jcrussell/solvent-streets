@@ -556,7 +556,7 @@ func TestRunCompute_MaintainedOnlySuppressesAllCohortBreakdown(t *testing.T) {
 	if all := units.FormatArea(allTotal.Area, units.Metric); strings.Contains(out, all) {
 		t.Errorf("--maintained-only should suppress the all-jurisdiction blocks, but stdout shows their area %s:\n%s", all, out)
 	}
-	// docs/upgrading.md shows the results header's shape verbatim.
+	// Each results block is headed with the city's slug.
 	res := blockLabeled(t, out, slug, "roads Results (city only)")
 	if city := units.FormatArea(cityTotal.Area, units.Metric); !strings.Contains(strings.Join(res.lines, "\n"), city) {
 		t.Errorf("city results block lacks the city area %s:\n%s", city, out)

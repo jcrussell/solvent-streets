@@ -215,7 +215,7 @@ type statusSection struct {
 }
 
 // statusSections returns the sections that follow status's table, in order.
-// The "=== ... ===" header shape is what docs/upgrading.md shows users.
+// Each section is headed "=== <slug>: <title> ===".
 func statusSections(out string) []statusSection {
 	var secs []statusSection
 	for line := range strings.SplitSeq(out, "\n") {
@@ -669,7 +669,7 @@ func TestRunStatus_PartStates(t *testing.T) {
 			t.Errorf("section %q does not name the city", s.header)
 		}
 	}
-	// docs/upgrading.md shows this header verbatim.
+	// Each section names the city it covers.
 	if !strings.Contains(table, "=== test-city: City Summary ===") {
 		t.Errorf("stdout lacks the City Summary header:\n%s", table)
 	}

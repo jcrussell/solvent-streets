@@ -328,7 +328,7 @@ func TestRunGC_DryRunScansButDoesNotSweep(t *testing.T) {
 		t.Errorf("stderr should be empty; got: %q", got)
 	}
 	out := stdout.String()
-	// docs/upgrading.md promises the slug header, even for one city.
+	// The report heads each city with its slug, even for one city.
 	if !strings.Contains(out, "=== alpha ===") {
 		t.Errorf("report lacks the city's header:\n%s", out)
 	}
