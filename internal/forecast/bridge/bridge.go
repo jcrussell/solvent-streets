@@ -186,7 +186,9 @@ func Run(raw []byte) ([]byte, error) {
 
 	// Collapse the per-band summary rows to one per class for the browser's
 	// cohort-breakdown table; the headline math reads result.Years, unaffected.
-	out := Output{ScenarioResult: forecast.CollapseBands(result)}
+	// Each run carries the asphalt its spending lays. The browser simulates
+	// streets, which are all asphalt-surfaced.
+	out := Output{ScenarioResult: forecast.CollapseBands(forecast.WithMaterials(result, forecast.DefaultMaterialTiers, 1))}
 	if in.Solvency {
 		be := forecast.BreakEvenBudget(cohorts, years, params, forecast.StrategyWorstFirst)
 		out.BreakEvenBudget = &be
@@ -198,7 +200,11 @@ func Run(raw []byte) ([]byte, error) {
 		// SpreadCohorts (in Translate) expands each cohort into per-band
 		// sub-cohorts; collapse them so the browser's cohort-breakdown table
 		// matches the static export table.
-		out.Scenarios = forecast.CollapseAllBands(forecast.ReferenceScenarios(cohorts, years, params))
+		refs := forecast.ReferenceScenarios(cohorts, years, params)
+		for i := range refs {
+			refs[i] = forecast.WithMaterials(refs[i], forecast.DefaultMaterialTiers, 1)
+		}
+		out.Scenarios = forecast.CollapseAllBands(refs)
 	}
 	return json.Marshal(out)
 }

@@ -89,8 +89,8 @@ test('Materials falls back to the page treatment cycle and oil factor for a seed
 });
 
 // The charts draw the scenarios the file describes, by the labels it gives
-// them: no list of scenario names lives in the page. Materials plots every
-// one; Financials only the do-nothing and full-funding bounds.
+// them: no list of scenario names lives in the page. Financials plots the
+// do-nothing and full-funding bounds; Materials the full-funding one.
 test('Financials and Materials plot whatever scenarios the set describes', async () => {
   const scenarios = structuredClone(scenariosJSON);
   for (const scope of ['city', 'all']) {
@@ -127,11 +127,9 @@ test('Financials and Materials plot whatever scenarios the set describes', async
   await flush(12);
   const mix = win.__charts.find((c) => c.config.type === 'line');
   assert.ok(mix, 'Materials drew no funding-level chart');
-  // The baseline's line plots the material its decay would need, and says so.
-  const mixed = mix.data.datasets.map((d) => d.label);
-  assert.deepEqual(mixed.slice(1), all.slice(1));
-  assert.ok(mixed[0].startsWith(all[0]) && mixed[0].length > all[0].length,
-    'the baseline line is not told apart from a funded one: ' + mixed[0]);
+  // Material is what spending lays: the do-nothing baseline lays none and
+  // draws no line.
+  assert.deepEqual(mix.data.datasets.map((d) => d.label), bounds.slice(1));
 });
 
 // ---- Play ---------------------------------------------------------------

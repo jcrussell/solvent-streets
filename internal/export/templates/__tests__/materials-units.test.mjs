@@ -69,11 +69,10 @@ test('the Materials mass charts plot display units, ticks unconverted', async ()
   await flush(12);
   const metric = mixChart().data.datasets.map((d) => d.data);
   assert.ok(metric.length > 0 && metric[0].length > 0, 'the mix chart plotted nothing');
-  // The do-nothing line is the baseline's, under a name of its own: the
-  // scenario's label with a qualifier.
+  // Doing nothing lays no material, so the baseline draws no line.
   const baseline = scenariosJSON.city.find((s) => s.scenario.strategy === 'do_nothing').scenario.label;
-  assert.ok(mixChart().data.datasets.some((d) => d.label.startsWith(baseline) && d.label.length > baseline.length),
-    `no do-nothing line named for its need: ${mixChart().data.datasets.map((d) => d.label)}`);
+  assert.ok(!mixChart().data.datasets.some((d) => d.label.startsWith(baseline)),
+    `the do-nothing baseline draws a material line: ${mixChart().data.datasets.map((d) => d.label)}`);
   assert.equal(mixChart().options.scales.y.ticks.callback(250000), '250,000 t');
 
   win.selectUnits('imperial');

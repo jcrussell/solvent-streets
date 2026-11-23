@@ -217,10 +217,11 @@ func TestCityScope_AResourceTheCityMaintainsNoneOfIsEmptyEverywhere(t *testing.T
 	}
 }
 
-// scenarios.json carries each year's material demand, with the concrete
-// sidewalk area netted out by the scope's asphalt share: sidewalks are a
-// quarter of this network, so the mix is three quarters of what the whole
-// area would take.
+// scenarios.json carries the material each year's spending lays, with the
+// concrete sidewalk area netted out by the scope's asphalt share: sidewalks
+// are a quarter of this network. Doing nothing lays none; full funding lays
+// three quarters of its whole scheduled slice, at tiers between the lightest
+// and the heaviest, and its split by tier adds up to its mix.
 func TestScenarios_YearsCarryMaterialsNetOfConcrete(t *testing.T) {
 	var rows []db.CityMetric
 	rows = append(rows, results.TotalRows(resource.TypeRoads, results.Totals{Area: 9000})...)
@@ -236,16 +237,50 @@ func TestScenarios_YearsCarryMaterialsNetOfConcrete(t *testing.T) {
 		t.Fatal(err)
 	}
 	cycle := forecast.ResolveCycleYears(fc.TreatmentCycleYears)
+	tiers := forecast.DefaultMaterialTiers
+	lightest, heaviest := tiers[0].MixKgPerSqM, tiers[0].MixKgPerSqM
+	for _, tr := range tiers {
+		lightest, heaviest = math.Min(lightest, tr.MixKgPerSqM), math.Max(heaviest, tr.MixKgPerSqM)
+	}
+	sawFull := false
 	for _, sr := range data["all"].([]forecast.ScenarioResult) {
 		for _, y := range sr.Years {
 			if y.Materials == nil {
 				t.Fatalf("%s year %d carries no materials", sr.Scenario.Name, y.Year)
 			}
-			tier, _ := forecast.MaterialTierForPCI(forecast.DefaultMaterialTiers, forecast.ShownPCI(y.PCI))
-			want := forecast.MaterialsForArea(y.Area*0.75/cycle, tier)
-			if math.Abs(y.Materials.MixTonnes-want.MixTonnes) > 1e-9*want.MixTonnes {
-				t.Fatalf("%s year %d: mix %.4f t, want %.4f t (3/4 of the area is asphalt)",
-					sr.Scenario.Name, y.Year, y.Materials.MixTonnes, want.MixTonnes)
+			var split float64
+			for _, m := range y.MaterialsByTier {
+				split += m.MixTonnes
+			}
+			if math.Abs(split-y.Materials.MixTonnes) > 1e-9*math.Max(1, y.Materials.MixTonnes) {
+				t.Errorf("%s year %d: tiers add to %.4f t, the year lays %.4f t", sr.Scenario.Name, y.Year, split, y.Materials.MixTonnes)
+			}
+			switch {
+			case sr.Scenario.Strategy == forecast.StrategyDoNothing:
+				if y.Materials.MixTonnes != 0 {
+					t.Errorf("Do Nothing year %d lays %.4f t", y.Year, y.Materials.MixTonnes)
+				}
+			case sr.Scenario.FullFunding:
+				sawFull = true
+				asphalt := y.Area * 0.75 / cycle
+				lo, hi := asphalt*lightest/1000, asphalt*heaviest/1000
+				if m := y.Materials.MixTonnes; m < lo*(1-1e-9) || m > hi*(1+1e-9) {
+					t.Errorf("full funding year %d: mix %.4f t, want between %.4f and %.4f t (3/4 of the slice is asphalt)", y.Year, m, lo, hi)
+				}
+			}
+		}
+	}
+	if !sawFull {
+		t.Fatal("no full-funding scenario in the set")
+	}
+	// Exactly three quarters of what the same treatment takes with no
+	// concrete netted out.
+	all := data["all"].([]forecast.ScenarioResult)
+	whole := withMaterials(all, 1)
+	for i, sr := range all {
+		for k, y := range sr.Years {
+			if got, want := y.Materials.MixTonnes, 0.75*whole[i].Years[k].Materials.MixTonnes; math.Abs(got-want) > 1e-9*math.Max(1, want) {
+				t.Errorf("%s year %d: mix %.4f t, want 3/4 of %.4f t", sr.Scenario.Name, y.Year, got, whole[i].Years[k].Materials.MixTonnes)
 			}
 		}
 	}

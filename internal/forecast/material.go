@@ -102,21 +102,60 @@ func MaterialsForArea(area float64, t MaterialTier) MaterialQuantities {
 	}
 }
 
-// WithMaterials returns r with every year's Materials filled in: the demand to
-// retreat that year's share of the network. Each year area/cycleYears is
-// treated (the eligible fraction the cost model bills), asphaltShare of it is
-// asphalt, and the year's blended PCI as the site shows it (ShownPCI) picks
-// the material tier (MaterialTierForPCI). r's own Years slice is left untouched.
-func WithMaterials(r ScenarioResult, tiers []MaterialTier, cycleYears, asphaltShare float64) ScenarioResult {
-	cycle := ResolveCycleYears(cycleYears)
+// TierMix is the mix one material tier laid in a year.
+type TierMix struct {
+	Tier      string  `json:"tier"`
+	MixTonnes float64 `json:"mix_tonnes"`
+}
+
+// WithMaterials returns r with every year's Materials filled in: the asphalt
+// the year's spending lays. Simulate records, per cohort, the area the spend
+// treated (its scheduled slice in proportion to the share of its need the
+// spend covered) and the condition it was treated in. Each of those is priced
+// at the material tier of its own condition (MaterialTierForPCI), over the
+// condition spread the costs are priced over, so material follows spending
+// and moves smoothly as condition does. asphaltShare of it is asphalt. A year
+// with no spending lays nothing. r's own Years slice is left untouched.
+func WithMaterials(r ScenarioResult, tiers []MaterialTier, asphaltShare float64) ScenarioResult {
 	years := make([]ScenarioYear, len(r.Years))
 	for i, y := range r.Years {
-		tier, _ := MaterialTierForPCI(tiers, ShownPCI(y.PCI))
-		q := MaterialsForArea(y.Area*asphaltShare/cycle, tier)
-		y.Materials = &q
-		y.MaterialTier = tier.Label
+		byTier := make([]float64, len(tiers))
+		var total MaterialQuantities
+		for _, t := range y.treated {
+			k := materialTierIndex(tiers, ShownPCI(t.pci))
+			if k < 0 {
+				continue
+			}
+			q := MaterialsForArea(t.area*asphaltShare, tiers[k])
+			byTier[k] += q.MixTonnes
+			total.MixTonnes += q.MixTonnes
+			total.BinderTonnes += q.BinderTonnes
+			total.OilBarrels += q.OilBarrels
+		}
+		y.Materials = &total
+		y.MaterialsByTier = nil
+		for k, mix := range byTier {
+			if mix > 0 {
+				y.MaterialsByTier = append(y.MaterialsByTier, TierMix{Tier: tiers[k].Label, MixTonnes: mix})
+			}
+		}
 		years[i] = y
 	}
 	r.Years = years
 	return r
+}
+
+// materialTierIndex is MaterialTierForPCI's tier as an index into tiers, -1
+// for an empty set.
+func materialTierIndex(tiers []MaterialTier, pci float64) int {
+	t, ok := MaterialTierForPCI(tiers, pci)
+	if !ok {
+		return -1
+	}
+	for k := range tiers {
+		if tiers[k].Label == t.Label {
+			return k
+		}
+	}
+	return -1
 }

@@ -2781,6 +2781,19 @@
         function describedScenarios(scenarios) {
             return scenarios.filter(s => s.scenario);
         }
+        // boundScenarios is the two bounds of a described set that the
+        // Financials and Materials charts draw: the do-nothing baseline and
+        // full funding. The partial funding levels in the set (25%, 50%)
+        // only crowd the charts.
+        function boundScenarios(scenarios) {
+            const baseline = findBaseline(scenarios);
+            return describedScenarios(scenarios).filter(s => s === baseline || !!s.scenario.full_funding);
+        }
+        // scenarioColor is a scenario's line colour: its place in the
+        // described set, so a line keeps its colour whichever others are drawn.
+        function scenarioColor(scenarios, s) {
+            return COLORS[describedScenarios(scenarios).indexOf(s) % COLORS.length];
+        }
         // scenarios.json / city.scenarios is scope-keyed ({city, all, summary}).
         // effectiveScope resolves a preferred scope to one actually present;
         // scenariosForScope selects the list for a scope with the city→all
@@ -2920,14 +2933,10 @@
             const chartsDiv = document.getElementById('charts');
             chartsDiv.innerHTML = '';
 
-            // The two bounds, one line each: the do-nothing baseline and full
-            // funding. The interactive lines (today's budget, the what-if) fall
-        // between them. The partial funding
-            // levels in the set (25%, 50%) only crowd the charts, so they are
-            // left off. Each line keeps its colour from its place in the set.
-            const described = describedScenarios(scenarios);
-            const fundingScenarios = described.filter(s => s === baseline || s.scenario.full_funding);
-            const colorOf = s => COLORS[described.indexOf(s) % COLORS.length];
+            // The two bounds, one line each (boundScenarios). The interactive
+            // lines (today's budget, the what-if) fall between them.
+            const fundingScenarios = boundScenarios(scenarios);
+            const colorOf = s => scenarioColor(scenarios, s);
 
             // 1. PCI over time
             if (fundingScenarios.length > 0) {
@@ -3342,34 +3351,31 @@
             // scenario runs against this city's seed and controls, not the
             // previous city's.
             renderFinancialsFromCache();
+            // Materials draws its streets-only set from this city's Financials
+            // data (materialsStreets): redraw it if it drew before this landed.
+            reloadMaterialsIfActive();
             if (tidyURL) Router.replace();
         }
 
         // Materials
         //
-        // Go computes the material demand (forecast.WithMaterials) and ships it
-        // on every scenario year in scenarios.json: each simulated year retreats
-        // one treatment-cycle slice of the asphalt area, and the material tier
-        // whose PCI band holds the year's network-blended condition picks the
-        // intensity (material_tier; not the cost tier's label, which a city
-        // names its own way). That tier is
-        // coarser than the per-cohort interpolated dollar model, so these
-        // figures track the scenario's condition trajectory rather than
-        // reconciling with annual_need. The headline uses the best-funded
-        // scenario (highest final PCI) as the "network kept in repair" figure;
-        // the do-nothing baseline's rising reconstruction share shows the
-        // deferred-maintenance material blowout.
+        // Go computes the material each scenario year's spending lays
+        // (forecast.WithMaterials): every condition band's treated area at the
+        // material tier of its own condition, split by tier
+        // (materials_by_tier). scenarios.json ships it, and the simulator
+        // returns it with every run. The headline uses the funded bound as the
+        // "network kept in repair" figure.
 
         function destroyMaterialsCharts() {
             materialsCharts.forEach(function(c) { c.destroy(); });
             materialsCharts = [];
         }
 
-        // Reactive reload for city/scope/snapshot changes. Unlike Financials —
-        // whose data feeds other views and so always reloads — Materials is
-        // self-contained to its own tab, so only refresh when it's the active
-        // tab. Opening the tab (selectTab / deep link) reloads unconditionally,
-        // so a change made while elsewhere is still reflected on next open.
+        // Reactive reload for city/scope/snapshot changes, and for this city's
+        // Financials data landing (Materials' streets-only set is drawn from
+        // it). Only the active tab refreshes; opening the tab (selectTab /
+        // deep link) reloads unconditionally, so a change made while
+        // elsewhere is still reflected on next open.
         function reloadMaterialsIfActive() {
             var el = document.getElementById('materials-tab');
             if (el && el.classList.contains('active')) loadMaterials();
@@ -3429,12 +3435,12 @@
             return scenario.years.map(function(y) {
                 return {
                     year: y.year,
-                    // The material tier the tonnes were priced at, which a
-                    // city's own cost tiers need not match.
-                    tier: y.material_tier || y.cost_tier,
                     mixTonnes: y.materials.mix_tonnes,
                     binderTonnes: y.materials.binder_tonnes,
-                    oilBarrels: y.materials.oil_barrels
+                    oilBarrels: y.materials.oil_barrels,
+                    // The mix by material tier: the condition spread puts a
+                    // year's treatment in several.
+                    byTier: y.materials_by_tier || []
                 };
             });
         }
@@ -3490,7 +3496,12 @@
             showNoData('materials-charts', msg);
         }
 
-        function renderMaterials(scenarios, seed, scope) {
+        // renderMaterials draws the Materials tab from a scenario set carrying
+        // material quantities. todayRun, when given, is the run at the city's
+        // cited budget, drawn as Today's budget beside the bounds. streetsOnly
+        // marks a set over the streets alone (materialsStreets), which the
+        // tab then says, in place of the asphalt-share note.
+        function renderMaterials(scenarios, seed, scope, todayRun, streetsOnly) {
             var chartsDiv = document.getElementById('materials-charts');
             destroyMaterialsCharts();
             chartsDiv.innerHTML = '';
@@ -3515,7 +3526,10 @@
                 ? (seed && seed.asphalt_area_share)
                 : (seed && seed.city_asphalt_area_share);
 
-            var fundingScenarios = describedScenarios(scenarios);
+            // Material is what spending lays, so the do-nothing baseline lays
+            // none: the lines are the funded bound and Today's budget.
+            var baselineScenario = findBaseline(scenarios);
+            var fundingScenarios = boundScenarios(scenarios).filter(function(s) { return s !== baselineScenario; });
             if (fundingScenarios.length === 0) fundingScenarios = scenarios.slice(0, 1);
 
             var seriesByName = {};
@@ -3528,7 +3542,7 @@
                 var ys = s.years;
                 return ys && ys.length ? ys[ys.length - 1].pci : 0;
             };
-            // "Kept in repair" figure = best-funded scenario (highest final PCI).
+            // "Kept in repair" figure: the funded run ending at the highest PCI.
             var best = fundingScenarios.reduce(function(a, b) {
                 return finalPci(b) > finalPci(a) ? b : a;
             });
@@ -3546,17 +3560,20 @@
                 ' bbl per ' + massUnitSingular() + ' binder';
             document.getElementById('materials-headlines').style.display = '';
             document.getElementById('materials-lead-text').innerHTML = 'Keeping ' + esc(currentCityName()) +
-                '’s pavement in repair takes about <span class="num">' + esc(fmtMass(avgMix)) + '</span> of asphalt mix a year.';
+                (streetsOnly ? '’s streets' : '’s pavement') + ' in repair takes about <span class="num">' + esc(fmtMass(avgMix)) + '</span> of asphalt mix a year.';
             document.getElementById('materials-lead').style.display = '';
 
             var note = document.getElementById('materials-note');
-            var noteText = 'Each year ~1/' + Math.round(cycleYears) + ' of the network (area ÷ ' +
-                'treatment cycle) is retreated; material intensity follows the blended condition, ' +
-                'so the do-nothing line climbs as pavement decays into reconstruction. Planning-grade estimates.';
+            var noteText = 'Each year’s spending retreats part of the ~1/' + Math.round(cycleYears) + ' of the network ' +
+                'scheduled for it (area ÷ treatment cycle): all of it at full funding. Each stretch takes the ' +
+                'material of its own condition, so worse streets take more. Planning-grade estimates.';
             // Say so when the area basis here is narrower than the network area
             // shown on the other tabs, rather than leaving the reader to wonder
             // why the figures do not reconcile.
-            if (asphaltShare <= 0) {
+            document.getElementById('materials-roads-note').hidden = !streetsOnly;
+            if (streetsOnly) {
+                // The streets are all asphalt-surfaced: no share to report.
+            } else if (asphaltShare <= 0) {
                 // A concrete-only network: asphalt_area_share is legitimately 0
                 // (see the asphalt_area_share comment in seeds.go for why that
                 // is reachable). Every headline above is a zero, so the
@@ -3594,32 +3611,32 @@
             // The series are plotted in display mass units (massToDisplay), so
             // the axis ticks are round in tons as well as tonnes.
             var massAxis = function() { return { title: { display: true, text: UNIT_SYSTEM === 'metric' ? 'Tonnes' : 'Tons' }, ticks: { callback: function(v) { return fmtDisplayMass(v); } } }; };
-            // The do-nothing line plots the material the decaying network would
-            // need, not material anyone spends, so its label says so.
-            var baselineScenario = findBaseline(scenarios);
-            var materialsLabel = function(s) {
-                return s === baselineScenario ? s.scenario.label + ' (material need)' : s.scenario.label;
+            // materialLines is the charts' lines, each carrying its series: the
+            // bounds, then Today's budget when there is one, solid in the
+            // Financials tab's status-quo colour.
+            var todaySeries = todayRun ? materialSeries(todayRun) : null;
+            /** @param {(r: any) => number} pick */
+            var materialLines = function(pick) {
+                var lines = fundingScenarios.map(function(s) {
+                    var series = seriesByName[s.scenario.name];
+                    return { label: s.scenario.label, series: series, data: series.map(pick), borderColor: scenarioColor(scenarios, s), backgroundColor: 'transparent', tension: 0.3, pointRadius: 0 };
+                });
+                if (todaySeries) {
+                    lines.push({ label: TODAY_LINE, series: todaySeries, data: todaySeries.map(pick), borderColor: TODAY_COLOR, backgroundColor: 'transparent', tension: 0.3, pointRadius: 0 });
+                }
+                return lines;
             };
 
             // 1. Annual asphalt mix by funding level.
             (function() {
-                var card = makeChartCard('Annual Asphalt Mix by Funding Level');
+                var card = makeChartCard('Annual Asphalt Mix');
                 chartsDiv.appendChild(card);
                 var ctx = card.querySelector('canvas').getContext('2d');
                 materialsCharts.push(new Chart(ctx, {
                     type: 'line',
                     data: {
                         labels: labels,
-                        datasets: fundingScenarios.map(function(s, i) {
-                            return {
-                                label: materialsLabel(s),
-                                data: seriesByName[s.scenario.name].map(function(r) { return massToDisplay(r.mixTonnes); }),
-                                borderColor: COLORS[i % COLORS.length],
-                                backgroundColor: 'transparent',
-                                tension: 0.3,
-                                pointRadius: 0
-                            };
-                        })
+                        datasets: materialLines(function(r) { return massToDisplay(r.mixTonnes); })
                     },
                     options: { responsive: true, interaction: { mode: 'index', intersect: false }, scales: { y: massAxis() }, plugins: { legend: { position: 'bottom' }, tooltip: { callbacks: { label: function(ctx) { return ctx.dataset.label + ': ' + fmtDisplayMass(ctx.parsed.y); } } } } }
                 }));
@@ -3634,48 +3651,43 @@
                     type: 'line',
                     data: {
                         labels: labels,
-                        datasets: fundingScenarios.map(function(s, i) {
-                            return {
-                                label: materialsLabel(s),
-                                data: seriesByName[s.scenario.name].map(function(r) { return massToDisplay(r.binderTonnes); }),
-                                borderColor: COLORS[i % COLORS.length],
-                                backgroundColor: 'transparent',
-                                tension: 0.3,
-                                pointRadius: 0
-                            };
-                        })
+                        datasets: materialLines(function(r) { return massToDisplay(r.binderTonnes); })
                     },
-                    options: { responsive: true, interaction: { mode: 'index', intersect: false }, scales: { y: massAxis() }, plugins: { legend: { position: 'bottom' }, tooltip: { callbacks: { label: function(ctx) { return ctx.dataset.label + ': ' + fmtDisplayMass(ctx.parsed.y) + ' · ' + fmtBarrels(seriesByName[fundingScenarios[ctx.datasetIndex].scenario.name][ctx.dataIndex].oilBarrels); } } } } }
+                    options: { responsive: true, interaction: { mode: 'index', intersect: false }, scales: { y: massAxis() }, plugins: { legend: { position: 'bottom' }, tooltip: { callbacks: { label: function(ctx) { return ctx.dataset.label + ': ' + fmtDisplayMass(ctx.parsed.y) + ' · ' + fmtBarrels(ctx.dataset.series[ctx.dataIndex].oilBarrels); } } } } }
                 }));
             })();
 
-            // 3. Annual mix by condition tier for the do-nothing baseline — shows
-            // the deferred-maintenance blowout as the network decays.
+            // 3. Annual mix by condition tier, stacked: today's budget, else
+            // the funded bound. As the streets wear, more of it goes to the
+            // heavier tiers.
             (function() {
-                var baseline = findBaseline(scenarios);
-                if (!baseline) return;
-                var series = materialSeries(baseline);
+                var series = todaySeries || bestSeries;
                 var ranked = rankedMaterialTiers(seed);
-                var card = makeChartCard('Annual Mix by Condition Tier (Do-Nothing)');
+                var card = makeChartCard('Annual Mix by Condition Tier (' + (todaySeries ? TODAY_LINE : best.scenario.label) + ')');
                 chartsDiv.appendChild(card);
                 var ctx = card.querySelector('canvas').getContext('2d');
                 materialsCharts.push(new Chart(ctx, {
                     type: 'bar',
                     data: {
                         labels: series.map(function(r) { return 'Year ' + r.year; }),
-                        datasets: [{
-                            label: 'Asphalt Mix',
-                            data: series.map(function(r) { return massToDisplay(r.mixTonnes); }),
-                            backgroundColor: series.map(function(r) { return materialTierColor(r.tier, ranked); })
-                        }]
+                        datasets: ranked.slice().reverse().map(function(t) {
+                            return {
+                                label: t.label,
+                                data: series.map(function(r) {
+                                    var m = r.byTier.find(function(b) { return b.tier === t.label; });
+                                    return massToDisplay(m ? m.mix_tonnes : 0);
+                                }),
+                                backgroundColor: materialTierColor(t.label, ranked)
+                            };
+                        })
                     },
                     options: {
                         responsive: true,
-                        scales: { y: massAxis() },
+                        scales: { x: { stacked: true }, y: Object.assign(massAxis(), { stacked: true }) },
                         plugins: {
                             verticalCrosshair: false,
                             legend: { display: true, position: 'bottom', labels: { generateLabels: function() { return materialTierLegendLabels(ranked); } } },
-                            tooltip: { callbacks: { label: function(ctx) { return fmtDisplayMass(ctx.parsed.y); } } }
+                            tooltip: { callbacks: { label: function(ctx) { return ctx.dataset.label + ': ' + fmtDisplayMass(ctx.parsed.y); } } }
                         }
                     }
                 }));
@@ -3697,7 +3709,26 @@
             // back when the loaded scenarios lack it.
             var scope = effectiveScope(scenarios, currentScope);
             var list = scenariosForScope(scenarios, scope);
-            renderMaterials(list, seed, scope);
+            var streets = materialsStreets(scope, seed);
+            if (streets) renderMaterials(streets.scenarios, seed, scope, streets.today, true);
+            else renderMaterials(list, seed, scope, null, false);
+        }
+
+        // materialsStreets is the Materials tab's streets-only set, as the
+        // Financials tab forecasts it: its reference bounds (financialScenarios)
+        // and the run at the city's cited budget, each with the material its
+        // retreated streets take. null until the simulator and this city's
+        // seed are up; the tab shows the exported set (all asphalt) until then.
+        // The simulator returns each run with the material its spending lays.
+        /** @param {string} scope @param {any} seed */
+        function materialsStreets(scope, seed) {
+            if (!wasmReady || !forecastSeedReady || !scenarioData || !seed) return null;
+            const refs = financialScenarios(scope);
+            if (!refs || refs.length === 0 || !hasMaterials(refs)) return null;
+            const today = sliderRoadsAreWider() ? 0 : todayBudget();
+            const input = today > 0 ? getControlValues() : null;
+            const run = input ? todayRun(input, today) : null;
+            return { scenarios: refs, today: run && hasMaterials([run]) ? run : null };
         }
 
         // Set by renderAggregate once the region data loads: true when any
@@ -4294,6 +4325,9 @@
             // not landed: once it has, loadFinancials built them, with any
             // linked tier costs, and a rebuild would drop those.
             if (!forecastSeedReady) rebuildTierInputs();
+            // Materials drew the exported set (all asphalt) while it waited:
+            // redraw it over the streets.
+            if (queryEl('.tab-btn.active')?.dataset.tab === 'materials-tab') loadMaterials();
         }
 
         // cohortType is a seed cohort's resource type, which the export emits on

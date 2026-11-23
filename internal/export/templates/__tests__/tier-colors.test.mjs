@@ -126,9 +126,9 @@ test('a material tier keeps its default colour under a custom cost schedule', as
   assert.equal(win.tierColor('no-such-tier'), GREY);
 });
 
-// The Materials mix chart's bars are the material tiers the tonnes were
-// priced at, which a custom cost schedule does not rename or re-band, so its
-// legend lists the seed's material tiers, in the bars' colours.
+// The Materials mix chart stacks the material tiers the tonnes were priced
+// at, which a custom cost schedule does not rename or re-band, so its legend
+// lists the seed's material tiers, in the stacks' colours.
 test('the Materials mix legend lists the material tiers under a custom cost schedule', async () => {
   const custom = [tier(0, 25, 'rebuild'), tier(25, 50, 'mill'), tier(50, 75, 'overlay'), tier(75, 101, 'seal')];
   const { win, flush } = await page(custom);
@@ -147,7 +147,9 @@ test('the Materials mix legend lists the material tiers under a custom cost sche
   assert.deepEqual(legend.map((l) => [l.text, l.fillStyle]),
     [['Preventive', GREEN], ['Rehab', AMBER], ['Reconstruction', RED]]);
   const byLabel = new Map(legend.map((l) => [l.text.toLowerCase(), l.fillStyle]));
-  const bars = Array.from(chart.data.datasets[0].backgroundColor);
-  assert.ok(bars.length > 0 && bars.every((b) => [...byLabel.values()].includes(b)),
-    'a bar is drawn in a colour the legend does not list: ' + bars);
+  const stacks = chart.data.datasets.map((d) => [d.label, d.backgroundColor]);
+  assert.ok(stacks.length > 0, 'the mix chart has no stacks');
+  for (const [label, color] of stacks) {
+    assert.equal(byLabel.get(label.toLowerCase()), color, `the ${label} stack is not in its legend colour`);
+  }
 });

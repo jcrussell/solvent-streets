@@ -116,13 +116,24 @@ type ScenarioYear struct {
 	AnnualSpend     float64 `json:"annual_spend"`
 	DeferredBacklog float64 `json:"deferred_backlog"`
 	CostTier        string  `json:"cost_tier"`
-	// Materials is the asphalt demand of the year's treated area. Set by
-	// WithMaterials for the exported scenarios; nil from Simulate.
+	// Materials is the asphalt the year's spending lays. Set by
+	// WithMaterials; nil from Simulate.
 	Materials *MaterialQuantities `json:"materials,omitempty"`
-	// MaterialTier names the material tier Materials was priced at
-	// (MaterialTierForPCI), which need not share a name or band with
-	// CostTier when the city's cost tiers are its own. Set with Materials.
-	MaterialTier string `json:"material_tier,omitempty"`
+	// MaterialsByTier splits Materials' mix by material tier
+	// (MaterialTierForPCI), in tier order, leaving out tiers that laid none.
+	// A material tier need not share a name or band with CostTier when the
+	// city's cost tiers are its own. Set with Materials.
+	MaterialsByTier []TierMix `json:"materials_by_tier,omitempty"`
+
+	// treated is the area the year's spending treated, per cohort, at the
+	// condition it was treated in: what WithMaterials prices.
+	treated []treatedSlice
+}
+
+// treatedSlice is one cohort's area treated in a year and the PCI it was
+// treated at (its post-decay condition, which its need was priced at).
+type treatedSlice struct {
+	pci, area float64
 }
 
 // ScenarioResult is the full output of running a scenario simulation.
@@ -145,10 +156,12 @@ type cohortState struct {
 // spendAcc and deficitAcc accumulate across years into the final CohortSummary.
 type simulator struct {
 	states     []cohortState
-	decayed    []float64 // per-year scratch: post-decay PCI per cohort
-	need       []float64 // per-year scratch: maintenance need per cohort
-	spendAcc   []float64 // cumulative actual spend per cohort
-	deficitAcc []float64 // cumulative unmet need per cohort
+	decayed    []float64      // per-year scratch: post-decay PCI per cohort
+	need       []float64      // per-year scratch: maintenance need per cohort
+	slice      []float64      // per-year scratch: area scheduled for treatment per cohort
+	treated    []treatedSlice // per-year scratch: area the spend treated per cohort
+	spendAcc   []float64      // cumulative actual spend per cohort
+	deficitAcc []float64      // cumulative unmet need per cohort
 }
 
 func initCohortStates(cohorts []Cohort) ([]cohortState, float64) {
@@ -218,6 +231,12 @@ func (sm *simulator) distribute(totalNeed, totalSpend float64, strategy Strategy
 
 		actual := applyCohortSpend(&sm.states[j], sm.decayed[j], cohortSpend, sm.need[j], strategy)
 		actualSpend += actual
+		// The spend treats the cohort's scheduled slice in proportion to
+		// the share of its need it covers; a surplus treats extra area at
+		// the same cost.
+		if actual > 0 && sm.need[j] > 0 {
+			sm.treated = append(sm.treated, treatedSlice{pci: sm.decayed[j], area: sm.slice[j] * actual / sm.need[j]})
+		}
 		sm.spendAcc[j] += actual
 		sm.deficitAcc[j] += math.Max(0, sm.need[j]-actual)
 	}
@@ -396,6 +415,7 @@ func Simulate(s Scenario, cohorts []Cohort, years int, p *Params) ScenarioResult
 		states:     states,
 		decayed:    make([]float64, n),
 		need:       make([]float64, n),
+		slice:      make([]float64, n),
 		spendAcc:   make([]float64, n),
 		deficitAcc: make([]float64, n),
 	}
@@ -426,6 +446,7 @@ func Simulate(s Scenario, cohorts []Cohort, years int, p *Params) ScenarioResult
 			fullNeed := p.Cost.ProjectCost(area*sm.states[j].areaFrac, sm.decayed[j]) * sm.states[j].costScale
 			need := fullNeed * eligibleFrac
 			sm.need[j] = need
+			sm.slice[j] = area * sm.states[j].areaFrac * eligibleFrac
 			totalNeed += need
 		}
 
@@ -447,6 +468,7 @@ func Simulate(s Scenario, cohorts []Cohort, years int, p *Params) ScenarioResult
 			}
 		}
 
+		sm.treated = nil
 		totalSpend = sm.distribute(totalNeed, totalSpend, s.Strategy, fullFund)
 
 		deferredBacklog += math.Max(0, totalNeed-totalSpend)
@@ -462,6 +484,7 @@ func Simulate(s Scenario, cohorts []Cohort, years int, p *Params) ScenarioResult
 			// Label from the active tier set (custom/sidewalk), not the hardcoded
 			// defaults, at the PCI the site shows (ShownPCI).
 			CostTier: p.Cost.TierForPCI(ShownPCI(blended)),
+			treated:  sm.treated,
 		}
 	}
 

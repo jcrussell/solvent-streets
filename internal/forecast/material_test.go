@@ -87,49 +87,56 @@ func TestMaterialTierForPCI(t *testing.T) {
 	}
 }
 
-// WithMaterials treats one cycle-slice of the asphalt share of each year's
-// area at the tier of the year's blended PCI, whatever the cost tier is
-// called, and leaves its input alone.
+// WithMaterials prices each slice the year's spending treated at the tier of
+// its own condition, takes the asphalt share of it and splits the mix by
+// tier. It leaves its input alone.
 func TestWithMaterials(t *testing.T) {
 	in := ScenarioResult{Years: []ScenarioYear{
-		{Year: 1, Area: 120000, PCI: 55, CostTier: "rehab"},
-		{Year: 2, Area: 120000, PCI: 85, CostTier: "Good"},
+		{Year: 1, treated: []treatedSlice{{pci: 55, area: 6000}, {pci: 85, area: 4000}}},
+		{Year: 2},
 	}}
-	const cycle, share = 12.0, 0.75
-	got := WithMaterials(in, DefaultMaterialTiers, cycle, share)
+	const share = 0.75
+	got := WithMaterials(in, DefaultMaterialTiers, share)
 
 	if in.Years[0].Materials != nil {
 		t.Fatal("WithMaterials wrote to its input's years")
 	}
 	rehab, _ := MaterialTierForPCI(DefaultMaterialTiers, 55)
 	prev, _ := MaterialTierForPCI(DefaultMaterialTiers, 85)
-	wants := []MaterialQuantities{
-		MaterialsForArea(120000*share/cycle, rehab),
-		MaterialsForArea(120000*share/cycle, prev),
+	r, pv := MaterialsForArea(6000*share, rehab), MaterialsForArea(4000*share, prev)
+	y := got.Years[0]
+	if y.Materials == nil || math.Abs(y.Materials.MixTonnes-(r.MixTonnes+pv.MixTonnes)) > 1e-9 ||
+		math.Abs(y.Materials.BinderTonnes-(r.BinderTonnes+pv.BinderTonnes)) > 1e-9 {
+		t.Errorf("year 1: got %+v, want the rehab %+v plus the preventive %+v", y.Materials, r, pv)
 	}
-	for i, want := range wants {
-		if got.Years[i].Materials == nil || *got.Years[i].Materials != want {
-			t.Errorf("year %d: got %+v, want %+v", i+1, got.Years[i].Materials, want)
+	want := []TierMix{{Tier: prev.Label, MixTonnes: pv.MixTonnes}, {Tier: rehab.Label, MixTonnes: r.MixTonnes}}
+	if len(y.MaterialsByTier) != 2 {
+		t.Fatalf("year 1 by tier: %+v, want %+v", y.MaterialsByTier, want)
+	}
+	for _, w := range want {
+		found := false
+		for _, g := range y.MaterialsByTier {
+			if g.Tier == w.Tier && math.Abs(g.MixTonnes-w.MixTonnes) < 1e-9 {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("year 1 by tier: %+v lacks %+v", y.MaterialsByTier, w)
 		}
 	}
-	if wants[0].MixTonnes != 900 { // 7500 m^2 at 120 kg/m^2
-		t.Errorf("rehab year mix = %v t, want 900", wants[0].MixTonnes)
-	}
-
-	// An unset cycle is the default cycle, as it is for costs.
-	unset := WithMaterials(in, DefaultMaterialTiers, 0, share)
-	byDefault := WithMaterials(in, DefaultMaterialTiers, DefaultTreatmentCycleYears, share)
-	if *unset.Years[0].Materials != *byDefault.Years[0].Materials {
-		t.Errorf("cycle 0: got %+v, want the default cycle's %+v", unset.Years[0].Materials, byDefault.Years[0].Materials)
+	// A year that treated nothing lays nothing.
+	if z := got.Years[1]; z.Materials == nil || *z.Materials != (MaterialQuantities{}) || len(z.MaterialsByTier) != 0 {
+		t.Errorf("year 2 treated nothing, yet laid %+v by tier %+v", z.Materials, z.MaterialsByTier)
 	}
 }
 
-// TestWithMaterials_CustomCostTierLabels: a city whose cost tiers are named
-// and banded its own way (Los Angeles County's Good/Fair/Poor/Failed) gets
-// material demand that follows condition, so it varies across years and
-// scenarios. Matching by label sent every year of every scenario to the
-// heaviest tier: Agoura Hills at 53,655 t/yr instead of ~3,300.
-func TestWithMaterials_CustomCostTierLabels(t *testing.T) {
+// TestWithMaterials_FollowsSpending: material is what the spending lays. Doing
+// nothing lays none; full funding lays its whole scheduled slice, spread over
+// the conditions it is in; a part-funded run lays less than full funding.
+// A city whose cost tiers are named and banded its own way (Los Angeles
+// County's Good/Fair/Poor/Failed) still gets material by condition, not
+// every year at the heaviest tier (Agoura Hills once read 53,655 t/yr).
+func TestWithMaterials_FollowsSpending(t *testing.T) {
 	tiers := []CostTier{
 		{MinPCI: 0, MaxPCI: 25, CostPerSqM: 200, Label: "Failed"},
 		{MinPCI: 25, MaxPCI: 50, CostPerSqM: 120, Label: "Poor"},
@@ -137,39 +144,72 @@ func TestWithMaterials_CustomCostTierLabels(t *testing.T) {
 		{MinPCI: 70, MaxPCI: 100, CostPerSqM: 15, Label: "Good"},
 	}
 	p := NewParams(0, tiers, 12, 1)
-	cohorts := []Cohort{{Classification: "residential", Area: 1_000_000, DecayRate: 0.04, InitialPCI: 85}}
-	none := WithMaterials(Simulate(Scenario{Strategy: StrategyDoNothing}, cohorts, 30, p), DefaultMaterialTiers, 12, 1)
-	full := WithMaterials(Simulate(Scenario{Strategy: StrategyWorstFirst, FullFunding: true}, cohorts, 30, p), DefaultMaterialTiers, 12, 1)
+	cohorts := SpreadCohorts([]RawCohort{{Classification: "residential", Area: 1_000_000, DecayRate: 0.04}}, 85)
+	run := func(s Scenario) ScenarioResult {
+		return WithMaterials(Simulate(s, cohorts, 30, p), DefaultMaterialTiers, 1)
+	}
+	none := run(Scenario{Strategy: StrategyDoNothing})
+	full := run(Scenario{Strategy: StrategyWorstFirst, FullFunding: true})
+	half := run(Scenario{Strategy: StrategyWorstFirst, AnnualBudget: full.Years[0].AnnualNeed / 2})
 
+	for _, y := range none.Years {
+		if y.Materials.MixTonnes != 0 {
+			t.Fatalf("Do Nothing year %d lays %v t", y.Year, y.Materials.MixTonnes)
+		}
+	}
 	slice := 1_000_000.0 / 12
-	if got, want := full.Years[0].Materials.MixTonnes, slice*30/1000; math.Abs(got-want) > 1e-6 {
-		t.Errorf("year 1 at PCI ~85: mix %v t, want the preventive %v t", got, want)
+	lightest, heaviest := slice*30/1000, slice*480/1000
+	if got := full.Years[0].Materials.MixTonnes; got <= lightest || got >= heaviest/2 {
+		t.Errorf("full funding year 1 at PCI ~85: %v t, want between the all-preventive %v t and half the all-reconstruction %v t", got, lightest, heaviest)
 	}
-	if none.Years[0].Materials.MixTonnes == none.Years[29].Materials.MixTonnes {
-		t.Errorf("Do Nothing mix is flat across 30 years (%v t): it no longer follows condition", none.Years[0].Materials.MixTonnes)
+	if h, f := half.Years[0].Materials.MixTonnes, full.Years[0].Materials.MixTonnes; h <= 0 || h >= f {
+		t.Errorf("half funding year 1 lays %v t against full funding's %v t", h, f)
 	}
-	if none.Years[29].Materials.MixTonnes == full.Years[29].Materials.MixTonnes {
-		t.Errorf("year 30: Do Nothing and Full Funding take the same mix (%v t)", none.Years[29].Materials.MixTonnes)
+}
+
+// TestWithMaterials_Smooth: a network sliding through the tier bands at part
+// funding lays material that moves year to year as its condition does. Priced
+// at the network-average PCI, it quadrupled in the year the average crossed
+// 40 (Livermore, year 18).
+func TestWithMaterials_Smooth(t *testing.T) {
+	p := NewParams(0, nil, 12, 1)
+	cohorts := SpreadCohorts([]RawCohort{{Classification: "residential", Area: 1_000_000, DecayRate: 0.04}}, 75)
+	need := Simulate(Scenario{Strategy: StrategyWorstFirst, FullFunding: true}, cohorts, 1, p).Years[0].AnnualNeed
+	r := WithMaterials(Simulate(Scenario{Strategy: StrategyWorstFirst, AnnualBudget: need / 10}, cohorts, 30, p), DefaultMaterialTiers, 1)
+	if last := r.Years[29].PCI; last >= 40 {
+		t.Fatalf("fixture: the run ends at PCI %v, never crossing into reconstruction", last)
+	}
+	for i := 1; i < len(r.Years); i++ {
+		a, b := r.Years[i-1].Materials.MixTonnes, r.Years[i].Materials.MixTonnes
+		if a > 0 && (b/a > 1.25 || b/a < 0.8) {
+			t.Errorf("year %d to %d: mix %v t to %v t", i, i+1, a, b)
+		}
 	}
 }
 
 // TestWithMaterials_TierFollowsShownPCI: the site shows PCI as a whole
-// number, so a year at 69.995 shows "70" and takes the preventive tier whose
+// number, so a slice at 69.995 shows "70" and takes the preventive tier whose
 // band starts there, and one at 69.4 shows "69" and stays rehab.
 func TestWithMaterials_TierFollowsShownPCI(t *testing.T) {
 	in := ScenarioResult{Years: []ScenarioYear{
-		{Year: 1, Area: 1000, PCI: 69.995},
-		{Year: 2, Area: 1000, PCI: 69.4},
+		{Year: 1, treated: []treatedSlice{{pci: 69.995, area: 1000}}},
+		{Year: 2, treated: []treatedSlice{{pci: 69.4, area: 1000}}},
 	}}
-	got := WithMaterials(in, DefaultMaterialTiers, 1, 1)
-	if tier := got.Years[0].MaterialTier; tier != TierPreventive {
+	got := WithMaterials(in, DefaultMaterialTiers, 1)
+	tierOf := func(y ScenarioYear) string {
+		if len(y.MaterialsByTier) != 1 {
+			t.Fatalf("year %d by tier %+v, want one tier", y.Year, y.MaterialsByTier)
+		}
+		return y.MaterialsByTier[0].Tier
+	}
+	if tier := tierOf(got.Years[0]); tier != TierPreventive {
 		t.Errorf("PCI 69.995 (shown as 70): tier %q, want %q", tier, TierPreventive)
 	}
 	prev, _ := MaterialTierForPCI(DefaultMaterialTiers, 70)
 	if want := MaterialsForArea(1000, prev); *got.Years[0].Materials != want {
 		t.Errorf("PCI 69.995: materials %+v, want the preventive %+v", *got.Years[0].Materials, want)
 	}
-	if tier := got.Years[1].MaterialTier; tier != TierRehab {
+	if tier := tierOf(got.Years[1]); tier != TierRehab {
 		t.Errorf("PCI 69.4 (shown as 69): tier %q, want %q", tier, TierRehab)
 	}
 }

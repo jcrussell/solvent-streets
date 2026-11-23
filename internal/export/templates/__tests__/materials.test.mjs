@@ -73,7 +73,7 @@ test('the fixture seed carries an asphalt share below 1', () => {
 // Go nets that area out when it computes each year's quantities
 // (forecast.WithMaterials; scenarios_test.go pins the arithmetic). The tab only
 // averages what scenarios.json carries, so each headline is the mean of the
-// best-funded scenario's figures.
+// funded bound's figures.
 test('the headlines average the material quantities scenarios.json carries', async () => {
   const { win } = await ready();
   const list = scenariosJSON.city || scenariosJSON.all;

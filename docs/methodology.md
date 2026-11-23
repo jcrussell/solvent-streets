@@ -149,16 +149,29 @@ gives the derivation and the limits of that anchor.
 
 ### Materials
 
-The Materials tab turns each forecast year's treatment into the asphalt it
-takes. It covers every asphalt surface, streets and parking lots alike,
-though the Financials tab covers streets only. Each year `1/N` of that
-area is treated (see the treatment cycle above); sidewalks are concrete,
-so their area is netted out rather than priced as hot-mix. The year's network-average PCI, rounded
-to the whole number the site shows, picks one treatment tier for all of it
-by condition band (preventive, rehab or reconstruction), whatever the city's
-cost tiers are called; the tier's material quantities follow it. The tab's
-**Material Intensity by Treatment Tier** table gives each tier's mix and
-binder per unit area.
+The Materials tab turns each forecast year's spending into the asphalt it
+lays. Like the Financials tab it covers streets only, all asphalt-surfaced.
+It draws Full Funding and Today's budget (the run at the city's cited
+budget). Doing nothing lays no asphalt, so the do-nothing baseline has no
+line.
+
+Each year `1/N` of the network is scheduled for treatment (see the
+treatment cycle above), and the spending treats the share of that slice
+its money covers: all of it at full funding, a third of it at a third of
+the need. A surplus treats extra area at the same cost. Material is priced
+over the same condition spread as the costs (see the condition spread
+above): each band of the spread takes the treatment tier of its own
+condition (preventive, rehab or reconstruction, rounded to the whole PCI
+the site shows), whatever the city's cost tiers are called. So as streets
+wear, more of the year's mix goes to the heavier tiers, gradually rather
+than all at once when the network average crosses a tier boundary. The
+**Annual Mix by Condition Tier** chart stacks each year's mix by tier.
+The **Material Intensity by Treatment Tier** table gives each tier's mix
+and binder per unit area.
+
+The simulator in the browser computes this for the streets once it loads.
+Until then, or without WebAssembly, the tab shows the exported figures,
+which cover streets and parking lots, with concrete sidewalks netted out.
 
 Mix per area is a treatment's compacted lift thickness times dense-graded
 hot-mix density (Asphalt Institute MS-2), or a slurry application rate for
@@ -167,8 +180,8 @@ asphalt-content share of the mix mass, and aggregate is the rest.
 **Oil-equivalent barrels** are the binder's volume in barrels, a
 first-order "how much oil" figure rather than a refinery yield.
 
-The headline cards are the yearly average over the horizon under the
-best-funded comparison run, the one ending at the highest PCI. Under
+The headline cards are the yearly average over the horizon under Full
+Funding, what keeping the streets in repair takes. Under
 imperial units, mass is shown in US short tons. The tiers are
 planning-grade defaults, the same for every city, not a city's own mix
 designs.
@@ -208,8 +221,9 @@ budget has no status quo: its one interactive line is the what-if, at
 Hold steady until the slider moves. So is the all-jurisdictions scope,
 whose network is larger than the one the cited budget pays for.
 
-The 25% and 50% runs stay in the CLI's `pvmt forecast`, the exported
-`scenarios.json` and the Materials tab. The Annual Treatment Need chart
+The Materials charts draw Full Funding and Today's budget; doing nothing
+lays no asphalt (see Materials above). The 25% and 50% runs stay in the
+CLI's `pvmt forecast` and the exported `scenarios.json`. The Annual Treatment Need chart
 shows the yearly need, by condition tier, of the run the tiles show.
 Until the in-browser simulator loads, it shows the do-nothing baseline's
 need instead.

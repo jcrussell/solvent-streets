@@ -350,11 +350,11 @@ func BuildScenariosData(ctx context.Context, entry CityEntry, fc *config.Forecas
 
 	// Each scope's material demand nets out its own concrete share. With no
 	// cohorts the share is 1, which suits the single-cohort fallback.
-	allScenarios = withMaterials(allScenarios, params, cohorts.AllAsphaltShare)
+	allScenarios = withMaterials(allScenarios, cohorts.AllAsphaltShare)
 
 	out := map[string]any{}
 	if areas.cityArea > 0 {
-		out["city"] = withMaterials(primaryScenarios, params, cohorts.CityAsphaltShare)
+		out["city"] = withMaterials(primaryScenarios, cohorts.CityAsphaltShare)
 		out["all"] = allScenarios
 	} else {
 		out["all"] = allScenarios
@@ -362,15 +362,15 @@ func BuildScenariosData(ctx context.Context, entry CityEntry, fc *config.Forecas
 	return out, nil
 }
 
-// withMaterials adds each scenario year's asphalt demand (forecast.WithMaterials)
-// at the default material tiers and the treatment cycle the costs were billed on.
-func withMaterials(rs []forecast.ScenarioResult, params *forecast.Params, asphaltShare float64) []forecast.ScenarioResult {
+// withMaterials adds the asphalt each scenario year's spending lays
+// (forecast.WithMaterials) at the default material tiers.
+func withMaterials(rs []forecast.ScenarioResult, asphaltShare float64) []forecast.ScenarioResult {
 	if rs == nil {
 		return nil
 	}
 	out := make([]forecast.ScenarioResult, len(rs))
 	for i, r := range rs {
-		out[i] = forecast.WithMaterials(r, forecast.DefaultMaterialTiers, params.CycleYears, asphaltShare)
+		out[i] = forecast.WithMaterials(r, forecast.DefaultMaterialTiers, asphaltShare)
 	}
 	return out
 }
@@ -521,6 +521,14 @@ func roundScenarioResult(r forecast.ScenarioResult) forecast.ScenarioResult {
 		if y.Materials != nil {
 			m := roundMaterials(*y.Materials)
 			y.Materials = &m
+		}
+		if y.MaterialsByTier != nil {
+			byTier := make([]forecast.TierMix, len(y.MaterialsByTier))
+			for k, tm := range y.MaterialsByTier {
+				tm.MixTonnes = geo.RoundTo(tm.MixTonnes, emitMaterialDecimals)
+				byTier[k] = tm
+			}
+			y.MaterialsByTier = byTier
 		}
 		years[i] = y
 	}

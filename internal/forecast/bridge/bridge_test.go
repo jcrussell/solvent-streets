@@ -289,12 +289,13 @@ func TestRunEndToEnd(t *testing.T) {
 	}
 
 	// Run must equal forecast.Simulate over the same translated inputs, with the
-	// same post-processing Run applies (FinalCohorts collapsed back by class).
+	// same post-processing Run applies (materials added, FinalCohorts
+	// collapsed back by class).
 	scenario, cohorts, years, params, err := Translate(in)
 	if err != nil {
 		t.Fatalf("Translate: %v", err)
 	}
-	sim := forecast.Simulate(scenario, cohorts, years, params)
+	sim := forecast.WithMaterials(forecast.Simulate(scenario, cohorts, years, params), forecast.DefaultMaterialTiers, 1)
 	sim.FinalCohorts = forecast.AggregateCohortSummariesByClass(sim.FinalCohorts)
 	want, err := json.Marshal(sim)
 	if err != nil {
