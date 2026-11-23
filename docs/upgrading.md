@@ -62,11 +62,12 @@ Update links to the dashboard:
 |------------|------------|
 | `?tag=<value>` | `?tag=group:<value>`. A tag without its dimension prefix is ignored |
 | `?scope=bbox` | `?scope=all` |
+| `?tab=<name>-tab` (e.g. `?tab=materials-tab`) | `?tab=<name>`: `map`, `financials`, `materials`, `config` or `about`, plus `compare` and `aggregate` on a multi-city site. The old form names no tab and opens the map |
 | `?snapshot=<id>` (`pvmt serve`) | `?snapshot=<name>`, or `?snapshot=latest` for the latest compute |
 
 ### 5. Update anything that reads pvmt's JSON
 
-Every JSON document pvmt emits now uses one vocabulary, described in [JSON conventions](architecture.md#json-conventions). A script that reads an old name gets nothing back rather than an error, so check each one against the tables below. They list only names that existed in v0.4.x: the commands and files new in v0.5.0 (`pvmt census`, `pvmt services`, `hex-metrics.json` and the multi-city `compare.json`) have no older name.
+Every JSON document pvmt emits now uses one vocabulary, described in [JSON conventions](architecture.md#json-conventions). A CLI `--json` field list that names an old field fails (`unknown JSON field`, exit 2), but a script that reads an old name from the output, the `pvmt serve` API or the site files gets nothing back rather than an error, so check each one against the tables below. They list only names that existed in v0.4.x: the commands and files new in v0.5.0 (`pvmt census`, `pvmt services`, `hex-metrics.json` and the multi-city `compare.json`) have no older name.
 
 `--jq` and `--template` see the same keys `--json` prints. `pvmt export --json` and `pvmt validate --json` stay bare flags (each prints one document) and now accept `--jq` and `--template` too.
 
@@ -79,7 +80,7 @@ Every JSON document pvmt emits now uses one vocabulary, described in [JSON conve
 | `snapshots list` (`ls`) | one row per city's snapshot: `city`, `id`, `computedAt`, `configHash` | one row per named snapshot: `name`, `created_at`, `city_count`, `compute_epoch`; each city's `config_hash`, `hex_edge_m` and `parts` (`part`, `run_id`, `computed_at`) are in `snapshots show <name>` |
 | `<resource> compute` | `resourceType`, `jurisdiction`, `featureCount`, `snapshotId` | `resource_type`, `scope`, `feature_count`, `run_id` (the compute run, not a snapshot) |
 | `<resource> compute` | `city`: display name (`Oakland, CA`) | `city`: slug (`oakland-ca`) |
-| `forecast` | `resourceType`, `treatmentCost`, `treatmentTier` | `resource_type`, `annual_need`, `cost_tier`; new `city` |
+| `forecast` | `resourceType`, `treatmentCost`, `treatmentTier` | `resource_type`, `annual_need`, `cost_tier`; new `city` and `scope` |
 | `export` | `total` | `file_count` |
 | `validate` | `break_even`; `hold_steady_budget`; `passed`, `failed`, `context` | `break_even_budget`; `published_break_even_budget`; `pass_count`, `fail_count`, `context_count` |
 | `config show` | `key` and the file `source.detail`: `units`, `display.min_hex_area`, `forecast.years`, `forecast.cost_overhead`, `cities[<slug>].forecast.cost_overhead` | `display.units`, `grid.min_hex_area`, `forecast.horizon_years`, `forecast.cost_multiplier`, `cities[<slug>].forecast.cost_multiplier` (the config keys of step 1); `--sources` prints the same keys |

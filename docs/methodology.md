@@ -414,9 +414,15 @@ The multi-city Compare view presents two distinct per-city scores:
   recurring roads budget: a single-year program, a broad capital category,
   one grant or funding-source line, or a figure that bundles sidewalks in
   an unknown share is not comparable with a roads-only need, so such a city
-  carries no `current_budget` and is unranked. A city marked **†** cites no
-  pavement survey, so its forecast starts at the default PCI (85) and its
-  hold-steady budget and score rest on that assumed condition.
+  carries no `current_budget` and is unranked. ADA curb ramps rebuilt as
+  part of resurfacing are not bundled sidewalk work: federal law requires
+  them whenever a street is resurfaced, so they are part of what every
+  resurfacing program costs (see [bare construction cost vs. loaded
+  program cost](#bare-construction-cost-vs-loaded-program-cost)), and a
+  resurfacing budget that includes them stays comparable. A city marked
+  **†** cites no pavement survey, so its forecast starts at the default
+  PCI (85) and its hold-steady budget and score rest on that assumed
+  condition.
 - **Infrastructure Index** (secondary) — a purely *descriptive* composite of
   asset scale, ownership share, walkability, unit cost and blended decay,
   min-max normalized across the compared cities. It is **not** a solvency

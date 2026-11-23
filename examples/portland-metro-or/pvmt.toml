@@ -26,9 +26,8 @@ name = "Portland, OR"
 #@cite PBOT citywide network PCI 53, Mar 2024 (down from 76 in 2008)
 #@cite     https://www.portland.gov/transportation/news/2024/3/1/news-release-pbot-launches-two-week-pothole-march-madness-campaign (accessed 2026-06-14)
 forecast.initial_pci = 53
-#@cite Fixing Our Streets gas-tax, $70.5M over FY2024-28 (4-yr program), annualized; dedicated program, not full PBOT budget
-#@cite     https://www.portland.gov/transportation/fixing-our-streets/projects-2024-2028 (accessed 2026-06-14)
-forecast.current_budget = 17625000.0
+# No current_budget (2026-11-23): the cited $17.6M/yr is the Fixing Our Streets gas-tax program, one funding source and not the full PBOT paving budget.
+#     https://www.portland.gov/transportation/fixing-our-streets/projects-2024-2028
 overpass = true
 
 [[cities]]

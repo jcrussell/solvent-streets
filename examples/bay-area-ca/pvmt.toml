@@ -234,9 +234,8 @@ name = "Martinez, CA"
 #@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
 #@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
 forecast.initial_pci = 69
-#@cite ~$4M/yr pavement rehabilitation & base-failure repairs, Measure D
-#@cite     https://www.cityofmartinez.org/government/measures (accessed 2026-06-14)
-forecast.current_budget = 4000000.0
+# No current_budget (2026-11-23): the cited ~$4M/yr is the Measure D program only, one of several paving funding sources.
+#     https://www.cityofmartinez.org/government/measures
 overpass = true
 
 [[cities]]
@@ -271,9 +270,8 @@ name = "Pinole, CA"
 #@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
 #@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
 forecast.initial_pci = 55
-#@cite $400,000/yr Measure I road repair & repaving program
-#@cite     https://www.pinole.gov/pinole-road-repair-repaving-program/ (accessed 2026-06-14)
-forecast.current_budget = 400000.0
+# No current_budget (2026-11-23): the cited $400K/yr is the Measure I program only, one of several paving funding sources.
+#     https://www.pinole.gov/pinole-road-repair-repaving-program/
 overpass = true
 
 [[cities]]
@@ -383,9 +381,8 @@ name = "San Rafael, CA"
 #@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
 #@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
 forecast.initial_pci = 61
-#@cite $0.8-1.2M/yr construction budget (gas-tax dependent), upper bound
-#@cite     https://www.cityofsanrafael.org/pavement (accessed 2026-06-14)
-forecast.current_budget = 1200000.0
+# No current_budget (2026-11-23): the cited $0.8-1.2M/yr construction budget is gas-tax funded, one funding source, and given only as a range.
+#     https://www.cityofsanrafael.org/pavement
 overpass = true
 
 [[cities]]
@@ -765,9 +762,8 @@ name = "Vallejo, CA"
 #@cite MTC 2024 (Pavement Condition of Bay Area Jurisdictions 2024, 3-yr moving avg)
 #@cite     https://mtc.ca.gov/digital-library/5099739-pavement-condition-bay-area-jurisdictions-2024 (accessed 2026-06-14)
 forecast.initial_pci = 44
-#@cite Council approved $11.5M Measure P funds largely for street paving
-#@cite     https://www.vallejosun.com/vallejo-city-council-looks-for-cuts-to-tackle-projected-20m-shortfall/ (accessed 2026-06-14)
-forecast.current_budget = 11500000.0
+# No current_budget (2026-11-23): the cited $11.5M is a one-off council approval of Measure P funds, one funding source and only largely for paving.
+#     https://www.vallejosun.com/vallejo-city-council-looks-for-cuts-to-tackle-projected-20m-shortfall/
 overpass = true
 
 # --- Sonoma County ---
