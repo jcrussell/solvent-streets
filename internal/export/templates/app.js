@@ -67,7 +67,6 @@
                     snapshot: p.get('snapshot'),
                     metric:   p.get('metric'),
                     budget:   p.get('budget'),
-                    maintain: p.get('maintain'),
                     strategy: p.get('strategy'),
                     pci:      p.get('pci'),
                     cost:     p.get('cost'),
@@ -112,9 +111,6 @@
                     snapshot: snapEl ? snapEl.value : null,
                     metric:   (onMap && hexMetric !== DEFAULT_METRIC) ? hexMetric : null,
                     budget:   (onFinancials && budgetUserSet) ? String(Math.round(budgetDollars)) : null,
-                    // Likewise what the forecast maintains, once it differs
-                    // from the default (streets only).
-                    maintain: (onFinancials && !sameMaintain(maintained, DEFAULT_MAINTAIN)) ? maintained.join(',') : null,
                     // And the model settings (strategy, Initial PCI, cost
                     // multiplier, tier costs) that differ from the city's seed.
                     ...modelURLState(onFinancials),
@@ -124,7 +120,7 @@
             // url serializes a state object to this page's path + query string.
             url(s) {
                 const p = new URLSearchParams();
-                for (const k of ['city', 'tab', 'scope', 'snapshot', 'metric', 'budget', 'maintain', 'strategy', 'pci', 'cost', 'tiers', 'top']) {
+                for (const k of ['city', 'tab', 'scope', 'snapshot', 'metric', 'budget', 'strategy', 'pci', 'cost', 'tiers', 'top']) {
                     if (s[k]) p.set(k, s[k]);
                 }
                 PvmtSelectors.urlTags(s.tags, TAG_DIMS).forEach(t => p.append('tag', t));
@@ -207,14 +203,11 @@
         let budgetUserSet = false;
         let budgetCity = null;
 
-        // What the interactive forecast maintains: a
-        // subset of the resource types, in MAINTAIN_TYPES order. The default is
-        // streets only — the network the solvency headline, the cited "Today"
-        // budget (a street budget) and Play all describe. ?maintain= carries any
-        // other choice. Independent of the map's layer toggles.
-        const MAINTAIN_TYPES = ['roads', 'parking', 'sidewalks'];
-        const DEFAULT_MAINTAIN = ['roads'];
-        let maintained = DEFAULT_MAINTAIN.slice();
+        // The Financials forecast covers streets only: the network the
+        // solvency headline, the cited "Today" budget (a street budget) and
+        // Play all describe. Parking lots and sidewalks have other owners and
+        // no cited budget, so they stay out of it.
+        const FORECAST_TYPES = ['roads'];
 
         // BUDGET_MAX_DOLLARS bounds a ?budget= before the city's anchors are
         // known; BUDGET_MAX_ANCHOR_MULT bounds it after, as a multiple of the
@@ -234,20 +227,6 @@
             budgetCity = DATA_PREFIX;
             budgetUserSet = Number.isFinite(v) && v >= 0;
             if (budgetUserSet) budgetDollars = Math.min(v, BUDGET_MAX_DOLLARS);
-        }
-
-        // parseMaintain reads a ?maintain= value into a MAINTAIN_TYPES subset,
-        // or null when it names none of them.
-        /** @param {string | null | undefined} param @returns {string[] | null} */
-        function parseMaintain(param) {
-            const want = String(param || '').split(',');
-            const got = MAINTAIN_TYPES.filter(t => want.includes(t));
-            return got.length ? got : null;
-        }
-
-        /** @param {string[]} a @param {string[]} b */
-        function sameMaintain(a, b) {
-            return a.length === b.length && a.every((t, i) => t === b[i]);
         }
 
         // The Financials model settings the URL carries:
@@ -336,7 +315,7 @@
         // (computeLiveSolvency); null until the forecast simulator has run for
         // this city. Declared up here because renderSolvencyHeadline reads it
         // from the first financials load.
-        /** @type {{break_even_budget: number, current_budget: number, tipping_point_year: number | null, start_pci: number | null, end_pci: number | null} | null} */
+        /** @type {{break_even_budget: number, current_budget: number, tipping_point_year: number | null} | null} */
         let liveSolvency = null;
 
         // Compare/Aggregate tab state. These MUST be initialized above the
@@ -500,16 +479,15 @@
             // key and let loadCityData fall back to coverage if it is absent.
             if (init.metric) hexMetric = init.metric;
             compareTopN = parseTop(init.top);
-            // Settle the budget, the maintained network and the model settings
+            // Settle the budget and the model settings
             // before the replaceState below, or it would serialize the defaults
-            // and drop a shared ?budget= / ?maintain= / ?pci= ... from the
+            // and drop a shared ?budget= / ?pci= ... from the
             // address bar. loadFinancials applies the model once the seed lands.
             // Router.current writes them only on Financials, so they are read
             // only there too: elsewhere they would apply settings the address
             // bar no longer shows.
             const fin = queryEl('.tab-btn.active')?.dataset.tab === 'financials-tab' ? init : {};
             resetBudget(fin.budget);
-            maintained = parseMaintain(fin.maintain) || DEFAULT_MAINTAIN.slice();
             pendingModel = parseModel(fin);
             Router.replace();
         })();
@@ -601,7 +579,7 @@
             const targetMetric = s.metric || DEFAULT_METRIC;
             if (cityChanged || snapshotChanged) hexMetric = targetMetric;
             else if (targetMetric !== hexMetric) selectHexMetric(targetMetric, { push: false });
-            // Only a Financials entry carries the budget, maintained network
+            // Only a Financials entry carries the budget
             // and model settings (Router.current), so another tab's entry for
             // the same city says nothing about them: keep the ones in force,
             // or Financials -> Map -> About -> Back -> Financials would reset
@@ -609,15 +587,12 @@
             // them in selectCity already.
             const tabNow = queryEl('.tab-btn.active');
             if (!cityChanged && !(tabNow && tabNow.dataset.tab === 'financials-tab')) return;
-            // Restore the Financials budget and maintained network. selectCity
+            // Restore the Financials budget. selectCity
             // has already reset the budget for a new city; this puts the
             // entry's own back. A city or snapshot change reloads Financials,
             // which picks both up; otherwise repaint in place.
             const budgetBefore = budgetUserSet ? budgetDollars : null;
-            const maintainBefore = maintained;
             resetBudget(s.budget);
-            maintained = parseMaintain(s.maintain) || DEFAULT_MAINTAIN.slice();
-            renderMaintainToggles();
             const budgetAfter = budgetUserSet ? budgetDollars : null;
             // The model settings likewise. A reload (city, snapshot, or a load
             // still in flight) applies them when its seed lands; otherwise they
@@ -632,7 +607,7 @@
                 pendingModel = null;
             }
             if (!cityChanged && !snapshotChanged &&
-                (budgetAfter !== budgetBefore || !sameMaintain(maintained, maintainBefore) || modelChanged)) {
+                (budgetAfter !== budgetBefore || modelChanged)) {
                 renderFinancialsFromCache();
             }
         });
@@ -720,6 +695,16 @@
         }
         queryAll('.tab-btn').forEach(btn => {
             btn.addEventListener('click', () => selectTab(btn.dataset.tab));
+        });
+        // A data-about-link link names a heading in the About tab: it opens
+        // the tab and scrolls to that heading.
+        document.addEventListener('click', (e) => {
+            const a = e.target instanceof Element ? e.target.closest('a[data-about-link]') : null;
+            if (!a) return;
+            e.preventDefault();
+            selectTab('about-tab');
+            const target = document.getElementById((a.getAttribute('href') || '').slice(1));
+            if (target) target.scrollIntoView();
         });
         // WAI-ARIA tablist keyboard pattern: arrows move focus & selection,
         // Home/End jump to first/last.
@@ -2905,7 +2890,7 @@
         // tsc --checkJs (TS2630). Callers run only after this point, so there is
         // no temporal-dead-zone hazard (same reason no-use-before-define is off).
         // The Financials charts are drawn without the entry animation. The
-        // interactive "Your budget" series is added right after each chart is
+        // interactive lines (today's budget, the what-if) are added right after each chart is
         // built and pushed with update('none'), which would leave the other
         // series frozen partway through their first animation (Cumulative
         // Spending lines starting below $0 and ending ~20% low, with the data
@@ -2928,22 +2913,28 @@
             const chartsDiv = document.getElementById('charts');
             chartsDiv.innerHTML = '';
 
-            // The baseline and the funding levels, one line each.
-            const fundingScenarios = describedScenarios(scenarios);
+            // The two bounds, one line each: the do-nothing baseline and full
+            // funding. The interactive lines (today's budget, the what-if) fall
+        // between them. The partial funding
+            // levels in the set (25%, 50%) only crowd the charts, so they are
+            // left off. Each line keeps its colour from its place in the set.
+            const described = describedScenarios(scenarios);
+            const fundingScenarios = described.filter(s => s === baseline || s.scenario.full_funding);
+            const colorOf = s => COLORS[described.indexOf(s) % COLORS.length];
 
             // 1. PCI over time
             if (fundingScenarios.length > 0) {
-                const card = makeChartCard('PCI Over Time by Funding Level');
+                const card = makeChartCard('PCI Over Time');
                 chartsDiv.appendChild(card);
                 const ctx = card.querySelector('canvas').getContext('2d');
                 currentCharts.push(new Chart(ctx, {
                     type: 'line',
                     data: {
                         labels: fundingScenarios[0].years.map(y => 'Year ' + y.year),
-                        datasets: fundingScenarios.map((s, i) => ({
+                        datasets: fundingScenarios.map(s => ({
                             label: s.scenario.label,
                             data: s.years.map(y => y.pci),
-                            borderColor: COLORS[i % COLORS.length],
+                            borderColor: colorOf(s),
                             backgroundColor: 'transparent',
                             tension: 0.3,
                             pointRadius: 0
@@ -2962,11 +2953,11 @@
                     type: 'line',
                     data: {
                         labels: fundingScenarios[0].years.map(y => 'Year ' + y.year),
-                        datasets: fundingScenarios.map((s, i) => ({
+                        datasets: fundingScenarios.map(s => ({
                             label: s.scenario.label,
                             data: s.years.map(y => y.deferred_backlog),
-                            borderColor: COLORS[i % COLORS.length],
-                            backgroundColor: COLORS[i % COLORS.length] + '20',
+                            borderColor: colorOf(s),
+                            backgroundColor: colorOf(s) + '20',
                             fill: s === baseline,
                             tension: 0.3,
                             pointRadius: 0
@@ -2986,12 +2977,12 @@
                     type: 'line',
                     data: {
                         labels: fundedScenarios[0].years.map(y => 'Year ' + y.year),
-                        datasets: fundedScenarios.map((s, i) => {
+                        datasets: fundedScenarios.map(s => {
                             let cum = 0;
                             return {
                                 label: s.scenario.label,
                                 data: s.years.map(y => { cum += y.annual_spend; return cum; }),
-                                borderColor: COLORS[(i + 1) % COLORS.length],
+                                borderColor: colorOf(s),
                                 backgroundColor: 'transparent',
                                 tension: 0.3,
                                 pointRadius: 0
@@ -3163,8 +3154,10 @@
         // satisfy that today.
         function applyHorizonLabels() {
             const yrs = financialsHorizon();
-            document.getElementById('hl-spend-label').textContent = yrs + '-Year Spend';
-            document.getElementById('hl-deficit-label').textContent = yrs + '-Year Deficit';
+            for (const pre of ['hl', 'wi']) {
+                document.getElementById(pre + '-spend-label').textContent = yrs + '-Year Spend';
+                document.getElementById(pre + '-deficit-label').textContent = yrs + '-Year Deficit';
+            }
             document.getElementById('cohort-spend-th').textContent = yrs + 'yr Spend';
             document.getElementById('cohort-deficit-th').textContent = yrs + 'yr Deficit';
             // "End Area", not "Area": CohortSummary.Area reports the FINAL-year
@@ -3191,7 +3184,6 @@
         // this is a no-op.
         function renderFinancialsFromCache() {
             if (!scenarioData) return;
-            renderMaintainToggles();
             const scenarios = financialScenarios(currentScope);
             if (!scenarios || scenarios.length === 0) return;
             applyHorizonLabels();
@@ -3206,11 +3198,11 @@
                 deferCustomScenario = false;
             }
 
-            // Headline tiles come from the baseline scenario, so they work without WASM.
-            const baseline = findBaseline(scenarios);
-            if (baseline) {
-                updateSummaryCards(baseline);
-            }
+            // The heads-up matters only where the city has parking or sidewalks.
+            document.getElementById('financials-roads-note').hidden = !(forecastSeedReady && seedHasOtherTypes());
+            // The tiles wait for the simulator (runCustomScenario): the status
+            // quo is a run at the city's budget, which the export does not
+            // ship, and the baseline's figures would be doing nothing's.
             renderSolvencyHeadline();
 
             // Cohort table: WASM drives it when the simulator is up, and the
@@ -3222,7 +3214,7 @@
             // forecast_seed.json failed to load, FORECAST_SEED, the PCI slider and
             // the tier inputs still hold the PREVIOUS city's parameters, and
             // runCustomScenario would simulate those — then overwrite the correct
-            // baseline tiles above (it calls updateSummaryCards) and draw a custom
+            // baseline tiles above (it calls fillTiles) and draw a custom
             // line from the wrong city. Fall back to the static baseline instead,
             // which is this city's (forecast.json is fetched separately).
             if (wasmReady && forecastSeedReady) {
@@ -3260,7 +3252,7 @@
             // reason, and so renderFinancialsFromCache — which any units toggle can
             // fire at any moment — has no stale city to render. Without this, a
             // toggle landing inside this load's fetch window would repaint the
-            // previous city's charts and (via updateSummaryCards) un-hide its dollar
+            // previous city's charts and (via fillTiles) un-hide its dollar
             // tiles under the new city's name; if this load then took either early
             // return below, those tiles would stay on screen for good.
             scenarioData = null;
@@ -3273,6 +3265,8 @@
             // above: an early return below (no scenarios / failed fetch) must not
             // leave stale dollar tiles or a cohort table under the new city name.
             document.getElementById('headlines').style.display = 'none';
+            document.getElementById('wi-tiles').hidden = true;
+            document.getElementById('whatif-section').hidden = true;
             document.getElementById('cohort-section').style.display = 'none';
             document.querySelector('#cohort-table tbody').innerHTML = '';
             document.getElementById('forecast-controls').classList.remove('visible');
@@ -3782,23 +3776,14 @@
             return (pct < 100 ? Math.floor(pct) : Math.round(pct)) + '%';
         }
 
-        // conditionPathText describes where the streets' condition goes at the
-        // city's budget: from today's PCI to the forecast's last year.
-        /** @param {number} start @param {number} end @param {number} lastYear */
-        function conditionPathText(start, end, lastYear) {
-            var a = Math.round(start), b = Math.round(end);
-            if (b < a) return 'its streets slip from PCI ' + a + ' today to about <span class="num">' + b + '</span> by ' + lastYear;
-            if (b > a) return 'its streets improve from PCI ' + a + ' today to about <span class="num">' + b + '</span> by ' + lastYear;
-            return 'its streets hold at about PCI ' + a + ' through ' + lastYear;
-        }
-
         // Render the roads-only solvency headline above the Financials charts
         // from the per-city forecast.json (the selected city's forecastData).
         // With a cited budget it leads with the share of the hold-steady
-        // budget the city funds, then where condition goes at that budget (from
-        // the live run), and the tipping point (the year the repair backlog
-        // passes a full cycle of work) only when it falls within the
-        // forecast. Without one it states the hold-steady budget.
+        // budget the city funds, then the two budgets, and the tipping point
+        // (the year the repairs put off add up to a full treatment cycle of
+        // upkeep) only when it falls within the forecast. Where condition goes
+        // is the first tile's (fillTiles). Without a budget it states
+        // the hold-steady budget.
         // Roads/streets only, and labeled so.
         function renderSolvencyHeadline() {
             var el = document.getElementById('solvency-headline');
@@ -3821,18 +3806,16 @@
                 lead = funded
                     ? name + ' fully funds its streets’ upkeep.'
                     : name + ' funds <span class="num">' + fundedShareText(budget, breakEven) + '</span> of its streets’ upkeep.';
-                detail = fmtMoney(budget) + ' a year against the ' + fmtMoney(breakEven) + ' needed to hold them steady (streets/roads only).';
-                var lastYear = forecastYearOne() + financialsHorizon() - 1;
-                var path = liveSolvency && liveSolvency.end_pci != null
-                    ? conditionPathText(liveSolvency.start_pci, liveSolvency.end_pci, lastYear) : '';
-                var cross = roads.tipping_point_year
-                    ? (path ? 'they' : 'its streets') + ' reach their tipping point in <span class="num">' + (forecastYearOne() + roads.tipping_point_year - 1) + '</span>, when the repair backlog grows past a full cycle of work'
-                    : '';
-                if (path || cross) {
-                    detail += ' At that rate ' + [path, cross].filter(Boolean).join(', and ') + '.';
+                detail = 'It spends ' + fmtMoney(budget) + (funded ? ' a year, at least the ' : ' of the ')
+                    + fmtMoney(breakEven) + ' a year it takes to hold its streets steady.';
+                if (roads.tipping_point_year) {
+                    var cycle = Math.round((FORECAST_SEED && FORECAST_SEED.treatment_cycle_years) || FORECAST_DEFAULTS.treatment_cycle_years);
+                    detail += ' By <span class="num">' + (forecastYearOne() + roads.tipping_point_year - 1)
+                        + '</span> the repairs it has put off add up to ' + cycle + ' years’ worth of upkeep: its '
+                        + '<a href="#what-solvent-means-here" data-about-link>tipping point</a>.';
                 }
             } else {
-                lead = 'Holding ' + name + '’s streets steady would take <span class="num">' + fmtMoney(breakEven) + '/yr</span> (streets/roads only).';
+                lead = 'Holding ' + name + '’s streets steady would take <span class="num">' + fmtMoney(breakEven) + '/yr</span>.';
                 detail = 'No cited street budget for ' + name + ' is on file, so the share it funds isn’t shown.';
             }
             var fe = forecastData ? forecastData.find(function(f) { return f.resource_type === 'roads'; }) : null;
@@ -3860,8 +3843,8 @@
             const seeded = FORECAST_SEED && Number(FORECAST_SEED.cost_multiplier);
             const mult = liveSolvency ? currentMultiplier() : seeded;
             if (!Number.isFinite(mult) || mult <= 1) {
-                return 'Figures are calibrated against real municipal hold-steady spending, so they are '
-                    + 'comparable to a published pavement budget. The About tab links the full methodology.';
+                return 'Calibrated against real city pavement budgets. '
+                    + '<a href="#how-the-forecast-works" data-about-link>How the forecast works</a>.';
             }
             const where = (Number.isFinite(seeded) && Math.abs(mult - seeded) < 1e-9)
                 ? 'set for this city in <code>forecast.cost_multiplier</code>'
@@ -3911,7 +3894,6 @@
             updateHexGrid();
 
             if (scenarioData) {
-                renderMaintainToggles();
                 const scenarios = financialScenarios(scope);
                 if (scenarios) {
                     deferCustomScenario = true;
@@ -4004,10 +3986,9 @@
         // result), so the duplicate was four sims per render, not two.
         //
         // The wrapper cannot simply own the re-run instead: it fires INSIDE
-        // renderFinancials, i.e. before renderFinancialsFromCache's
-        // updateSummaryCards(baseline) write, so dropping the caller's call
-        // would leave baseline numbers in the headline tiles under a
-        // custom-scenario chart line.
+        // renderFinancials, before renderFinancialsFromCache has finished
+        // the render, so dropping the caller's call would draw the
+        // interactive lines against a half-rendered tab.
         let deferCustomScenario = false;
 
         // The shipped track (min/max/step) of each seeded range input, captured
@@ -4293,11 +4274,11 @@
         function onWasmReady() {
             wasmReady = true;
             document.getElementById('forecast-controls').classList.add('visible');
-            // Run initial simulation to populate cohort table. When the reader
-            // maintains part of the network, the reference lines drawn from
-            // scenarios.json until now cover all of it: redraw them too.
-            renderMaintainToggles();
-            if (scenarioData && forecastSeedReady && effectiveMaintained().length !== presentTypes().length) {
+            // Run initial simulation to populate cohort table. When the city
+            // has parking or sidewalks, the reference lines drawn from
+            // scenarios.json until now cover them too: redraw them over its
+            // streets.
+            if (scenarioData && forecastSeedReady && seedHasOtherTypes()) {
                 renderFinancialsFromCache();
             } else {
                 runCustomScenario();
@@ -4307,12 +4288,6 @@
             // linked tier costs, and a rebuild would drop those.
             if (!forecastSeedReady) rebuildTierInputs();
         }
-
-        // Display names for the maintained-network control and its summary.
-        /** @type {Record<string, string>} */
-        const MAINTAIN_LABELS = { roads: 'Streets', parking: 'Parking lots', sidewalks: 'Sidewalks' };
-        /** @type {Record<string, string>} */
-        const MAINTAIN_SHORT = { roads: 'streets', parking: 'lots', sidewalks: 'sidewalks' };
 
         // cohortType is a seed cohort's resource type, which the export emits on
         // every CohortSeed so no page has to guess it from
@@ -4369,38 +4344,11 @@
                 (FORECAST_SEED.city_cohorts || []).some(c => cohortType(c) === 'roads');
         }
 
-        // presentTypes is the resource types this city's seed has cohorts for.
-        function presentTypes() {
-            const have = new Set(scopeSeedCohorts().map(cohortType));
-            return MAINTAIN_TYPES.filter(t => have.has(t));
-        }
-
-        // effectiveMaintained is the maintained set this city can honour: the
-        // choice narrowed to the types it has, else the default, else all of
-        // them. A ?maintain= naming only absent types can't empty the forecast.
-        function effectiveMaintained() {
-            const have = presentTypes();
-            for (const want of [maintained, DEFAULT_MAINTAIN, have]) {
-                const got = want.filter(t => have.includes(t));
-                if (got.length) return got;
-            }
-            return DEFAULT_MAINTAIN.slice();
-        }
-
-        // renderMaintainToggles draws one checkbox per resource type the city
-        // has, in the map's layer-toggle style. The last checked box is
-        // disabled: the forecast always maintains something.
-        function renderMaintainToggles() {
-            const wrap = document.getElementById('maintain-toggles');
-            if (!wrap) return;
-            const have = presentTypes();
-            const on = effectiveMaintained();
-            document.getElementById('maintain-row').hidden = have.length < 2;
-            wrap.innerHTML = have.map(t =>
-                '<label><input type="checkbox" data-type="' + t + '"' + (on.includes(t) ? ' checked' : '') +
-                (on.length === 1 && on.includes(t) ? ' disabled' : '') + '>' +
-                '<span class="legend-dot" style="background:' + layerColors[t] + '"></span>' + MAINTAIN_LABELS[t] + '</label>'
-            ).join('');
+        // seedHasOtherTypes reports whether this city's seed covers more than
+        // the forecast's streets, so scenarios.json's reference set (every
+        // resource) must be re-simulated over the streets alone.
+        function seedHasOtherTypes() {
+            return scopeSeedCohorts().some(c => !FORECAST_TYPES.includes(cohortType(c)));
         }
 
         // referenceCache memoizes the re-simulated reference lines (see
@@ -4409,18 +4357,17 @@
 
         // financialScenarios is the reference set (baseline and funding levels)
         // the Financials charts draw for `scope`. scenarios.json covers every
-        // resource, so when the reader maintains only part of the network the
-        // set is re-simulated over those cohorts, at the seeded settings the
+        // resource, so when the city has parking or sidewalks the set is
+        // re-simulated over its streets, at the seeded settings the
         // export used. The reference lines stay fixed while the sliders move;
-        // only "Your budget" follows them. Without the simulator or
+        // only the interactive lines follow them. Without the simulator or
         // this city's seed, the exported set stands in.
         /** @param {string} scope */
         function financialScenarios(scope) {
             const exported = scenariosForScope(scenarioData, scope);
             if (!exported || !wasmReady || !forecastSeedReady) return exported;
-            const types = effectiveMaintained();
-            if (types.length === presentTypes().length) return exported;
-            const cohorts = scopeSeedCohorts().filter(c => types.includes(cohortType(c)));
+            if (!seedHasOtherTypes()) return exported;
+            const cohorts = scopeSeedCohorts().filter(c => FORECAST_TYPES.includes(cohortType(c)));
             if (cohorts.length === 0) return exported;
             const input = {
                 area: cohorts.reduce((sum, c) => sum + (c.area || 0), 0),
@@ -4553,11 +4500,10 @@
             const area = (scope === 'all' || !FORECAST_SEED.city_maintained_area)
                 ? FORECAST_SEED.maintained_area
                 : FORECAST_SEED.city_maintained_area;
-            // Simulate only the maintained part of the network (the cohort
-            // filter computeLiveSolvency applies for the headline). The bridge
-            // reads `area` only when there are no cohorts (a fresh DB).
-            const types = effectiveMaintained();
-            const seedCohorts = scopeSeedCohorts().filter(c => types.includes(cohortType(c)));
+            // Simulate the streets only (the cohort filter computeLiveSolvency
+            // applies for the headline). The bridge reads `area` only when
+            // there are no cohorts (a fresh DB).
+            const seedCohorts = scopeSeedCohorts().filter(c => FORECAST_TYPES.includes(cohortType(c)));
 
             return {
                 area: area,
@@ -4621,15 +4567,10 @@
                 strategy: 'worst_first',
             }));
             if (!r || !(r.break_even_budget > 0)) return null;
-            // The run at the city's budget, for the headline's condition path:
-            // today's PCI to the last forecast year's.
-            const ys = current > 0 && Array.isArray(r.years) ? r.years : [];
             return {
                 break_even_budget: r.break_even_budget,
                 current_budget: current,
                 tipping_point_year: current > 0 && r.tipping_point_year ? r.tipping_point_year : null,
-                start_pci: ys.length ? input.initial_pci : null,
-                end_pci: ys.length ? ys[ys.length - 1].pci : null,
             };
         }
 
@@ -4710,10 +4651,7 @@
             // streets), so this hold-steady budget can't be read as the one
             // the headline quotes: other resource types, or every
             // jurisdiction's streets under the all-jurisdiction scope.
-            const types = effectiveMaintained();
-            const wider = types.includes('roads') && sliderRoadsAreWider();
-            document.getElementById('budget-share').textContent = (sameMaintain(types, DEFAULT_MAINTAIN) && !wider)
-                ? '' : 'for ' + types.map(t => MAINTAIN_SHORT[t]).join(' + ') + (wider ? ', all jurisdictions' : '');
+            document.getElementById('budget-share').textContent = sliderRoadsAreWider() ? 'for streets, all jurisdictions' : '';
 
             budgetSnaps = [today, hold].filter(v => v > 0);
 
@@ -4768,12 +4706,30 @@
             liveSolvency = computeLiveSolvency(input);
             renderSolvencyHeadline();
 
+            // The status quo runs at the city's cited budget, worst-first, at
+            // the same Initial PCI, multiplier and tiers as the what-if: those
+            // are assumptions about the city, which the headline follows too.
+            // Only the budget and the strategy make a what-if. Under the
+            // all-jurisdictions scope the cited budget pays for a smaller
+            // network than the slider's, so there is no status quo to draw.
+            // It runs first, so the controls' own run is the last.
+            const today = sliderRoadsAreWider() ? 0 : todayBudget();
+            const todayResult = today > 0 ? todayRun(input, today) : null;
+            const whatIf = !!todayResult && isWhatIf(today);
+
             const result = safeSimulate(input);
             if (!result) return;
 
             customActive = true;
-            updateCustomScenario(result);
-            updateSummaryCards(result, budgetDollars);
+            updateCustomScenario(result, todayResult, whatIf);
+            // The status quo's tiles, under the headline, and the controls'
+            // own beneath them. Without a status quo only the controls' show.
+            if (todayResult) fillTiles('hl', todayResult, today, input.initial_pci);
+            document.getElementById('headlines').style.display = todayResult ? '' : 'none';
+            fillTiles('wi', result, budgetDollars, input.initial_pci);
+            document.getElementById('wi-tiles').hidden = false;
+            document.getElementById('whatif-section').hidden = false;
+            renderWhatIfHead(whatIf, !!todayResult);
 
             // Update cohort breakdown from WASM result
             if (result.final_cohorts && result.final_cohorts.length > 1) {
@@ -4783,83 +4739,148 @@
             }
         }
 
-        // updateSummaryCards fills the headline tiles. budget is the annual
-        // budget the result ran at (0 for the static baseline). The spend tile
-        // counts only spend that buys condition, which is below budget x years
-        // once a class has more money than it can use,
-        // so the sub-line names the budget too.
-        function updateSummaryCards(result, budget) {
+        // todayCache memoizes the status-quo run (todayRun) on its inputs, like
+        // the solvency probes (memoSolvency), so a re-render or a budget drag
+        // costs one scenario simulation, the controls' own.
+        const todayCache = { key: '', value: /** @type {any} */ (null) };
+
+        // todayRun is the forecast at the city's cited budget, worst-first,
+        // with the what-if's other settings.
+        /** @param {any} input @param {number} today */
+        function todayRun(input, today) {
+            const run = Object.assign({}, input, { annual_budget: today, strategy: DEFAULT_STRATEGY });
+            const key = JSON.stringify(run);
+            if (key !== todayCache.key) {
+                todayCache.key = key;
+                todayCache.value = safeSimulate(run);
+            }
+            return todayCache.value;
+        }
+
+        // isWhatIf reports whether the controls describe something other than
+        // the status quo: a budget off the cited one, or another strategy.
+        /** @param {number} today */
+        function isWhatIf(today) {
+            return Math.abs(budgetDollars - today) >= 1 || currentStrategy !== DEFAULT_STRATEGY;
+        }
+
+        // renderWhatIfHead says, above the controls, what the what-if changes
+        // from the status quo, and offers the way back once there is one.
+        /** @param {boolean} whatIf @param {boolean} hasToday */
+        function renderWhatIfHead(whatIf, hasToday) {
+            const what = document.getElementById('whatif-what');
+            const parts = [];
+            if (whatIf) {
+                if (Math.abs(budgetDollars - todayBudget()) >= 1) parts.push(fmtMoney(budgetDollars) + ' a year');
+                if (currentStrategy !== DEFAULT_STRATEGY) {
+                    const btn = queryEl('#strategy-buttons [data-strategy="' + currentStrategy + '"]');
+                    parts.push((btn ? btn.textContent || '' : currentStrategy).toLowerCase());
+                }
+            }
+            what.textContent = whatIf
+                ? 'Showing ' + parts.join(', ') + ' against today’s budget above.'
+                : hasToday
+                    ? 'Move the budget or the strategy to compare with today’s budget.'
+                    : 'Move the budget to see where the streets go.';
+            buttonById('whatif-reset').hidden = !whatIf;
+        }
+
+        // resetWhatIf returns the controls to the status quo: the cited budget
+        // and the default strategy. Initial PCI, the multiplier and the tiers
+        // stay, since the headline follows them too.
+        function resetWhatIf() {
+            resetBudget(null);
+            setStrategy(DEFAULT_STRATEGY);
+            runCustomScenario();
+            Router.replace();
+        }
+
+        // fillTiles fills one set of headline tiles, by id prefix: 'hl' for
+        // the status quo under the headline, 'wi' for the controls' run. budget
+        // is the annual budget the result ran at (0 for the static baseline).
+        // The spend tile counts only spend that buys condition, which is below
+        // budget x years once a class has more money than it can use, so the
+        // sub-line names the budget too.
+        /** @param {string} pre @param {any} result @param {number} budget @param {number} startPCI the Initial PCI the run started at */
+        function fillTiles(pre, result, budget, startPCI) {
             // Read at the horizon the tiles are labelled with (applyHorizonLabels).
             const horizon = financialsHorizon();
             const years = (result.years || []).slice(0, horizon);
             const at = yearAtHorizon(years, horizon);
-            const lastPCI = at ? at.pci : 0;
             const totalSpend = years.reduce((s, y) => s + y.annual_spend, 0);
-            const totalDeficit = at ? at.deferred_backlog : 0;
-
-            document.getElementById('hl-end-pci').textContent = String(shownPCI(lastPCI));
-            document.getElementById('hl-total-spend').textContent = fmtMoney(totalSpend);
+            /** @param {string} id @param {string} text */
+            const set = (id, text) => { document.getElementById(pre + id).textContent = text; };
+            // The condition tile runs from the PCI the run started at to the
+            // horizon's.
+            set('-start-pci', String(shownPCI(startPCI)));
+            set('-end-pci', String(shownPCI(at ? at.pci : 0)));
+            set('-pci-sub', 'Out of 100, today to ' + (forecastYearOne() + horizon - 1));
+            set('-total-spend', fmtMoney(totalSpend));
             const budgeted = (budget || 0) * years.length;
-            document.getElementById('hl-spend-sub').textContent =
-                budgeted > 0 && totalSpend < budgeted * 0.995
-                    ? 'Used of ' + fmtMoney(budgeted) + ' budgeted'
-                    : 'Spend that buys condition';
-            document.getElementById('hl-total-deficit').textContent = fmtMoney(totalDeficit);
-            document.getElementById('headlines').style.display = '';
+            set('-spend-sub', budgeted > 0 && totalSpend < budgeted * 0.995
+                ? 'Spent on repairs, of ' + fmtMoney(budgeted) + ' budgeted'
+                : 'Spent on repairs');
+            set('-total-deficit', fmtMoney(at ? at.deferred_backlog : 0));
+            if (pre === 'hl') document.getElementById('headlines').style.display = '';
         }
 
-        function updateCustomScenario(result) {
-            const customColor = '#10b981';
-            const years = result.years || [];
+        // The interactive lines: the status quo, solid, and the what-if,
+        // dashed. A city with no cited budget (or the all-jurisdictions
+        // scope) has no status quo, and its one interactive line is the
+        // what-if.
+        const TODAY_LINE = 'Today’s budget';
+        const WHATIF_LINE = 'What-if';
+        const TODAY_COLOR = '#10b981';
+        const WHATIF_COLOR = '#8b5cf6';
 
-            // Update PCI chart
-            if (chartRefs.pci) {
-                updateChartDataset(chartRefs.pci, 'Your budget', years.map(y => y.pci), customColor);
-            }
-            // Update backlog chart
-            if (chartRefs.backlog) {
-                updateChartDataset(chartRefs.backlog, 'Your budget', years.map(y => y.deferred_backlog), customColor);
-            }
-            // Update spending chart
-            if (chartRefs.spending) {
-                let cum = 0;
-                const cumData = years.map(y => { cum += y.annual_spend; return cum; });
-                updateChartDataset(chartRefs.spending, 'Your budget', cumData, customColor);
-            }
-            // Update tier chart
+        // updateCustomScenario draws the interactive lines: today's budget
+        // whenever there is one, and the what-if while the controls describe
+        // one (always, without a status quo). The tier chart shows the run the
+        // tiles show.
+        /** @param {any} result @param {any} todayResult @param {boolean} whatIf */
+        function updateCustomScenario(result, todayResult, whatIf) {
+            const showWhatIf = whatIf || !todayResult;
+            /** @param {(ys: any[]) => number[]} pick */
+            const lines = (pick) => [
+                { label: TODAY_LINE, run: todayResult, color: TODAY_COLOR, dash: [], show: !!todayResult },
+                { label: WHATIF_LINE, run: result, color: WHATIF_COLOR, dash: [6, 3], show: showWhatIf },
+            ].map(l => ({ label: l.label, color: l.color, dash: l.dash, data: l.show ? pick(l.run.years || []) : null }));
+            /** @param {any[]} ys */
+            const cumulative = (ys) => { let cum = 0; return ys.map(y => { cum += y.annual_spend; return cum; }); };
+            setInteractiveLines(chartRefs.pci, lines(ys => ys.map(y => y.pci)));
+            setInteractiveLines(chartRefs.backlog, lines(ys => ys.map(y => y.deferred_backlog)));
+            setInteractiveLines(chartRefs.spending, lines(cumulative));
+            // The tier chart shows one set of bars, the run the tiles show:
+            // the do-nothing baseline's stands in only until the simulator runs.
             if (chartRefs.tier) {
-                const idx = chartRefs.tier.data.datasets.findIndex(ds => ds.label === 'Need at your budget');
-                const ds = {
-                    label: 'Need at your budget',
+                const years = (showWhatIf ? result : todayResult).years || [];
+                chartRefs.tier.data.datasets = [{
+                    label: 'Annual Need',
                     data: years.map(y => y.annual_need),
-                    backgroundColor: years.map(y => tierColor(y.cost_tier) + '80'),
-                    borderColor: customColor,
-                    borderWidth: 1
-                };
-                if (idx >= 0) {
-                    chartRefs.tier.data.datasets[idx] = ds;
-                } else {
-                    chartRefs.tier.data.datasets.push(ds);
-                }
+                    backgroundColor: years.map(y => tierColor(y.cost_tier))
+                }];
                 chartRefs.tier.update('none');
             }
         }
 
-        function updateChartDataset(chart, label, data, color) {
-            const idx = chart.data.datasets.findIndex(ds => ds.label === label);
-            const ds = {
-                label: label,
-                data: data,
-                borderColor: color,
-                backgroundColor: 'transparent',
-                borderDash: [6, 3],
-                tension: 0.3,
-                pointRadius: 0
-            };
-            if (idx >= 0) {
-                chart.data.datasets[idx] = ds;
-            } else {
-                chart.data.datasets.push(ds);
+        // setInteractiveLines replaces a chart's interactive lines, after its
+        // reference lines: each with data is drawn, each without removed.
+        /** @param {any} chart @param {Array<{label: string, color: string, dash: number[], data: number[] | null}>} lines */
+        function setInteractiveLines(chart, lines) {
+            if (!chart) return;
+            const labels = lines.map(l => l.label);
+            chart.data.datasets = chart.data.datasets.filter(ds => !labels.includes(ds.label));
+            for (const l of lines) {
+                if (!l.data) continue;
+                chart.data.datasets.push({
+                    label: l.label,
+                    data: l.data,
+                    borderColor: l.color,
+                    backgroundColor: 'transparent',
+                    borderDash: l.dash,
+                    tension: 0.3,
+                    pointRadius: 0
+                });
             }
             chart.update('none');
         }
@@ -4930,13 +4951,7 @@
                 Router.replace();
             });
         });
-        document.getElementById('maintain-toggles').addEventListener('change', () => {
-            const checked = queryAll('#maintain-toggles input:checked').map(cb => cb.dataset.type || '');
-            maintained = MAINTAIN_TYPES.filter(t => checked.includes(t));
-            if (maintained.length === 0) maintained = DEFAULT_MAINTAIN.slice();
-            renderFinancialsFromCache();
-            Router.replace();
-        });
+        document.getElementById('whatif-reset').addEventListener('click', resetWhatIf);
         document.getElementById('advanced-toggle').addEventListener('click', () => {
             const adv = document.getElementById('advanced-controls');
             adv.classList.toggle('visible');

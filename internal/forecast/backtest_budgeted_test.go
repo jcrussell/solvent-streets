@@ -25,7 +25,7 @@ type budgetedBacktest struct {
 }
 
 // TestBacktest_BudgetedFiveYears runs each city worst-first at its cited
-// budget for five years from its 2019 PCI, as the dashboard's "Your budget"
+// budget for five years from its 2019 PCI, as the dashboard's "Today's budget"
 // line would, and compares the result with the audited 2024 PCI
 // (docs/validation.md, "Budgeted backtest"). partialEfficiency is set by this
 // set at the cited LTPP decay rates, so the gate is in-sample: it catches a

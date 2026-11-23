@@ -83,18 +83,12 @@ test('the seeded area and cohorts reach the WASM bridge', async () => {
   assert.equal(sent.area, seedJSON.city_maintained_area,
     'the bridge did not receive the seeded city_maintained_area');
   assert.ok(sent.area > 0, 'the bridge simulated a network of zero area');
-  // By default the forecast maintains streets only.
+  // The forecast covers streets only.
   assert.deepEqual(
     Array.from(sent.cohorts ?? [], (c) => c.classification).sort(),
     roadClasses(seedJSON.city_cohorts),
     'the bridge did not receive the seeded city road cohorts');
 
-  // Maintaining everything sends every seeded cohort.
-  const all = await ready({ url: 'https://example.test/index.html?tab=financials-tab&maintain=roads,parking,sidewalks' });
-  assert.deepEqual(
-    Array.from(all.win.__simCalls.at(-1).cohorts ?? [], (c) => c.classification).sort(),
-    Array.from(seedJSON.city_cohorts ?? [], (c) => c.classification).sort(),
-    'the bridge did not receive the seeded city cohorts');
 });
 
 /** @param {Array<{classification: string}> | undefined} cohorts */
@@ -214,8 +208,8 @@ test('the custom scenario, not the baseline, has the last word on the tiles', as
   win.renderFinancialsFromCache();
   await flush();
 
-  const spend = win.document.getElementById('hl-total-spend');
-  assert.ok(spend, '#hl-total-spend missing from the template');
+  const spend = win.document.getElementById('wi-total-spend');
+  assert.ok(spend, '#wi-total-spend missing from the template');
   assert.equal(spend.textContent, win.PvmtCommon.fmtMoney(99_000_000),
     'headline tiles were not written by the custom scenario');
 });

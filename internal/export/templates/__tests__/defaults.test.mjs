@@ -89,7 +89,8 @@ test('Materials falls back to the page treatment cycle and oil factor for a seed
 });
 
 // The charts draw the scenarios the file describes, by the labels it gives
-// them: no list of scenario names lives in the page.
+// them: no list of scenario names lives in the page. Materials plots every
+// one; Financials only the do-nothing and full-funding bounds.
 test('Financials and Materials plot whatever scenarios the set describes', async () => {
   const scenarios = structuredClone(scenariosJSON);
   for (const scope of ['city', 'all']) {
@@ -105,13 +106,21 @@ test('Financials and Materials plot whatever scenarios the set describes', async
   assert.equal($$('#charts h3').length, 4, 'a renamed scenario set dropped Financials charts');
 
   const all = scenarios.city.map((s) => s.scenario.label);
+  // Financials draws the bounds only: the baseline (strategy do_nothing) and
+  // the full-funding run, picked out by their flags, whatever their names.
+  const bounds = scenarios.city
+    .filter((s) => s.scenario.strategy === 'do_nothing' || s.scenario.full_funding)
+    .map((s) => s.scenario.label);
+  assert.ok(bounds.length === 2 && bounds.length < all.length, 'fixture lacks partial funding levels');
+  // The interactive lines (today's budget, the what-if) are not reference runs.
+  const interactive = [win.eval('TODAY_LINE'), win.eval('WHATIF_LINE')];
   const pci = win.__charts.find((c) => c.options?.scales?.y?.max === 100);
-  assert.deepEqual(pci.data.datasets.map((d) => d.label), all);
-  // Cumulative Spending leaves the baseline (strategy do_nothing) out, whatever its name.
-  const spending = win.__charts.filter((c) => c.config.type === 'line')
-    .find((c) => c.data.datasets.length === all.length - 1);
+  assert.deepEqual(pci.data.datasets.map((d) => d.label).filter((l) => !interactive.includes(l)), bounds);
+  // Cumulative Spending leaves the baseline out.
+  const spending = win.__charts.filter((c) => c.config.type === 'line' && c !== pci)
+    .find((c) => !c.data.datasets.some((d) => d.label === bounds[0]));
   assert.ok(spending, 'no chart drew the funded scenarios without the baseline');
-  assert.deepEqual(spending.data.datasets.map((d) => d.label), all.slice(1));
+  assert.deepEqual(spending.data.datasets.map((d) => d.label).filter((l) => !interactive.includes(l)), bounds.slice(1));
 
   win.__charts.length = 0;
   win.selectTab('materials-tab');

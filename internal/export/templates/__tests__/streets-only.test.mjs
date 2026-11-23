@@ -1,7 +1,6 @@
-// What the interactive Financials forecast maintains:
-// streets only by default, the network the roads headline and the cited
-// "Today" budget describe; Advanced options can add parking lots and
-// sidewalks. Everything the slider drives follows the choice.
+// The Financials forecast covers streets only: the network the roads
+// headline and the cited "Today" budget describe. Parking lots and
+// sidewalks in the seed stay out of every figure the tab draws.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { load, defaultSimulate } from './harness.mjs';
@@ -43,11 +42,11 @@ test('the fixture seed has every resource type', () => {
     'the specs below need a seed with parking and sidewalk cohorts');
 });
 
-test('by default the forecast maintains streets only, and draws streets-only reference lines', async () => {
+test('the forecast covers streets only, and draws streets-only reference lines', async () => {
   const { win, $ } = await ready();
   assert.deepEqual(types(custom(win).cohorts), ['roads']);
   const hold = win.__simCalls.filter((c) => c.solvency && c.annual_budget === 0).at(-1);
-  assert.deepEqual(types(hold.cohorts), ['roads'], 'Hold steady must price the maintained network');
+  assert.deepEqual(types(hold.cohorts), ['roads'], 'Hold steady must price the streets');
 
   const ref = win.__simCalls.filter((c) => c.scenarios).at(-1);
   assert.ok(ref, 'streets-only needs re-simulated reference lines');
@@ -56,46 +55,17 @@ test('by default the forecast maintains streets only, and draws streets-only ref
   const pci = win.__charts.find((c) => c.data.datasets.some((d) => d.label === 'baseline'));
   assert.ok(pci, 'the charts did not draw the re-simulated reference set');
 
-  assert.equal(params(win).get('maintain'), null, 'the default needs no URL');
-  assert.equal($('#budget-share').textContent, '', 'the default network needs no note');
+  assert.equal($('#budget-share').textContent, '', 'the headline\'s streets need no note');
 });
 
-test('the checkboxes add parking and sidewalks, and the URL records it', async () => {
-  const { win, $, doc } = await ready();
-  const box = (t) => doc.querySelector(`#maintain-toggles input[data-type="${t}"]`);
-  assert.equal(box('roads').checked, true);
-  assert.equal(box('roads').disabled, true, 'the last maintained type must not be unchecked');
-  assert.equal(box('parking').checked, false);
-
-  box('parking').checked = true;
-  box('parking').dispatchEvent(new win.Event('change', { bubbles: true }));
-  assert.deepEqual(types(custom(win).cohorts), ['parking', 'roads']);
-  assert.equal(params(win).get('maintain'), 'roads,parking');
-  // The note names each maintained network by the page's short name for it.
-  const short = win.eval('MAINTAIN_SHORT');
-  const note = $('#budget-share').textContent;
-  assert.ok(note.includes(short.roads) && note.includes(short.parking), note);
-  assert.ok(!note.includes(short.sidewalks), note);
-  assert.ok(note.indexOf(short.roads) < note.indexOf(short.parking), 'the networks are not in layer order: ' + note);
-  assert.equal(box('roads').disabled, false);
-});
-
-test('maintaining everything uses the exported reference lines', async () => {
+// Links from before the forecast went streets-only can carry ?maintain=;
+// it no longer changes anything, and is not written back.
+test('an old ?maintain= link still forecasts streets only', async () => {
   const { win } = await ready('&maintain=roads,parking,sidewalks');
-  assert.deepEqual(types(custom(win).cohorts), ['parking', 'roads', 'sidewalks']);
-  assert.equal(win.__simCalls.filter((c) => c.scenarios).length, 0,
-    'scenarios.json already covers the whole network');
-});
-
-test('?maintain= naming nothing this city has falls back to streets', async () => {
-  const { win } = await ready('&maintain=bogus');
   assert.deepEqual(types(custom(win).cohorts), ['roads']);
-});
-
-test('the solvency headline stays streets-only whatever is maintained', async () => {
-  const { win } = await ready('&maintain=roads,parking,sidewalks');
   const headline = win.__simCalls.filter((c) => c.solvency && c.annual_budget > 0).at(-1);
   assert.deepEqual(types(headline.cohorts), ['roads']);
+  assert.equal(params(win).get('maintain'), null, 'the dropped parameter was written back');
 });
 
 // The page selects cohorts by the seed's resource_type,
@@ -125,15 +95,13 @@ test('a city that maintains no roads has no roads in its city view', async () =>
   const seed = structuredClone(seedJSON);
   seed.city_cohorts = seed.city_cohorts.filter((c) => c.resource_type !== 'roads');
   assert.ok(seed.city_cohorts.length > 0 && roadsOf(seed.cohorts).length > 0, 'fixture cannot build the case');
-  const { win, doc } = await ready('', { ...fullData, 'forecast_seed.json': seed });
+  const { win } = await ready('', { ...fullData, 'forecast_seed.json': seed });
 
   // Every jurisdiction's roads are not borrowed for the headline or the slider.
   assert.equal(headlineProbe(win), undefined, 'the roads headline was priced with no city-maintained roads');
   for (const call of win.__simCalls) {
     assert.ok(!types(call.cohorts).includes('roads'), 'a simulation priced roads the city does not maintain');
   }
-  assert.ok(!Array.from(doc.querySelectorAll('#maintain-toggles input')).some((i) => i.dataset.type === 'roads'),
-    'the maintain toggles offer roads the city does not maintain');
 });
 
 test('a city with no city-scope cohorts at all uses every jurisdiction\'s', async () => {
@@ -153,10 +121,9 @@ test('under ?scope=all the slider\'s hold-steady budget says it covers all juris
   // cited budget pays for, the slider the scope's.
   assert.deepEqual(Array.from(headlineProbe(win).cohorts), city);
   assert.deepEqual(Array.from(holdProbe(win).cohorts), all);
-  // The default network, but wider than the headline's: the note says so.
-  const wider = $('#budget-share').textContent;
-  assert.ok(wider.includes(win.eval('MAINTAIN_SHORT').roads), wider);
-  assert.ok(wider.length > win.eval('MAINTAIN_SHORT').roads.length + 4, 'the note does not mark the wider roads: ' + wider);
+  // Wider streets than the headline's: the slider carries a note, which the
+  // city scope does not (the next test).
+  assert.notEqual($('#budget-share').textContent, '', 'the slider does not mark the wider streets');
   assert.equal($('#budget-slider').getAttribute('aria-describedby'), 'budget-share');
 });
 

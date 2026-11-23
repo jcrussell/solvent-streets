@@ -130,7 +130,7 @@ not deterioration.
 ### Budgeted backtest
 
 Six cities in the table above cite a roads budget. Each is run worst-first at
-that budget for five years from its 2019 PCI, as the dashboard's "Your budget"
+that budget for five years from its 2019 PCI, as the dashboard's "Today's budget"
 line runs it, on its city-maintained road classes from the §1 compute
 (`internal/forecast/testdata/mtc_budgeted_backtest.json`, gated by
 `TestBacktest_BudgetedFiveYears`).

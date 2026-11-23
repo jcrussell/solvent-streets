@@ -28,9 +28,9 @@ behind.
 
 A city's streets are **solvent** when its street budget pays for their
 upkeep: it at least matches the hold-steady budget. Nothing happens to a
-city that isn't. Its streets just get worse each year it falls short, and
-the Financials headline says how far: what share of the upkeep the city
-funds, and where its streets' condition is headed at that rate.
+city that isn't. Its streets just get worse each year it falls short. The
+Financials headline says what share of the upkeep the city funds, and the
+tiles below it where its streets are headed at that rate.
 
 The **Solvency Score** puts that share on a scale of 0 to 100. A score of
 100 means the city spends enough to hold its streets steady; 50 means it

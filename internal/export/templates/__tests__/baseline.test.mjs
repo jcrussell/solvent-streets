@@ -40,7 +40,13 @@ test('Compare reads the baseline even when the set does not list it first', asyn
 test('Financials reads the same baseline from the same set', async () => {
   const h = load({ data: { ...fullData, 'scenarios.json': baselineLast() } });
   await h.flush();
-  assert.equal(h.$('#hl-total-deficit').textContent, h.win.PvmtCommon.fmtMoney(baseline.years.at(-1).deferred_backlog));
+  // The backlog chart's baseline line is the do-nothing run, wherever the
+  // set lists it.
+  const backlog = h.win.__charts.find((c) => c.data?.datasets?.some((d) => d.fill === true));
+  assert.ok(backlog, 'no backlog chart with a filled baseline');
+  const line = backlog.data.datasets.find((d) => d.fill === true);
+  assert.equal(line.label, baseline.scenario.label);
+  assert.deepEqual(Array.from(line.data), baseline.years.map((y) => y.deferred_backlog));
 });
 
 test('compare.json\'s stripped set is its only entry; a set with no baseline has none', async () => {

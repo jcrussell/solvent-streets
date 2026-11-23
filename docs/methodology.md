@@ -151,7 +151,7 @@ gives the derivation and the limits of that anchor.
 
 The Materials tab turns each forecast year's treatment into the asphalt it
 takes. It covers every asphalt surface, streets and parking lots alike,
-whatever the Financials tab is set to maintain. Each year `1/N` of that
+though the Financials tab covers streets only. Each year `1/N` of that
 area is treated (see the treatment cycle above); sidewalks are concrete,
 so their area is netted out rather than priced as hot-mix. The year's network-average PCI, rounded
 to the whole number the site shows, picks one treatment tier for all of it
@@ -188,12 +188,38 @@ condition](#how-spending-moves-condition)):
 A **do-nothing** baseline (no spend, uncontrolled decay) is shown
 alongside the funded runs for comparison.
 
+The Financials charts draw only the two bounds, the do-nothing baseline
+and Full Funding. Between them run the interactive lines:
+
+- **Today's budget** (solid) is the status quo: the city's cited budget,
+  worst-first. It is the run the headline describes.
+- **What-if** (dashed) appears once the budget slider or the Strategy
+  control moves off the status quo. The **What if?** heading above the
+  controls names what differs and offers **Back to today's budget**.
+
+The tab shows two sets of tiles: under the headline, the status quo's;
+beneath the controls, the controls' own run, which matches the status quo
+until something moves.
+
+Initial PCI, the cost multiplier and the cost tiers are assumptions about
+the city, not choices about its budget, so both lines and the headline
+follow them and moving them alone makes no what-if. A city with no cited
+budget has no status quo: its one interactive line is the what-if, at
+Hold steady until the slider moves. So is the all-jurisdictions scope,
+whose network is larger than the one the cited budget pays for.
+
+The 25% and 50% runs stay in the CLI's `pvmt forecast`, the exported
+`scenarios.json` and the Materials tab. The Annual Treatment Need chart
+shows the yearly need, by condition tier, of the run the tiles show.
+Until the in-browser simulator loads, it shows the do-nothing baseline's
+need instead.
+
 On the Financials tab these runs, the budget slider and its **Hold steady**
-mark cover the part of the network the forecast maintains: streets only by
-default, the same network as the solvency headline and the cited current
-budget. **Advanced options → Maintaining** adds parking lots and sidewalks.
+mark cover streets only, the same network as the solvency headline and the
+cited current budget. Parking lots and sidewalks have other owners and no
+cited budget, so the tab leaves them out.
 The comparison runs use the city's configured settings, so they stay put
-while Initial PCI and the cost multiplier move the "Your budget" line.
+while Initial PCI and the cost multiplier move the interactive lines.
 
 ### How spending moves condition
 
@@ -225,8 +251,8 @@ worst-first program at half its need recovers about 79% of a year's decay.
 That level is set by six Bay Area cities' audited condition five years after
 running at their cited budgets (validation, §2). Above need they are 0.8 and
 1.2. The Financials tab's **Strategy**
-control switches the "Your budget" line between them; the reference runs and
-the Hold steady mark are always worst-first. The 1.5× ratio between them is an
+control switches the What-if line between them; Today's budget, the
+reference runs and the Hold steady mark are always worst-first. The 1.5× ratio between them is an
 **illustrative calibration constant**
 chosen to reflect the direction and sign of the effect reported in
 **FHWA-HIF-12-042, *Pavement Preservation: Preserving our Investment*** —
@@ -335,10 +361,8 @@ The site reports two areas, and each keeps one name on every tab:
     denominator of every **per-acre** figure (in the current scope,
     city-maintained or all owners, shown beside each city), the year-1
     need, and the area totals and per-city table.
-  - **Financials** sums the resources under **Advanced options →
-    Maintaining**, streets only by default (see the Financials tab above).
-    Its **End Area** is that maintained area in the final year, after
-    growth.
+  - **Financials** sums streets only (see the Financials tab above). Its
+    **End Area** is that street area in the final year, after growth.
   - **The Map's** per-hex **Maintained area** coloring and the city's
     per-resident figures sum the layers toggled on (see
     [Color by](#color-by)).

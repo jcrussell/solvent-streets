@@ -483,6 +483,7 @@
         .solvency-headline .lead, .page-lead .lead { font-size: 20px; font-weight: 700; color: var(--text-strong); line-height: 1.4; }
         .solvency-headline .lead .num, .page-lead .lead .num { color: var(--accent); }
         .solvency-headline .detail, .page-lead .detail { font-size: 14px; color: var(--text-muted); margin-top: 8px; }
+        .solvency-headline a { color: var(--link); }
         .default-pci { color: var(--text-muted); cursor: help; }
         /* The default-PCI flag on a Compare score card (defaultPCIBadge):
            a quiet pill in the corner, clear of the centred medal. */
@@ -504,6 +505,17 @@
         .headline-card .label { font-size: 13px; color: var(--text-muted); margin-bottom: 4px; }
         .headline-card .value { font-size: 28px; font-weight: 700; color: var(--text-strong); }
         .headline-card .sub { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+        .headlines[hidden] { display: none; }
+        .financials-rule { border: none; border-top: 1px solid var(--border-strong); margin: 8px 0 24px; }
+        .whatif-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; margin-bottom: 12px; }
+        .whatif-head h2 { font-size: 20px; margin: 0; color: var(--text-strong); }
+        .whatif-head .whatif-what { font-size: 14px; color: var(--text-muted); flex: 1 1 240px; }
+        .whatif-head button {
+            height: var(--control-h, 30px); padding: 0 14px; border: 1px solid var(--border-strong); border-radius: 6px;
+            background: var(--panel); color: var(--text); font-size: 13px; cursor: pointer; white-space: nowrap;
+        }
+        .whatif-head button:hover { border-color: var(--accent); color: var(--accent); }
+        .whatif-head button[hidden] { display: none; }
         .chart-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(500px, 1fr)); gap: 24px; }
         .chart-card {
             background: var(--panel);
@@ -640,10 +652,6 @@
             padding-top: 16px;
         }
         .advanced-controls.visible { display: block; }
-        .maintain-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; margin-bottom: 12px; }
-        .maintain-row[hidden] { display: none; }
-        .maintain-label { font-size: 13px; font-weight: 600; color: var(--text-muted); }
-        .layer-toggle.maintain-toggles { display: flex; flex-wrap: wrap; gap: 0 16px; margin-top: 0; border-top: none; padding-top: 0; }
         .tier-row {
             display: grid;
             grid-template-columns: 1fr 80px 80px 100px;
@@ -1055,26 +1063,34 @@
     <div id="financials-tab" class="tab-content" data-city-scoped role="tabpanel" aria-labelledby="financials-tab-btn">
         <div class="financials">
             <div class="solvency-headline" id="solvency-headline" style="display:none"></div>
+            <div class="agg-note" id="financials-roads-note" hidden>Heads up: this tab covers streets and roads only. Parking lots and sidewalks are left out, since other owners maintain many of them and no city budget covers them.</div>
             <div class="headlines" id="headlines" style="display:none">
                 <div class="headline-card">
-                    <div class="label">Blended End PCI</div>
-                    <div class="value" id="hl-end-pci">—</div>
-                    <div class="sub">Area-weighted condition after forecast</div>
+                    <div class="label">Pavement Condition Index (PCI)</div>
+                    <div class="value"><span id="hl-start-pci">—</span> → <span id="hl-end-pci">—</span></div>
+                    <div class="sub" id="hl-pci-sub">Out of 100</div>
                 </div>
                 <div class="headline-card">
                     <div class="label" id="hl-spend-label">{{.ForecastDefaults.HorizonYears}}-Year Spend</div>
                     <div class="value" id="hl-total-spend">—</div>
-                    <div class="sub" id="hl-spend-sub">Spend that buys condition</div>
+                    <div class="sub" id="hl-spend-sub">Spent on repairs</div>
                 </div>
                 <div class="headline-card">
                     <div class="label" id="hl-deficit-label">{{.ForecastDefaults.HorizonYears}}-Year Deficit</div>
                     <div class="value" id="hl-total-deficit">—</div>
-                    <div class="sub">Accumulated unfunded need</div>
+                    <div class="sub">Repairs put off</div>
                 </div>
             </div>
 
+            <div class="whatif-section" id="whatif-section" hidden>
+                <hr class="financials-rule">
+                <div class="whatif-head">
+                    <h2>What if?</h2>
+                    <span class="whatif-what" id="whatif-what" role="status"></span>
+                    <button type="button" id="whatif-reset" hidden>Back to today’s budget</button>
+                </div>
+            </div>
             <div class="forecast-controls" id="forecast-controls">
-                <h3>Interactive Forecast</h3>
                 <div class="controls-grid">
                     <div class="control-group budget-group">
                         <div class="budget-head">
@@ -1105,10 +1121,6 @@
                 </div>
                 <button class="advanced-toggle" id="advanced-toggle">Advanced options</button>
                 <div class="advanced-controls" id="advanced-controls">
-                    <div class="maintain-row" id="maintain-row" hidden>
-                        <span class="maintain-label" title="The parts of the network the interactive forecast maintains: the budget, Hold steady, the charts and the breakdown all cover these. The headline above is always streets only.">Maintaining</span>
-                        <div class="layer-toggle maintain-toggles" id="maintain-toggles"></div>
-                    </div>
                     <div class="tier-row header">
                         <span>Tier</span>
                         <span>Min PCI</span>
@@ -1117,6 +1129,24 @@
                     </div>
                     <div id="tier-inputs"></div>
                     <div id="tier-errors" class="tier-errors" role="alert" hidden></div>
+                </div>
+            </div>
+
+            <div class="headlines" id="wi-tiles" hidden>
+                <div class="headline-card">
+                    <div class="label">Pavement Condition Index (PCI)</div>
+                    <div class="value"><span id="wi-start-pci">—</span> → <span id="wi-end-pci">—</span></div>
+                    <div class="sub" id="wi-pci-sub">Out of 100</div>
+                </div>
+                <div class="headline-card">
+                    <div class="label" id="wi-spend-label">{{.ForecastDefaults.HorizonYears}}-Year Spend</div>
+                    <div class="value" id="wi-total-spend">—</div>
+                    <div class="sub" id="wi-spend-sub">Spent on repairs</div>
+                </div>
+                <div class="headline-card">
+                    <div class="label" id="wi-deficit-label">{{.ForecastDefaults.HorizonYears}}-Year Deficit</div>
+                    <div class="value" id="wi-total-deficit">—</div>
+                    <div class="sub">Repairs put off</div>
                 </div>
             </div>
 

@@ -45,8 +45,10 @@ test('Financials: the deficit tile is read at the year its label names', async (
   const { win, $ } = await financials({ ...readFixture('forecast_seed.json'), horizon_years: 12 });
   assert.match($('#hl-deficit-label').textContent, namesNumber(12));
   assert.match($('#hl-spend-label').textContent, namesNumber(12));
+  win.fillTiles('hl', { years: baselineYears }, 0, 80);
   assert.equal($('#hl-total-deficit').textContent, win.PvmtCommon.fmtMoney(baselineYears[11].deferred_backlog));
   assert.equal($('#hl-end-pci').textContent, baselineYears[11].pci.toFixed(0));
+  assert.equal($('#hl-start-pci').textContent, '80', 'the tile does not start at the run\'s Initial PCI');
 });
 
 test('Financials: a seed without horizon_years is labelled with the series length', async () => {
@@ -55,6 +57,7 @@ test('Financials: a seed without horizon_years is labelled with the series lengt
   const { win, $ } = await financials(seed);
   assert.match($('#hl-deficit-label').textContent, namesNumber(HORIZON));
   assert.match($('#cohort-deficit-th').textContent, namesNumber(HORIZON));
+  win.fillTiles('hl', { years: baselineYears }, 0, 80);
   assert.equal($('#hl-total-deficit').textContent, win.PvmtCommon.fmtMoney(baselineYears[HORIZON - 1].deferred_backlog));
 });
 

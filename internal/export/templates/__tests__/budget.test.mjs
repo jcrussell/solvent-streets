@@ -115,18 +115,13 @@ test('the solvency headline follows the cost multiplier', async () => {
   // It leads with the share of the hold-steady budget today's funds: $20M of $30M.
   assert.equal(win.fundedShareText(TODAY, HOLD), '66%');
   assert.equal(doc.querySelector('#solvency-headline .lead .num').textContent, '66%', 'the headline leads with the share funded');
-  // The detail gives the condition path at today's budget, from the live run
-  // to the forecast's last year.
-  const live = win.eval('liveSolvency');
-  const lastYear = win.forecastYearOne() + win.financialsHorizon() - 1;
-  assert.ok(Math.round(live.end_pci) < Math.round(live.start_pci), 'fixture: the default run decays');
-  const path = doc.createElement('div');
-  path.innerHTML = win.conditionPathText(live.start_pci, live.end_pci, lastYear);
-  assert.ok(doc.querySelector('#solvency-headline .detail').textContent.includes(path.textContent),
-    'the headline does not give the condition path at today\'s budget');
-  for (const n of [Math.round(live.start_pci), Math.round(live.end_pci), lastYear]) {
-    assert.match(path.textContent, new RegExp('\\b' + n + '\\b'));
-  }
+  // The headline leaves the condition path to the first tile, which runs
+  // from Initial PCI to the PCI of the run the tiles show, at the horizon.
+  const tile = (id) => Number(doc.getElementById(id).textContent);
+  assert.equal(tile('hl-start-pci'), Number(win.inputById('pci-slider').value));
+  assert.ok(tile('hl-end-pci') < tile('hl-start-pci'), 'fixture: the default run decays');
+  assert.match(doc.getElementById('hl-pci-sub').textContent,
+    new RegExp('\\b' + (win.forecastYearOne() + win.financialsHorizon() - 1) + '\\b'));
 
   drag(win, '#multiplier-slider', '2');
   assert.match(headline(), /\$60\.0M/, 'the headline ignored the multiplier');
@@ -145,22 +140,19 @@ test('the solvency headline follows the cost multiplier', async () => {
 });
 
 // detailFigures are the figures the headline's detail line sets apart: the
-// PCI the condition path ends at, and the year the backlog passes a full cycle.
+// year the repairs put off add up to a full cycle of upkeep.
 const detailFigures = (doc) => Array.from(doc.querySelectorAll('#solvency-headline .detail .num'), (n) => n.textContent);
 
-// The three ways condition can go read differently and carry whole numbers.
-test('conditionPathText: slipping, improving and holding', async () => {
-  const { win } = await ready();
-  const text = (a, b) => { const d = win.document.createElement('div'); d.innerHTML = win.conditionPathText(a, b, 2049); return d; };
-  const slip = text(70.4, 55.6), up = text(55.6, 70.4), hold = text(70.4, 69.6);
-  assert.equal(slip.querySelector('.num').textContent, '56');
-  assert.equal(up.querySelector('.num').textContent, '70');
-  assert.equal(hold.querySelector('.num'), null, 'a held condition has no end figure to set apart');
-  for (const t of [slip, up, hold]) assert.match(t.textContent, /\b2049\b/);
-  assert.match(slip.textContent, /\b70\b/);
-  assert.match(hold.textContent, /\b70\b/);
-  const frames = [slip, up, hold].map((t) => t.textContent.replace(/\d+/g, '#'));
-  assert.equal(new Set(frames).size, 3, 'two paths read alike: ' + frames.join(' | '));
+// The tipping point links to its definition on the About tab, and following
+// the link opens that tab at that heading.
+test('the tipping point links to the About tab', async () => {
+  const { doc } = await ready();
+  const link = doc.querySelector('#solvency-headline a[data-about-link]');
+  assert.ok(link, 'the fixture crosses within the forecast, yet no link');
+  const id = link.getAttribute('href').slice(1);
+  assert.ok(doc.querySelector('#about-tab #' + id), 'the link names no heading on the About tab: ' + id);
+  link.click();
+  assert.ok(doc.getElementById('about-tab').classList.contains('active'), 'the link did not open the About tab');
 });
 
 // The share funded rounds down under 100%, so a city short of need never

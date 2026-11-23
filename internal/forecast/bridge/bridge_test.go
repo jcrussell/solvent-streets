@@ -519,7 +519,7 @@ func TestRun_Scenarios(t *testing.T) {
 
 // A cohort's resource_type sets its price: a sidewalk cohort sent with the
 // seed's resource_type costs SidewalkCostRatio of the same cohort sent bare
-// (priced at the road tiers), so "Your budget" and the reference lines agree
+// (priced at the road tiers), so the interactive lines and the reference lines agree
 // with forecast.json's sidewalks entry.
 func TestRun_SidewalkCohortsPricedAtTheSidewalkRate(t *testing.T) {
 	run := func(resourceType string) float64 {

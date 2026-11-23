@@ -118,10 +118,10 @@ func TestStaticMarkupFollowsForecastDefaults(t *testing.T) {
 		play  []string
 	}{
 		{"go defaults", plain,
-			[]string{`id="hl-spend-label">30-Year Spend<`, `id="cohort-deficit-th">30yr Deficit<`, `id="compare-need-title">Year 1 vs Year 30 Maintenance Need<`, `id="pci-slider" min="50" max="100" value="85"`, `aria-valuenow="85"`, `id="pci-value">85<`},
+			[]string{`id="hl-spend-label">30-Year Spend`, `id="cohort-deficit-th">30yr Deficit<`, `id="compare-need-title">Year 1 vs Year 30 Maintenance Need<`, `id="pci-slider" min="50" max="100" value="85"`, `aria-valuenow="85"`, `id="pci-value">85<`},
 			[]string{`data-horizon="20">20y<`, `data-horizon="30">30y<`, `data-horizon="50">50y<`, `data-horizon="endless"`}},
 		{"seeded", seeded,
-			[]string{`id="hl-spend-label">25-Year Spend<`, `id="cohort-spend-th">25yr Spend<`, `id="compare-cost-title">25-Year Cost Trajectory<`, `id="pci-slider" min="50" max="100" value="62"`, `id="pci-value">62<`},
+			[]string{`id="hl-spend-label">25-Year Spend`, `id="cohort-spend-th">25yr Spend<`, `id="compare-cost-title">25-Year Cost Trajectory<`, `id="pci-slider" min="50" max="100" value="62"`, `id="pci-value">62<`},
 			[]string{`data-horizon="20">20y<`, `data-horizon="25">25y<`, `data-horizon="30">30y<`, `data-horizon="50">50y<`}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
