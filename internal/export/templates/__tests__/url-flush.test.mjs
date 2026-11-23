@@ -8,7 +8,7 @@ import { load } from './harness.mjs';
 import { fullData } from './fixtures.mjs';
 
 async function ready() {
-  const h = load({ data: fullData, url: 'https://example.test/index.html?tab=financials-tab' });
+  const h = load({ data: fullData, url: 'https://example.test/index.html?tab=financials' });
   await h.flush();
   h.win.onWasmReady();
   await h.flush();

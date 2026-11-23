@@ -31,7 +31,7 @@ test('a deep-linked city is restored on load', async () => {
 test('a deep-linked tab is restored on load', async () => {
   const { $, flush } = load({
     data: fullData,
-    url: 'https://example.test/index.html?tab=financials-tab',
+    url: 'https://example.test/index.html?tab=financials',
   });
   await flush();
 
@@ -376,7 +376,7 @@ test('a tab switch that reveals the scope row keeps the previous history entry',
   // cities have both: the row stays hidden on the Map tab, the scope in view
   // is 'all', and the Aggregate tab shows the row.
   const data = { 'cities/beta-ca/data/scenarios.json': { all: scenariosJSON.all }, ...fullData };
-  const { win, doc, get, flush } = load({ data, url: 'https://example.test/index.html?city=beta-ca&tab=map-tab' });
+  const { win, doc, get, flush } = load({ data, url: 'https://example.test/index.html?city=beta-ca&tab=map' });
   await flush();
   assert.equal(doc.getElementById('gear-scope-row').hidden, true, 'the row must start hidden');
   assert.equal(get('currentScope'), 'all');
@@ -387,10 +387,18 @@ test('a tab switch that reveals the scope row keeps the previous history entry',
   await flush();
   assert.equal(doc.getElementById('gear-scope-row').hidden, false, 'the tab switch did not reveal the row');
   assert.equal(win.history.length, before + 1, 'want one new history entry');
-  assert.equal(params(win).get('tab'), 'aggregate-tab');
+  assert.equal(params(win).get('tab'), 'aggregate');
   assert.equal(params(win).get('scope'), 'all');
 
   win.history.back();
   await flush();
-  assert.equal(params(win).get('tab'), 'map-tab', 'Back did not return to the Map tab');
+  assert.equal(params(win).get('tab'), 'map', 'Back did not return to the Map tab');
+});
+
+// ?tab= carries the tab's short name.
+test('?tab= is the short tab name', async () => {
+  const h = load({ data: fullData, url: 'https://example.test/index.html?tab=materials' });
+  await h.flush();
+  assert.ok(h.$('#materials-tab').classList.contains('active'), '?tab=materials did not open Materials');
+  assert.equal(new URLSearchParams(h.win.location.search).get('tab'), 'materials');
 });

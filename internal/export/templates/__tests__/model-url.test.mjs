@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { load } from './harness.mjs';
 import { fullData, seedJSON } from './fixtures.mjs';
 
-const BASE = 'https://example.test/index.html?tab=financials-tab';
+const BASE = 'https://example.test/index.html?tab=financials';
 
 async function ready(query = '') {
   const h = load({ data: fullData, url: BASE + query });
@@ -118,7 +118,7 @@ test('the settings are written on the Financials tab only', async () => {
 });
 
 test('settings linked on another tab are not applied, as that tab never writes them', async () => {
-  const h = load({ data: fullData, url: 'https://example.test/index.html?tab=map-tab&pci=' + PCI + '&cost=' + COST + '&budget=1000' });
+  const h = load({ data: fullData, url: 'https://example.test/index.html?tab=map&pci=' + PCI + '&cost=' + COST + '&budget=1000' });
   await h.flush();
   h.win.onWasmReady();
   await h.flush();
@@ -200,7 +200,7 @@ test('Back through a non-Financials entry keeps the model settings and budget', 
   win.selectTab('about-tab');
   win.history.back();
   await flush();
-  assert.equal(params(win).get('tab'), 'map-tab');
+  assert.equal(params(win).get('tab'), 'map');
   win.selectTab('financials-tab');
   await flush();
   for (const k of [...MODEL_KEYS, 'budget']) {
@@ -255,6 +255,6 @@ test('a tab switch mid-drag keeps the dragged value on the entry it leaves', asy
   assert.equal(params(win).get('pci'), null, 'the Map entry carries a Financials setting');
   win.history.back();
   await flush();
-  assert.equal(params(win).get('tab'), 'financials-tab');
+  assert.equal(params(win).get('tab'), 'financials');
   assert.equal(params(win).get('pci'), String(PCI), 'the Financials entry lost the dragged PCI');
 });

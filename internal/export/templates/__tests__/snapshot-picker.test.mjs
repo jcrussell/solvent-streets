@@ -114,7 +114,7 @@ test('back across a snapshot change keeps the entry\'s Color-by', async () => {
     values: { 'hex:0:0': 50 },
   };
   const data = { ...fullData, snapshots, 'hex-metrics.json': { v: 2, metrics: { population } } };
-  const { win, get, flush, fireMap } = load({ page: 'index-live', data, url: 'https://example.test/index-live.html?tab=map-tab' });
+  const { win, get, flush, fireMap } = load({ page: 'index-live', data, url: 'https://example.test/index-live.html?tab=map' });
   await flush();
   fireMap('load');
   await flush();

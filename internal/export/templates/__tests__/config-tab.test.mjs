@@ -19,7 +19,7 @@ test('the Config tab shows the city in view and switches with the city select', 
   const beta = { ...metaJSON, name: 'Beta, CA', settings_toml: '[[cities]]\n  name = "Beta, CA"\n' };
   // Key order matters: the fetch stub takes the first key the path ends with.
   const data = { 'beta-ca/data/meta.json': beta, ...fullData };
-  const { win, $, $$, flush } = load({ data, url: 'https://example.test/index.html?city=alpha-ca&tab=config-tab' });
+  const { win, $, $$, flush } = load({ data, url: 'https://example.test/index.html?city=alpha-ca&tab=config' });
   await flush();
   await win.loadCityData();
   await flush();
@@ -36,7 +36,7 @@ test('the Config tab shows the city in view and switches with the city select', 
 
 test('a city whose meta.json fails to load keeps nothing of the previous city', async () => {
   const data = { ...fullData };
-  const { win, $, flush, fireMap } = load({ data, url: 'https://example.test/index.html?city=alpha-ca&tab=config-tab' });
+  const { win, $, flush, fireMap } = load({ data, url: 'https://example.test/index.html?city=alpha-ca&tab=config' });
   fireMap('style.load'); await flush(10);
   const before = $('#config-city-toml').textContent;
   assert.notEqual($('#stats').innerHTML, '');

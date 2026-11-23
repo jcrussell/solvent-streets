@@ -155,7 +155,7 @@ test('the backlog-cycle board shows no silver under an unmedalled leader', async
 // re-render it, and a units round trip must not change it.
 test('Compare follows the scope toggle, and a units round trip leaves it unchanged', async () => {
   const { win, $, flush } = load({ data: { ...fullData, 'compare.json': readFixture('compare.json') },
-    url: 'https://example.test/index.html?tab=compare-tab' });
+    url: 'https://example.test/index.html?tab=compare' });
   await flush(12);
   const text = () => $('#compare-tab').textContent.replace(/\s+/g, ' ');
   const city = text();
@@ -170,7 +170,7 @@ test('Compare follows the scope toggle, and a units round trip leaves it unchang
 
 test('back to an entry in another scope re-renders Compare in that scope', async () => {
   const { win, $, flush } = load({ data: { ...fullData, 'compare.json': readFixture('compare.json') },
-    url: 'https://example.test/index.html?city=alpha-ca&tab=compare-tab' });
+    url: 'https://example.test/index.html?city=alpha-ca&tab=compare' });
   await flush(12);
   const text = () => $('#compare-tab').textContent.replace(/\s+/g, ' ');
   const city = text();

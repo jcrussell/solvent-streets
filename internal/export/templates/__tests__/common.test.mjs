@@ -250,7 +250,7 @@ test('the dashboard fetches pvmt.wasm after the map draws or a forecast tab open
 
   // A deep link straight to a forecast tab boots it on first load, without
   // waiting for the map.
-  for (const tab of ['financials-tab', 'materials-tab', 'compare-tab', 'aggregate-tab']) {
+  for (const tab of ['financials', 'materials', 'compare', 'aggregate']) {
     const deep = load({ data: fullData, goRuntime: true, wasm: true, url: 'https://example.test/index.html?tab=' + tab });
     await deep.flush();
     assert.equal(deep.get('wasmReady'), true, 'a ?tab=' + tab + ' deep link did not boot the simulator');

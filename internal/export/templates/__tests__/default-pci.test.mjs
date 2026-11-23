@@ -61,13 +61,13 @@ test('Compare marks only the cities whose PCI is assumed, and explains the mark'
 
 test('the Financials headline names an assumed PCI', async () => {
   const assumed = forecastJSON.map((f) => (f.resource_type === 'roads' ? { ...f, initial_pci_source: 'default' } : f));
-  const h = await ready(assumed, 'https://example.test/index.html?tab=financials-tab');
+  const h = await ready(assumed, 'https://example.test/index.html?tab=financials');
   h.win.renderSolvencyHeadline();
   const detail = h.$('#solvency-headline .default-pci-detail');
   assert.ok(detail, 'the headline does not flag the assumed PCI');
   assert.ok(detail.textContent.includes('(' + seedJSON.initial_pci + ')'), 'the assumed PCI is not named: ' + detail.textContent);
 
-  const cited = await ready(forecastJSON, 'https://example.test/index.html?tab=financials-tab');
+  const cited = await ready(forecastJSON, 'https://example.test/index.html?tab=financials');
   cited.win.renderSolvencyHeadline();
   assert.ok(cited.$('#solvency-headline .lead'), 'the cited city has no headline');
   assert.equal(cited.$('#solvency-headline .default-pci-detail'), null, 'a cited PCI is flagged as assumed');
@@ -80,7 +80,7 @@ test('the Financials headline says when a city funds its streets\' upkeep in ful
     delete rest.tipping_point_year;
     return rest;
   });
-  const h = await ready(solvent, 'https://example.test/index.html?tab=financials-tab');
+  const h = await ready(solvent, 'https://example.test/index.html?tab=financials');
   h.win.eval('liveSolvency = null');
   h.win.renderSolvencyHeadline();
   // Fully funded: the lead quotes no share, and the detail sets the budget
@@ -99,7 +99,7 @@ test('the Financials headline says when a city funds its streets\' upkeep in ful
   // the year its backlog passes a full cycle.
   const short = solvent.map((f) => (f.resource_type === 'roads'
     ? { ...f, current_budget: f.break_even_budget / 2, tipping_point_year: 9 } : f));
-  const s = await ready(short, 'https://example.test/index.html?tab=financials-tab');
+  const s = await ready(short, 'https://example.test/index.html?tab=financials');
   s.win.eval('liveSolvency = null');
   s.win.renderSolvencyHeadline();
   assert.equal(s.$('#solvency-headline .lead .num').textContent, '50%');

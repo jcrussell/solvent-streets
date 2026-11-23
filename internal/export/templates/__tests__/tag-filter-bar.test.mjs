@@ -39,7 +39,7 @@ test('the filters are in the top bar beside the city selector, not the gear menu
 });
 
 test('a filter narrows the city selector and the Compare tiles, and reaches the URL', async () => {
-  const h = load({ data: fullData, url: 'https://example.test/index.html?tab=compare-tab' });
+  const h = load({ data: fullData, url: 'https://example.test/index.html?tab=compare' });
   await h.flush(12);
   assert.equal(h.$$('#solvency-cards .score-card').length, 3);
   assert.equal(h.$('#compare-tab .filter-status').hidden, true, 'the status line shows with no filter set');
@@ -66,7 +66,7 @@ test('a filter narrows the city selector and the Compare tiles, and reaches the 
 });
 
 test('Clear on the status line drops every filter', async () => {
-  const h = load({ data: fullData, url: 'https://example.test/index.html?tab=compare-tab&tag=group:Metro&tag=state:CA' });
+  const h = load({ data: fullData, url: 'https://example.test/index.html?tab=compare&tag=group:Metro&tag=state:CA' });
   await h.flush(12);
   const status = h.$('#compare-tab .filter-status');
   assert.match(status.querySelector('.filter-status-text').textContent, count(3));

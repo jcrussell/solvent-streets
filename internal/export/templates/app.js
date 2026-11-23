@@ -56,12 +56,19 @@
         // a {dimension: configTag} map in state and repeated ?tag=dim:value
         // params in the URL (PvmtSelectors.parseTags/urlTags); it serializes on
         // every tab because the filters narrow the city selector everywhere.
+        // tabIdFromParam turns a ?tab= value into the tab's element id.
+        /** @param {string | null} v @returns {string | null} */
+        function tabIdFromParam(v) {
+            return v ? v + '-tab' : null;
+        }
         const Router = {
             read() {
                 const p = new URLSearchParams(location.search);
                 return {
                     city:     p.get('city'),
-                    tab:      p.get('tab'),
+                    // ?tab= names the tab without the element id's -tab
+                    // suffix (?tab=materials).
+                    tab:      tabIdFromParam(p.get('tab')),
                     tags:     PvmtSelectors.parseTags(p, TAG_DIMS),
                     scope:    p.get('scope'),
                     snapshot: p.get('snapshot'),
@@ -121,7 +128,7 @@
             url(s) {
                 const p = new URLSearchParams();
                 for (const k of ['city', 'tab', 'scope', 'snapshot', 'metric', 'budget', 'strategy', 'pci', 'cost', 'tiers', 'top']) {
-                    if (s[k]) p.set(k, s[k]);
+                    if (s[k]) p.set(k, k === 'tab' ? String(s[k]).replace(/-tab$/, '') : s[k]);
                 }
                 PvmtSelectors.urlTags(s.tags, TAG_DIMS).forEach(t => p.append('tag', t));
                 const qs = p.toString();
@@ -319,7 +326,7 @@
         let liveSolvency = null;
 
         // Compare/Aggregate tab state. These MUST be initialized above the
-        // applyInitialState IIFE: for a deep link (?tab=aggregate-tab/compare-tab)
+        // applyInitialState IIFE: for a deep link (?tab=aggregate/compare)
         // the IIFE synchronously calls loadAggregateData()/loadCompareData(), which
         // set the *Loaded guards and create allCityDataPromise. If their `var ... =`
         // initializers stayed further down in the script, evaluation would re-run
@@ -349,7 +356,7 @@
         var compareCharts = [];
         var aggregateCharts = [];
         // Materials tab chart handles + stale-load guard. Declared here (like the
-        // compare/aggregate arrays above) so a boot-time deep link ?tab=materials-tab
+        // compare/aggregate arrays above) so a boot-time deep link ?tab=materials
         // — which calls loadMaterials() from the applyInitialState IIFE below,
         // before the Materials function block executes — sees an initialized
         // generation counter rather than a hoisted-undefined `var` (++undefined is
@@ -456,7 +463,7 @@
                 // while the dropdown names another (and replaceState records the truth).
                 if (sel && sel.value) DATA_PREFIX = 'cities/' + sel.value + '/';
             }
-            // Only a tab's own id counts: ?tab=map names an element, not a tab.
+            // Only a tab counts: a ?tab= naming any other element is ignored.
             const initTabBtn = tabButton(init.tab);
             const initTab = document.getElementById(init.tab);
             if (initTabBtn && initTab && initTab.classList.contains('tab-content')) {

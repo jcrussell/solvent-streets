@@ -27,7 +27,7 @@ function refSim(input) {
 }
 
 async function ready(url, data = fullData) {
-  const h = load({ data, simulate: refSim, url: 'https://example.test/index.html?tab=financials-tab' + (url || '') });
+  const h = load({ data, simulate: refSim, url: 'https://example.test/index.html?tab=financials' + (url || '') });
   await h.flush();
   h.win.onWasmReady();
   await h.flush();

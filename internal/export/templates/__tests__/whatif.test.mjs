@@ -31,7 +31,7 @@ const pciOf = (budget, strategy = 'worst_first', initial = SEED_PCI) =>
   40 + budget / 1e6 + (strategy === 'preventive_first' ? 1 : 0) + (initial - SEED_PCI);
 
 async function ready(opts = {}) {
-  const h = load({ data: fullData, simulate: sim, url: 'https://example.test/index.html?tab=financials-tab', ...opts });
+  const h = load({ data: fullData, simulate: sim, url: 'https://example.test/index.html?tab=financials', ...opts });
   await h.flush();
   h.win.onWasmReady();
   await h.flush();

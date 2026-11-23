@@ -101,7 +101,7 @@ test('the dollar budget stays put when Initial PCI or the multiplier move', asyn
 });
 
 test('?budget= seeds the slider and a drag writes it back', async () => {
-  const { win } = await ready({ url: 'https://example.test/index.html?tab=financials-tab&budget=7500000' });
+  const { win } = await ready({ url: 'https://example.test/index.html?tab=financials&budget=7500000' });
   assert.equal(lastScenario(win).annual_budget, 7_500_000);
 
   drag(win, '#budget-slider', budgetAt(9_000_000));
@@ -198,7 +198,7 @@ test('dragging to the top of the range does not grow it', async () => {
 });
 
 test('a ?budget= beyond the range widens it to fit', async () => {
-  const { win, $ } = await ready({ url: 'https://example.test/index.html?tab=financials-tab&budget=200000000' });
+  const { win, $ } = await ready({ url: 'https://example.test/index.html?tab=financials&budget=200000000' });
   assert.equal(lastScenario(win).annual_budget, 200_000_000);
   assert.ok(parseFloat($('#budget-slider').max) >= parseFloat(budgetAt(200_000_000)), 'the thumb cannot show the linked budget');
   assert.equal(parseFloat($('#budget-slider').max) % 250, 0, 'the range grows in whole notches');
@@ -210,7 +210,7 @@ test('a ?budget= beyond the range widens it to fit', async () => {
 // millions of DOM nodes and freeze the tab.
 test('a huge ?budget= is clamped and the slider keeps a bounded number of notches', async () => {
   for (const linked of ['1e15', '1e300', '900000000']) {
-    const { win, $$ } = await ready({ url: 'https://example.test/index.html?tab=financials-tab&budget=' + linked });
+    const { win, $$ } = await ready({ url: 'https://example.test/index.html?tab=financials&budget=' + linked });
     assert.equal(lastScenario(win).annual_budget, 10 * HOLD, 'budget=' + linked + ' was not clamped');
     const notches = $$('#budget-scale .budget-notch').length;
     assert.ok(notches <= 41, 'budget=' + linked + ': ' + notches + ' notches');
@@ -219,19 +219,19 @@ test('a huge ?budget= is clamped and the slider keeps a bounded number of notche
 });
 
 test('a budget at the clamp is kept as linked', async () => {
-  const { win } = await ready({ url: 'https://example.test/index.html?tab=financials-tab&budget=' + (10 * HOLD) });
+  const { win } = await ready({ url: 'https://example.test/index.html?tab=financials&budget=' + (10 * HOLD) });
   assert.equal(lastScenario(win).annual_budget, 10 * HOLD);
 });
 
 // The boot replaceState ran before the budget was
 // applied and stripped ?budget= from the address bar.
 test('a linked ?budget= stays in the address bar', async () => {
-  const { win } = await ready({ url: 'https://example.test/index.html?tab=financials-tab&budget=7500000' });
+  const { win } = await ready({ url: 'https://example.test/index.html?tab=financials&budget=7500000' });
   assert.equal(params(win).get('budget'), '7500000');
 });
 
 test('a city switch drops the previous city\'s budget from the URL', async () => {
-  const { win, flush } = await ready({ url: 'https://example.test/index.html?tab=financials-tab' });
+  const { win, flush } = await ready({ url: 'https://example.test/index.html?tab=financials' });
   drag(win, '#budget-slider', budgetAt(9_000_000));
   assert.equal(params(win).get('budget'), '9000000');
 
@@ -245,7 +245,7 @@ test('a city switch drops the previous city\'s budget from the URL', async () =>
 });
 
 test('back/forward restores the budget of the history entry', async () => {
-  const { win, flush } = await ready({ url: 'https://example.test/index.html?tab=financials-tab' });
+  const { win, flush } = await ready({ url: 'https://example.test/index.html?tab=financials' });
   drag(win, '#budget-slider', budgetAt(9_000_000));
   const city = params(win).get('city');
   win.dispatchEvent(new win.PopStateEvent('popstate', {
@@ -270,7 +270,7 @@ test('a drag close to Today or Hold steady lands on it exactly', async () => {
 });
 
 test('a range grown past 150% labels the ends and 100% without crowding', async () => {
-  const { win } = await ready({ url: 'https://example.test/index.html?tab=financials-tab&budget=100000000' });
+  const { win } = await ready({ url: 'https://example.test/index.html?tab=financials&budget=100000000' });
   const labels = Array.from(win.document.querySelectorAll('.budget-notch:not(.quiet)'), (n) => n.textContent);
   assert.equal(labels[0], '0%');
   assert.ok(win.document.querySelector('.budget-notch.hold:not(.quiet)'), '100% must keep its notch');
